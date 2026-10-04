@@ -308,7 +308,7 @@ export async function buildCardData({ row, ticker, info, iv, days, fx, log }) {
 }
 export function pickRow(uni, ticker, info) {
   const alias = info.alias[ticker] || ticker;
-  return uni.find((r) => r.short === alias && r.dex === "xyz") || uni.find((r) => r.short === alias) || null;
+  return uni.find((r) => r.short === alias && r.dex === "xyz") || uni.find((r) => r.short === alias) || (/^[A-Z0-9]{2,8}$/.test(ticker) ? { full: ticker, short: ticker, dex: "코인" } : null);
 }
 /* 카드 이미지 렌더(site/card.html) */
 export async function renderCard(page, base, data) {
