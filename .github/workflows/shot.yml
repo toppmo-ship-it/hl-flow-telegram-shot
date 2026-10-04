@@ -18,6 +18,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: write      # 다음 실행을 스스로 이어 걸기 위해
 
 jobs:
   shot:
@@ -54,3 +55,20 @@ jobs:
           SHOT_DRY: ${{ github.event.inputs.dry }}
           SHOT_OVERRIDES: ${{ github.event.inputs.overrides }}
         run: node shot.mjs
+
+  # GitHub 스케줄(cron)이 새 저장소에서 뜸하게 도는 문제를 막기 위한 이어달리기:
+  # 이번 실행이 끝나면 다음 5분 경계까지 기다렸다가 같은 워크플로를 한 번 더 시작한다. (시험용 dry 실행은 이어가지 않음)
+  next:
+    needs: shot
+    if: ${{ always() && github.event.inputs.dry != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 다음 5분 경계까지 대기 후 재실행
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          now=$(date +%s); next=$(( (now / 300 + 1) * 300 )); wait=$(( next - now ))
+          [ "$wait" -lt 20 ] && wait=$(( wait + 300 ))
+          echo "대기 ${wait}초 후 다시 시작"; sleep "$wait"
+          gh workflow run shot.yml --repo "${{ github.repository }}" --ref "${{ github.ref_name }}"
