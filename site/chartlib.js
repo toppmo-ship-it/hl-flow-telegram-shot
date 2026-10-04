@@ -239,6 +239,22 @@ class NightBand {
     c.restore();
   }
 }
+/* RSI 과매수(위)·과매도(아래) 구간 노란 음영 */
+class RsiZones {
+  constructor(ob, os) { this.ob = ob; this.os = os; this.series = null; this.req = null; }
+  attached(p) { this.series = p.series; this.req = p.requestUpdate; }
+  detached() {}
+  updateAllViews() {}
+  paneViews() { const self = this; return [{ zOrder: () => "bottom", renderer: () => ({ draw: (t) => t.useMediaCoordinateSpace((s) => self.draw(s)) }) }]; }
+  draw({ context: c, mediaSize }) {
+    if (!this.series) return;
+    const Y = (v) => this.series.priceToCoordinate(v), yOb = Y(this.ob), yOs = Y(this.os), y100 = Y(100), y0 = Y(0);
+    c.save();
+    if (yOb != null && y100 != null) { const g = c.createLinearGradient(0, y100, 0, yOb); g.addColorStop(0, "rgba(255,216,77,.26)"); g.addColorStop(1, "rgba(255,216,77,.09)"); c.fillStyle = g; c.fillRect(0, Math.min(y100, yOb), mediaSize.width, Math.abs(yOb - y100)); }
+    if (yOs != null && y0 != null) { const g = c.createLinearGradient(0, yOs, 0, y0); g.addColorStop(0, "rgba(255,216,77,.09)"); g.addColorStop(1, "rgba(255,216,77,.26)"); c.fillStyle = g; c.fillRect(0, Math.min(y0, yOs), mediaSize.width, Math.abs(y0 - yOs)); }
+    c.restore();
+  }
+}
 /* 시각(UTC초+KST) → 소수 인덱스, 주말 밤 구간 계산 */
 function weekendBands(TT) {
   if (TT.length < 2) return [];
@@ -287,8 +303,8 @@ function ictItems(a, o, col, th) {
 /* ───────── 차트 만들기 ─────────
    data: { candles:[{time(UTC초),open,high,low,close,volume}], daily:[같은 형식, 일봉], precision? }
    opt : { iv, subs:["vol","rsi","st533","st2599"], rsiOB, rsiOS, kel:{on,wC,wB}, ict:{sr,struct,fvg,ob,liq,pd}, ... } */
-const SUB_TITLE = { vol: "거래량 (거래대금$) · 노랑선=20봉 평균", rsi: "RSI (14)", st533: "스토캐스틱 5/3/3", st2599: "스토캐스틱 25/9/9" };
-const SUB_ORDER = ["vol", "rsi", "st533", "st2599"];
+const SUB_TITLE = { vol: "거래량 (거래대금$) · 노랑선=20봉 평균", rsi: "RSI (14) · 노랑 음영 = 과매수(70↑)·과매도(30↓)" };
+const SUB_ORDER = ["vol", "rsi"];   /* 스토캐스틱은 제거 — 위아래 공간을 메인 차트에 */
 function build(el, data, opt) {
   opt = opt || {}; el.innerHTML = "";
   const subs = SUB_ORDER.filter((s) => (opt.subs || SUB_ORDER).includes(s));
@@ -296,7 +312,7 @@ function build(el, data, opt) {
     autoSize: true,
     layout: { background: { type: "solid", color: "#0a0f19" }, textColor: "#9fb1cf", fontFamily: '"Pretendard","Malgun Gothic","Nanum Gothic",system-ui,sans-serif', fontSize: 14, panes: { separatorColor: "#34507f", separatorHoverColor: "#6f9bff", enableResize: false } },
     grid: { vertLines: { color: "#101a2b" }, horzLines: { color: "#101a2b" } },
-    rightPriceScale: { borderColor: "#1c2a44", scaleMargins: { top: 0.07, bottom: 0.06 } },
+    rightPriceScale: { borderColor: "#1c2a44", scaleMargins: { top: 0.04, bottom: 0.04 } },
     timeScale: { borderColor: "#1c2a44", timeVisible: true, rightOffset: 18, barSpacing: opt.barSpacing || 8,
       tickMarkFormatter: (t, type) => { const x = new Date(t * 1000), p = (n) => String(n).padStart(2, "0"), W = ["일", "월", "화", "수", "목", "금", "토"]; return type <= 2 ? (x.getUTCMonth() + 1) + "/" + x.getUTCDate() + "(" + W[x.getUTCDay()] + ")" : p(x.getUTCHours()) + ":" + p(x.getUTCMinutes()); } },
     localization: { timeFormatter: (t) => { const x = new Date(t * 1000), p = (n) => String(n).padStart(2, "0"); return (x.getUTCMonth() + 1) + "/" + x.getUTCDate() + " " + p(x.getUTCHours()) + ":" + p(x.getUTCMinutes()); } },
@@ -341,11 +357,12 @@ function build(el, data, opt) {
       const ml = chart.addSeries(LW.LineSeries, { color: COL.vol, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }, pane); ml.setData(ma);
       ctl.subSeries.vol = vs;
     } else if (id === "rsi") {
-      const r = rsiArr(closes, 14), s = chart.addSeries(LW.LineSeries, { color: COL.rsi, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: { type: "custom", formatter: (v) => v.toFixed(0), minMove: 1 } }, pane);
+      const r = rsiArr(closes, 14), ob = opt.rsiOB || 70, os = opt.rsiOS || 30;
+      const s = chart.addSeries(LW.LineSeries, { color: COL.rsi, lineWidth: 2, priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false, priceFormat: { type: "custom", formatter: (v) => v.toFixed(1), minMove: 0.1 }, autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }) }, pane);
       s.setData(cs.map((c, i) => (r[i] == null ? { time: T(c) } : { time: T(c), value: r[i] })));
-      const ob = opt.rsiOB || 70, os = opt.rsiOS || 30;
-      s.createPriceLine({ price: ob, color: "rgba(255,77,93,.8)", lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: "" });
-      s.createPriceLine({ price: os, color: "rgba(79,195,255,.8)", lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: "" });
+      s.attachPrimitive(new RsiZones(ob, os));
+      s.createPriceLine({ price: ob, color: "#ffd84d", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "" });
+      s.createPriceLine({ price: os, color: "#ffd84d", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "" });
       s.createPriceLine({ price: 50, color: "rgba(150,165,190,.35)", lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: "" });
       ctl.subSeries.rsi = s; ctl.rsi = r;
     } else {
@@ -360,7 +377,7 @@ function build(el, data, opt) {
     }
   });
   Object.keys(ctl.subSeries).forEach((k) => { const nb = new NightBand(); nb.set(nights, col.night); ctl.subSeries[k].attachPrimitive(nb); ctl.nights.push(nb); });
-  const ps = chart.panes(); ps[0].setStretchFactor(subs.length ? 3.2 : 1); subs.forEach((_, i) => ps[i + 1] && ps[i + 1].setStretchFactor(1));
+  const ps = chart.panes(); ps[0].setStretchFactor(subs.length ? 6.5 : 1); subs.forEach((id, i) => ps[i + 1] && ps[i + 1].setStretchFactor(id === "rsi" ? 1.7 : 1));
 
   /* ICT: 도형 + 지지·저항(전환 구분) */
   const I = opt.ict || {};
