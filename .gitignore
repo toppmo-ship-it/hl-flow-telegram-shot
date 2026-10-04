@@ -4,3 +4,6 @@ node_modules
 out_*
 rank_*.txt
 test-*.mjs
+.tcache
+research/data
+research/out

@@ -461,6 +461,7 @@ function build(el, data, opt) {
   const col = Object.assign({ kShade: "#3ddc97", sup: "#2ee6a6", res: "#ff9f43", night: "#5b6cff" }, opt.colors || {});
   const rgba = (h, al) => { const n = parseInt(String(h).slice(1), 16); return "rgba(" + (n >> 16 & 255) + "," + (n >> 8 & 255) + "," + (n & 255) + "," + al + ")"; };
   const patMode = opt.mode !== "ict" && !!(root_.Patterns);
+  const quantPrep = root_.Quant ? root_.Quant.prepare(cs0_(data)) : null;
   const ctl = { chart, main, overlay: new Overlay(), band: new BandFill(), priceLines: [], kel: {}, subSeries: {}, opt, data, subs, patMode };
   main.attachPrimitive(ctl.band); main.attachPrimitive(ctl.overlay);
   const TT = cs.map((c) => c.time + KST), nights = weekendBands(TT);
@@ -552,11 +553,12 @@ function build(el, data, opt) {
   setTimeout(titles, 60); ctl.titles = titles;
   /* 라이브 갱신용 */
   ctl.refreshAll = () => { drawKeltner(); const r = drawIct(); if (ctl.patLayer) { ctl.pat = root_.Patterns.detect(cs); ctl.patLayer.set(ctl.pat, winFrom, cs, Math.max(14, Math.round((cs.length - winFrom) * 0.09) - 2)); } return r; };
-  ctl.summary = () => summarize(ctl, cs, data.daily);
+  ctl.quant = quantPrep; ctl.summary = () => summarize(ctl, cs, data.daily);
   return ctl;
 }
 
 /* 요약(텔레그램 문구·화면 하단 공통) */
+function cs0_(data) { return data.candles; }
 function summarize(ctl, cs, daily) {
   const price = cs[cs.length - 1].close, a = ctl.ictRes || ictAnalyze(cs), out = { ict: {}, kel: null };
   if (ctl.dk) {
@@ -573,6 +575,7 @@ function summarize(ctl, cs, daily) {
   const lastRsi = ctl.rsi ? ctl.rsi[ctl.rsi.length - 1] : null; out.rsi = lastRsi == null ? null : Math.round(lastRsi);
   ["st533", "st2599"].forEach((id) => { const s = ctl[id]; if (s) out[id] = { k: Math.round(s.k[s.k.length - 1] || 0), d: Math.round(s.d[s.d.length - 1] || 0) }; });
   if (ctl.patMode) delete out.ict;
+  if (ctl.quant) out.quant = ctl.quant.at(cs.length - 1);
   return out;
 }
 

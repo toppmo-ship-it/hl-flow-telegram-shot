@@ -116,8 +116,9 @@ function resolve(cs, atr, pat, lines) {
   const hz = Math.min(n - 1, confirmI + Math.max(30, Math.min(150, width * 2)));
   let res = null;
   for (let j = confirmI + 1; j <= hz; j++) {
+    /* 대칭 판정: 목표·손절 모두 '닿으면' 성립, 같은 봉에 둘 다 닿으면 보수적으로 실패 */
+    if (dir > 0 ? cs[j].low <= stop : cs[j].high >= stop) { res = "fail"; pat.resI = j; break; }
     if (dir > 0 ? cs[j].high >= tgt : cs[j].low <= tgt) { res = "success"; pat.resI = j; break; }
-    if (dir > 0 ? cs[j].close <= stop : cs[j].close >= stop) { res = "fail"; pat.resI = j; break; }
   }
   if (res) pat.state = res; else pat.state = hz >= n - 1 ? "confirmed" : "flat";   /* flat: 기간 내 어느 쪽도 아님(통계 제외) */
   return pat;

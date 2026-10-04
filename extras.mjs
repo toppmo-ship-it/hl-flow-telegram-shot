@@ -5,6 +5,9 @@
    데이터: Hyperliquid 공식 API(candleSnapshot·metaAndAssetCtxs), 환율 open.er-api.com */
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import "./site/patterns.js";
+import "./site/quant.js";
 
 const HL = "https://api.hyperliquid.xyz/info";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -300,26 +303,31 @@ function swings(cs) {
   }
   return out.slice(-10);
 }
-const IVMS = { "15m": 900e3, "30m": 1800e3, "1h": 3600e3, "2h": 7200e3, "4h": 14400e3, "8h": 28800e3 };
+const IVMS = { "1d": 864e5, "15m": 900e3, "30m": 1800e3, "1h": 3600e3, "2h": 7200e3, "4h": 14400e3, "8h": 28800e3 };
 /* 카드용 캔들 저장본(.cache/cardbars.json): 패턴 통계를 위해 최대 5000봉(약 240일)을 쌓아 두고 매번 마지막 3봉부터만 이어받음 */
 let CB = null, CBFILE = null, CBDIRTY = false;
 function cbLoad(cacheDir) { if (CB) return; CB = {}; CBFILE = cacheDir ? path.join(cacheDir, "cardbars.json") : null; try { if (CBFILE) CB = JSON.parse(fs.readFileSync(CBFILE, "utf8")); } catch (e) { CB = {}; } }
 export function flushCardCache(cacheDir) { if (!CB || !CBDIRTY || !CBFILE) return; try { fs.mkdirSync(cacheDir, { recursive: true }); fs.writeFileSync(CBFILE, JSON.stringify(CB)); } catch (e) {} CBDIRTY = false; }
+/* 캔들 저장본 + 마지막 3봉부터 이어받기 (카드·패턴 순위 공용) */
+async function getRows(coin, iv, lookN, cacheDir, log) {
+  const ms = IVMS[iv] || 3600e3, now = Date.now(); cbLoad(cacheDir);
+  const key = coin + "|" + iv, old = CB[key], have = old && old.length > 20 && old[0][0] <= now - lookN * ms + Math.min(36 * ms, 3 * 864e5);
+  const from = have ? old[old.length - 3][0] : now - lookN * ms;
+  const got = await hl({ type: "candleSnapshot", req: { coin, interval: iv, startTime: from, endTime: now } }, log);
+  let rows = have ? old : [];
+  if (got && got.length) { const m = new Map(rows.map((x) => [x[0], x])); got.forEach((c) => m.set(c.t, [c.t, +c.o, +c.h, +c.l, +c.c, +c.v])); rows = [...m.values()].sort((a, b) => a[0] - b[0]).slice(-lookN); CB[key] = rows; CBDIRTY = true; }
+  return rows;
+}
 export async function buildCardData({ row, ticker, info, iv, days, fx, log, cacheDir, mode }) {
   const ms = IVMS[iv] || 3600e3, now = Date.now();
   const lookN = Math.min(5000, Math.ceil((days + 60) * 864e5 / ms));   /* 패턴이 윈도 앞에서 시작해도 잡히도록 표시 구간 앞쪽 여유 포함 */
-  cbLoad(cacheDir);
-  const key = row.full + "|" + iv, old = CB[key], have = old && old.length > 100 && old[0][0] <= now - lookN * ms + 36 * ms;
-  const from = have ? old[old.length - 3][0] : now - lookN * ms;
-  const got = await hl({ type: "candleSnapshot", req: { coin: row.full, interval: iv, startTime: from, endTime: now } }, log);
-  let rows = have ? old : [];
-  if (got && got.length) { const m = new Map(rows.map((x) => [x[0], x])); got.forEach((c) => m.set(c.t, [c.t, +c.o, +c.h, +c.l, +c.c, +c.v])); rows = [...m.values()].sort((a, b) => a[0] - b[0]).slice(-lookN); CB[key] = rows; CBDIRTY = true; }
-  if (rows.length < 30) return null;
+  const rows = await getRows(row.full, iv, lookN, cacheDir, log);
+  if (!rows || rows.length < 30) return null;
   const candles = rows.map((c) => ({ time: Math.round(c[0] / 1000), open: c[1], high: c[2], low: c[3], close: c[4], volume: c[5] * (c[2] + c[3] + c[4]) / 3 }));
   const windowBars = Math.min(candles.length, Math.ceil(days * 864e5 / ms));   /* 거래량 = 거래대금(USD) */
   /* 일봉(켈트너 20/10/1.5·ICT용): 최근 120일 */
-  const dd = await hl({ type: "candleSnapshot", req: { coin: row.full, interval: "1d", startTime: now - 120 * 864e5, endTime: now } }, log).catch(() => null);
-  const daily = (dd || []).map((c) => ({ time: Math.round(c.t / 1000), open: +c.o, high: +c.h, low: +c.l, close: +c.c, volume: +c.v }));
+  const dd = await getRows(row.full, "1d", 220, cacheDir, log).catch(() => null);
+  const daily = (dd || []).map((c) => ({ time: Math.round(c[0] / 1000), open: c[1], high: c[2], low: c[3], close: c[4], volume: c[5] }));
   const last = candles[candles.length - 1], prev20 = candles.slice(-21, -1).map((c) => c.volume), avg = mean(prev20);
   const mult = avg > 0 ? last.volume / avg : null, body = (last.close / last.open - 1) * 100, rsi = rsi14(candles.map((c) => c.close));
   const turn24 = candles.filter((c) => c.time * 1000 > now - 864e5).reduce((s, c) => s + c.volume, 0);
@@ -337,6 +345,71 @@ export async function buildCardData({ row, ticker, info, iv, days, fx, log, cach
     "💰 현재가: " + fmtP(price) + "\n💵 24시간 거래대금: " + fmt(eok(turn24, fx)) + "억원 ($" + (turn24 / 1e6).toFixed(1) + "M)\n⏱ " + kstStamp(now).slice(-9) + " · " + ivKo + "봉 진행 중";
   return { iv, mode: mode || "pattern", windowBars, daily, ttl, sub: subTxt, period: days + "day-" + perEn, title: ticker + (name ? " (" + name + ")" : "") + " - " + iv.toUpperCase() + " (Vol) (HYPERLIQUID)", price: fmtP(price), candles, sr: levels(candles, price), swings: swings(candles), caption };
 }
+
+/* ═════════ ④ 패턴 확률 순위 (연구 결과 pattern_rank.json 기반 · 별도 메시지) ═════════
+   롱: 순위 1~3위 패턴 × 현재 그 패턴이 진행 중인 종목 최대 5개 / 숏: 1위 패턴 × 최대 5개
+   조건: 일봉 켈트너 구간(롱 상단 위·중심~상단 / 숏 하단) + 6점 지표 점수 최소값을 연구 결과대로 적용 */
+const ZN = { A: "상단 위", B: "중심~상단", AB: "상단 위·중심~상단", C: "하단~중심", D: "하단 아래", CD: "하단 아래·하단~중심" };
+const MEDAL = ["🥇", "🥈", "🥉"];
+export async function buildPatternRankText({ uni, info, log, cacheDir, tf0, scanN }) {
+  const file = path.join(path.dirname(fileURLToPath(import.meta.url)), "pattern_rank.json");
+  let R; try { R = JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { return []; }
+  const PT = globalThis.Patterns, QT = globalThis.Quant; if (!PT || !QT) return [];
+  const tf = (R.L[tf0] && R.L[tf0].length) ? tf0 : ((R.L["4h"] && R.L["4h"].length) ? "4h" : "ALL");
+  const lrows = (R.L[tf] || []).slice(0, 3), srows = (R.S[tf] || []).slice(0, 1);
+  if (!lrows.length && !srows.length) return [];
+  const seen = new Set(), scan = [];
+  for (const r of uni) { if (seen.has(r.short) || r.dayNtl < 1e6) continue; seen.add(r.short); scan.push(r); if (scan.length >= (scanN || 30)) break; }
+  const ivUse = tf === "ALL" ? "4h" : tf, ms = IVMS[ivUse] || 14400e3, lookN = Math.min(5000, Math.ceil(110 * 864e5 / ms));
+  const live = [];
+  await pool(scan, 3, async (r) => {
+    try {
+      const rows = await getRows(r.full, ivUse, lookN, cacheDir, log), drows = await getRows(r.full, "1d", 220, cacheDir, log);
+      if (!rows || rows.length < 120 || !drows || drows.length < 30) return;
+      const cs = rows.map((c) => ({ time: Math.round(c[0] / 1000), open: c[1], high: c[2], low: c[3], close: c[4], volume: c[5] * (c[2] + c[3] + c[4]) / 3 }));
+      const daily = drows.map((c) => ({ time: Math.round(c[0] / 1000), open: c[1], high: c[2], low: c[3], close: c[4], volume: c[5] }));
+      const n = cs.length, f = QT.prepare(cs).at(n - 1), z = QT.makeZoner(daily)(cs[n - 1].time, cs[n - 1].close); if (!f || !z) return;
+      const res = PT.detect(cs);
+      res.pats.forEach((p) => {
+        if (PT.META[p.type].info) return;
+        const fresh = p.state === "forming" || (p.state === "confirmed" && p.confirmI >= n - 1 - 10);
+        if (fresh) live.push({ r, p, f, z, n });
+      });
+    } catch (e) { log && log("패턴 스캔 실패", r.short, String((e && e.message) || e)); }
+  });
+  const label = (r) => { const ko = info.ko[r.short] || ""; return r.short + (ko && ko !== r.short ? " " + ko : ""); };
+  const pick = (row) => {
+    const side = row.side, out = [], seenT = new Set();
+    live.forEach(({ r, p, f, z }) => {
+      if (p.type !== row.type) return;
+      const dirNow = p.state === "confirmed" ? p.dirReal : (p.dir || 0);
+      if (side === "L" ? dirNow < 0 : dirNow > 0) return;
+      const zOK = side === "L" ? (row.zone === "AB" ? z.z === "A" || z.z === "B" : z.z === row.zone) : (row.zone === "CD" ? z.z === "C" || z.z === "D" : z.z === row.zone);
+      const sc = side === "L" ? f.score : 6 - f.score; if (!zOK || sc < row.minScore) return;
+      if (seenT.has(r.short)) return; seenT.add(r.short);
+      out.push({ r, sc, lab: f.lab, st: p.state === "confirmed" ? (p.dirReal > 0 ? "돌파 확정" : "이탈 확정") : "형성 중", zn: ZN[z.z] });
+    });
+    return out.sort((a, b) => b.sc - a.sc || (a.st === "형성 중") - (b.st === "형성 중")).slice(0, 5);
+  };
+  const block = (rows, head) => {
+    const L = [head];
+    rows.forEach((row, i) => {
+      const got = pick(row), wr = Math.round(row.win * 100), te = row.teWin != null ? Math.round(row.teWin * 100) : null;
+      L.push("\n" + MEDAL[i] + " " + (i + 1) + "위  " + row.name + "  ·  과거 성공률 " + wr + "% (n=" + row.n + (te != null ? " · 검증 " + te + "%" : "") + ")");
+      L.push("   조건: 켈트너 " + ZN[row.zone] + " · 지표 " + (row.minScore ? row.minScore + "점↑" : "점수 무관"));
+      if (!got.length) L.push("   — 지금 조건에 맞는 종목 없음");
+      got.forEach((g, k) => L.push("   " + (k + 1) + ". " + label(g.r) + "  " + g.sc + "/6점" + (g.lab ? " · " + g.lab : "") + " · " + g.zn + " · " + g.st));
+    });
+    return L.join("\n");
+  };
+  const bl = R.baseline || {}, pm = R.perm || {}, r1 = (x) => (x == null ? "—" : (Math.round(x * 1000) / 10) + "%");
+  const head = "🏆 패턴 성공률 순위 · " + kstStamp(Date.now()) + "\n기준 " + (tf === "ALL" ? "전체" : tf) + "봉 · 연구: 평일 거래대금 상위 " + (R.universe || []).length + "종목 · 이벤트 " + R.events + "건 · 앞 60%로 선정 → 뒤 40%로 검증\n비교 기준(전체 패턴 평균 성공률): 롱 " + r1(bl.L) + " · 숏 " + r1(bl.S) + " — 이보다 높아야 의미 있어요\n지표 점수 = 거래량·RSI·MACD(10/25/8)·%R14·%R48·앵커드VWAP 중 방향이 맞는 개수(6점 만점, 종목 정렬용)";
+  const parts = [head];
+  if (lrows.length) parts.push(block(lrows, "🔺 롱 — 일봉 켈트너 상단 위 · 중심~상단 구간"));
+  if (srows.length) parts.push(block(srows, "🔻 숏 — 일봉 켈트너 하단 구간"));
+  parts.push("⚠️ 연구 결과의 한계: 롱 패턴끼리의 차이는 우연과 구별되지 않았고(순열검정 p=" + (pm.L != null ? pm.L.toFixed(2) : "—") + "), 숏은 쌍천장·하단~중심 구간만 약한 우위(p=" + (pm.S != null ? pm.S.toFixed(2) : "—") + ")였어요. 지표 점수와 확률 모델은 검증 구간에서 예측력이 없었어요. 참고용 통계이며 수익을 보장하지 않아요. (성공 = 돌파 후 패턴 높이의 60% 도달, 실패 = 반대로 60% 이동)");
+  return [parts.join("\n\n")];
+}
 export function pickRow(uni, ticker, info) {
   const alias = info.alias[ticker] || ticker;
   return uni.find((r) => r.short === alias && r.dex === "xyz") || uni.find((r) => r.short === alias && r.dayNtl > 1e5) || (/^[A-Z0-9]{2,8}$/.test(ticker) ? { full: ticker, short: ticker, dex: "코인" } : null);
@@ -350,6 +423,7 @@ export async function renderCard(page, base, data) {
   if (sum) {
     const L = [];
     if (sum.kel) L.push("🟠 일봉 켈트너: 중심 " + sum.kel.mid.toPrecision(5) + " · 상단 " + sum.kel.up.toPrecision(5) + " · 하단 " + sum.kel.lo.toPrecision(5) + " → " + sum.kel.pos);
+    if (sum.quant) { const q = sum.quant, nm = { vol: "거래량", rsi: "RSI", macd: "MACD", w14: "%R14", w48: "%R48", vwap: "VWAP" }; L.push("🧮 지표 점수 " + q.score + "/6 (" + Object.keys(nm).map((k) => (q.pts[k] ? "▲" : "▼") + nm[k]).join(" ") + ")" + (q.lab ? " · 구조 " + q.lab : "")); }
     if (sum.patterns) {
       const pt = sum.patterns, nm = (p) => p.name + (p.state === "confirmed" ? "(" + (p.dirReal > 0 ? "돌파" : "이탈") + " 확정)" : "(형성 중)");
       L.push("🧩 패턴: " + (pt.live.length ? pt.live.map(nm).join(" · ") : "현재 진행 중인 패턴 없음"));

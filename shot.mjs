@@ -10,7 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { loadSiteInfo, loadUniverse, usdKrw, buildWeeklyTexts, buildSurgeText, pickRow, buildCardData, renderCard, flushCardCache } from "./extras.mjs";
+import { loadSiteInfo, loadUniverse, usdKrw, buildWeeklyTexts, buildSurgeText, pickRow, buildCardData, renderCard, flushCardCache, buildPatternRankText } from "./extras.mjs";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const SITE = path.join(ROOT, "site");
@@ -198,13 +198,22 @@ async function runExtras({ cfg0, q, dry, base }) {
   const flag = (qv, cv) => (qv != null ? qv === "1" : !!cv);
   const wantW = flag(q.rankw, cfg0.rankWeekly), wantS = flag(q.ranks, cfg0.rankSurge);
   const cards = (q.cards != null ? String(q.cards).split(",") : (Array.isArray(cfg0.cards) ? cfg0.cards : [])).map((x) => x.replace(/[^0-9A-Za-z]/g, "")).filter(Boolean).slice(0, 12);
-  if (!wantW && !wantS && !cards.length) return;
+  const wantP = flag(q.rankp, cfg0.rankPattern !== false);   /* 패턴 확률 순위(별도 메시지) — 기본 켬 */
+  if (!wantW && !wantS && !wantP && !cards.length) return;
   const st = loadState(), now = Date.now(), force = q.force === "1";
   const dueRank = (wantW || wantS) && (force || due(st.lastRank, +cfg0.rankEvery || 0));
   const dueCards = cards.length && (force || due(st.lastCards, cfg0.cardEvery != null ? +cfg0.cardEvery : 0));
-  if (!dueRank && !dueCards) { log("추가 기능: 아직 보낼 주기가 아님"); return; }
+  const dueP = wantP && (force || due(st.lastPat, cfg0.rankPatEvery != null ? +cfg0.rankPatEvery : 60));
+  if (!dueRank && !dueCards && !dueP) { log("추가 기능: 아직 보낼 주기가 아님"); return; }
   const info = loadSiteInfo(SITE), uni = await loadUniverse(log), fx = await usdKrw(log);
   log("추가 기능 시작 — HIP-3 " + uni.length + "종목, 환율 " + fx.toFixed(1));
+  if (dueP) {
+    stage(73, "패턴 확률 순위 계산 중 (종목 스캔)");
+    const tx = await buildPatternRankText({ uni, info, log, cacheDir: CACHE, tf0: String(cfg0.cardIv || "4h"), scanN: 30 });
+    for (const t of tx) { if (dry) console.log("\n──── 패턴 확률 순위 ────\n" + t + "\n─────────────────────"); else await sendText(t); }
+    log("패턴 확률 순위", tx.length + "건", dry ? "(dry — 출력만)" : "전송");
+    st.lastPat = now; flushCardCache(CACHE);
+  }
   if (dueRank) {
     stage(75, "순위 데이터 모으는 중");
     const texts = [];
