@@ -208,6 +208,7 @@ async function runExtras({ cfg0, q, dry, base }) {
         if (!row) { log("카드 종목 없음:", t); continue; }
         const d = await buildCardData({ row, ticker: t, info, iv, days, fx, log });
         if (!d) { log("카드 데이터 부족:", t); continue; }
+        d.colors = cfg0.colors || null;
         const png = await renderCard(page, base, d);
         if (dry) { const f = path.join(ROOT, "out_card_" + t + ".png"); fs.writeFileSync(f, png); console.log("\n──── 카드 " + t + " ────\n" + d.caption); }
         else await sendPhoto(png, d.caption);

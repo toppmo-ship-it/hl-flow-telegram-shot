@@ -7,7 +7,7 @@
 (function () {
 "use strict";
 const LW = window.LightweightCharts, KST = 9 * 3600, DAY = 86400;
-const COL = { up: "#ff4d5d", dn: "#4fc3ff", kMid: "#ff9f1a", kBand: "#ffd84d", rsi: "#c792ff", sk: "#4fc3ff", sd: "#ff9f43", vol: "#ffd84d" };
+const COL = { up: "#ff4d5d", dn: "#4fc3ff", kMid: "#ff9f1a", kBand: "#ffd84d", kBand1: "#f0dc6e", rsi: "#c792ff", sk: "#4fc3ff", sd: "#ff9f43", vol: "#ffd84d" };
 const mean = (a) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0);
 
 /* ───────── 지표 계산 ───────── */
@@ -22,19 +22,20 @@ function dailyKeltner(daily) {
   if (tr.length < 10) return out;
   let atr = mean(tr.slice(0, 10)); const A = new Array(n).fill(null); A[10] = atr;
   for (let j = 10; j < tr.length; j++) { atr = (atr * 9 + tr[j]) / 10; A[j + 1] = atr; }
-  for (let i = 10; i < n; i++) out[i] = { mid: basis[i], up: basis[i] + 1.5 * A[i], lo: basis[i] - 1.5 * A[i] };
+  for (let i = 10; i < n; i++) out[i] = { mid: basis[i], up: basis[i] + 1.5 * A[i], lo: basis[i] - 1.5 * A[i], up1: basis[i] + 1.0 * A[i], lo1: basis[i] - 1.0 * A[i] };
   return out;
 }
 /* 어떤 봉이든 '그 봉이 속한 날의 일봉 켈트너 값'으로 채움(계단 수평선). 마지막 날은 진행 중인 일봉이라 실시간으로 움직임 */
 function stepKeltner(bars, daily, dk) {
   const idx = new Map(daily.map((d, i) => [d.time, i]));
-  const mid = [], up = [], lo = [];
-  bars.forEach((b) => {
+  const mid = [], up = [], lo = [], up1 = [], lo1 = [], rows = [];
+  bars.forEach((b, bi) => {
     const i = idx.get(Math.floor(b.time / DAY) * DAY), v = i != null ? dk[i] : null;
     if (!v) return;
     mid.push({ time: b.time + KST, value: v.mid }); up.push({ time: b.time + KST, value: v.up }); lo.push({ time: b.time + KST, value: v.lo });
+    up1.push({ time: b.time + KST, value: v.up1 }); lo1.push({ time: b.time + KST, value: v.lo1 }); rows.push({ i: bi, up: v.up, up1: v.up1, lo1: v.lo1, lo: v.lo });
   });
-  return { mid, up, lo };
+  return { mid, up, lo, up1, lo1, rows };
 }
 function rsiArr(cl, p) {
   p = p || 14; const out = new Array(cl.length).fill(null);
@@ -166,8 +167,12 @@ class Overlay {
       if (it.kind === "box" && layer === "box") {
         const y1 = Y(it.p1), y2 = Y(it.p2); if (x1 == null || y1 == null || y2 == null) return;
         const xa = Math.max(0, Math.min(x1, x2 == null ? x1 : x2)), xb = x2 == null ? mediaSize.width : Math.max(x1, x2);
-        c.fillStyle = it.fill; c.fillRect(xa, Math.min(y1, y2), xb - xa, Math.abs(y2 - y1));
-        if (it.stroke) { c.strokeStyle = it.stroke; c.lineWidth = 1; c.strokeRect(xa + 0.5, Math.min(y1, y2) + 0.5, xb - xa - 1, Math.abs(y2 - y1) - 1); }
+        const yt = Math.min(y1, y2), hh = Math.max(1, Math.abs(y2 - y1));
+        if (it.fade) { const g = c.createLinearGradient(xa, 0, xa + Math.min(120, xb - xa), 0); g.addColorStop(0, it.fade); g.addColorStop(1, it.fill); c.fillStyle = g; } else c.fillStyle = it.fill;
+        c.fillRect(xa, yt, xb - xa, hh);
+        if (it.edge) { c.strokeStyle = it.edge; c.lineWidth = 1; c.beginPath(); c.moveTo(xa, yt + .5); c.lineTo(xb, yt + .5); c.moveTo(xa, yt + hh - .5); c.lineTo(xb, yt + hh - .5); c.stroke(); }
+        if (it.mid) { c.strokeStyle = it.mid; c.lineWidth = it.midW || 1.5; c.setLineDash(it.sdash || []); c.beginPath(); c.moveTo(xa, yt + hh / 2); c.lineTo(xb, yt + hh / 2); c.stroke(); c.setLineDash([]); }
+        if (it.stroke) { c.strokeStyle = it.stroke; c.lineWidth = 1; c.setLineDash(it.sdash || []); c.strokeRect(xa + 0.5, yt + 0.5, xb - xa - 1, hh - 1); c.setLineDash([]); }
         if (it.label && xb - xa > 90) { c.fillStyle = it.text || "#fff"; c.textAlign = "right"; c.fillText(it.label, xb - 6, Math.min(y1, y2) + Math.min(11, Math.abs(y2 - y1) / 2 + 1)); }
       } else if (it.kind === "line" && layer === "line") {
         const y = Y(it.p); if (y == null || x1 == null) return;
@@ -183,22 +188,100 @@ class Overlay {
   }
 }
 
+/* 켈트너 1.0 ~ 1.5 사이 음영 (연한 그린). 일중 봉은 계단 모양으로 */
+class BandFill {
+  constructor() { this.rows = []; this.step = false; this.color = "rgba(61,220,151,.13)"; this.chart = null; this.series = null; this.req = null; }
+  attached(p) { this.chart = p.chart; this.series = p.series; this.req = p.requestUpdate; }
+  detached() {}
+  updateAllViews() {}
+  set(rows, step, color) { this.rows = rows; this.step = step; this.color = color; this.req && this.req(); }
+  paneViews() { const self = this; return [{ zOrder: () => "bottom", renderer: () => ({ draw: (t) => t.useMediaCoordinateSpace((s) => self.draw(s)) }) }]; }
+  draw({ context: c }) {
+    if (!this.chart || !this.series || !this.rows.length) return;
+    const ts = this.chart.timeScale(), Y = (p) => this.series.priceToCoordinate(p);
+    const poly = (ka, kb) => {
+      const top = [], bot = [];
+      this.rows.forEach((r, k) => {
+        const x = ts.logicalToCoordinate(r.i); if (x == null) return;
+        const ya = Y(r[ka]), yb = Y(r[kb]); if (ya == null || yb == null) return;
+        if (this.step && k > 0 && top.length) { top.push([x, top[top.length - 1][1]]); bot.push([x, bot[bot.length - 1][1]]); }
+        top.push([x, ya]); bot.push([x, yb]);
+      });
+      if (top.length < 2) return;
+      c.beginPath(); c.moveTo(top[0][0], top[0][1]); top.forEach((q) => c.lineTo(q[0], q[1])); for (let k = bot.length - 1; k >= 0; k--) c.lineTo(bot[k][0], bot[k][1]); c.closePath(); c.fill();
+    };
+    c.save(); c.fillStyle = this.color; poly("up", "up1"); poly("lo1", "lo"); c.restore();
+  }
+}
+/* 주말 밤 음영: 미장 금요일 마감(16:00 ET) ~ 월요일 08:00 KST (거래량이 줄어드는 시간) */
+class NightBand {
+  constructor() { this.bands = []; this.color = "#5b6cff"; this.chart = null; this.req = null; }
+  attached(p) { this.chart = p.chart; this.req = p.requestUpdate; }
+  detached() {}
+  updateAllViews() {}
+  set(b, col) { this.bands = b; this.color = col; this.req && this.req(); }
+  paneViews() { const self = this; return [{ zOrder: () => "bottom", renderer: () => ({ draw: (t) => t.useMediaCoordinateSpace((s) => self.draw(s)) }) }]; }
+  draw({ context: c, mediaSize }) {
+    if (!this.chart) return;
+    const ts = this.chart.timeScale(), n = parseInt(this.color.slice(1), 16), R = n >> 16 & 255, G = n >> 8 & 255, B = n & 255;
+    c.save();
+    this.bands.forEach((b) => {
+      const x1 = ts.logicalToCoordinate(b.a), x2 = ts.logicalToCoordinate(b.b); if (x1 == null || x2 == null) return;
+      const xa = Math.max(0, x1), xb = Math.min(mediaSize.width, x2); if (xb <= xa) return;
+      const g = c.createLinearGradient(0, 0, 0, mediaSize.height);
+      g.addColorStop(0, "rgba(" + R + "," + G + "," + B + ",.15)"); g.addColorStop(1, "rgba(" + R + "," + G + "," + B + ",.05)");
+      c.fillStyle = g; c.fillRect(xa, 0, xb - xa, mediaSize.height);
+      c.strokeStyle = "rgba(" + R + "," + G + "," + B + ",.28)"; c.lineWidth = 1; c.beginPath();
+      if (x1 >= 0) { c.moveTo(Math.round(x1) + .5, 0); c.lineTo(Math.round(x1) + .5, mediaSize.height); }
+      if (x2 <= mediaSize.width) { c.moveTo(Math.round(x2) + .5, 0); c.lineTo(Math.round(x2) + .5, mediaSize.height); }
+      c.stroke();
+    });
+    c.restore();
+  }
+}
+/* 시각(UTC초+KST) → 소수 인덱스, 주말 밤 구간 계산 */
+function weekendBands(TT) {
+  if (TT.length < 2) return [];
+  const dt = (TT[TT.length - 1] - TT[0]) / (TT.length - 1);
+  const fi = (t) => {
+    if (t <= TT[0]) return (t - TT[0]) / dt;
+    if (t >= TT[TT.length - 1]) return TT.length - 1 + (t - TT[TT.length - 1]) / dt;
+    let lo = 0, hi = TT.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (TT[m] <= t) lo = m; else hi = m; }
+    return lo + (t - TT[lo]) / (TT[hi] - TT[lo]);
+  };
+  const ny = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
+  const out = [], t0 = TT[0] - KST - 6 * DAY, t1 = TT[TT.length - 1] - KST + 6 * DAY;
+  for (let d = Math.floor(t0 / DAY) * DAY; d <= t1; d += DAY) {
+    const dd = new Date(d * 1000); if (dd.getUTCDay() !== 5) continue;
+    const y = dd.getUTCFullYear(), m = dd.getUTCMonth(), day = dd.getUTCDate();
+    let inst = Date.UTC(y, m, day, 20); if (String(ny.format(new Date(inst))).replace(/\D/g, "") !== "16") inst = Date.UTC(y, m, day, 21);
+    const a = inst / 1000 + KST, b = Date.UTC(y, m, day + 3, 8) / 1000;   /* 월요일 08:00 KST (표시 시간대 기준) */
+    if (b < TT[0] || a > TT[TT.length - 1] + 40 * dt) continue;
+    out.push({ a: fi(a), b: fi(b) });
+  }
+  return out;
+}
+
 /* ICT 결과 → 도형 목록 */
-function ictItems(a, o) {
+function ictItems(a, o, col, th) {
   const items = [], rgba = (h, al) => { const n = parseInt(h.slice(1), 16); return "rgba(" + (n >> 16 & 255) + "," + (n >> 8 & 255) + "," + (n & 255) + "," + al + ")"; };
+  col = col || {};
   if (o.pd && a.pd) {
-    items.push({ kind: "box", t1: a.pd.t1, t2: undefined, p1: a.pd.hi, p2: a.pd.eq, fill: "rgba(255,150,80,.055)" });
-    items.push({ kind: "box", t1: a.pd.t1, t2: undefined, p1: a.pd.eq, p2: a.pd.lo, fill: "rgba(90,200,255,.055)" });
     items.push({ kind: "line", t1: a.pd.t1, t2: undefined, p: a.pd.eq, color: "rgba(200,210,230,.55)", dash: [3, 5], w: 1, label: "EQ 50%" });
   }
-  if (o.fvg) a.fvg.forEach((g) => items.push({ kind: "box", t1: g.t1, t2: undefined, p1: g.hi, p2: g.lo, fill: g.dir > 0 ? "rgba(255,77,93,.17)" : "rgba(79,195,255,.17)", label: "FVG", text: g.dir > 0 ? "#ff9aa5" : "#9fdcff" }));
-  if (o.ob) a.ob.forEach((b) => items.push({ kind: "box", t1: b.t1, t2: undefined, p1: b.hi, p2: b.lo, fill: b.dir > 0 ? "rgba(255,77,93,.24)" : "rgba(79,195,255,.24)", stroke: b.dir > 0 ? "rgba(255,120,130,.9)" : "rgba(120,210,255,.9)", label: b.dir > 0 ? "OB ↑" : "OB ↓", text: "#fff" }));
+  if (o.fvg) a.fvg.forEach((g) => items.push({ kind: "box", t1: g.t1, t2: undefined, p1: g.hi, p2: g.lo, fill: g.dir > 0 ? "rgba(176,140,255,.11)" : "rgba(96,176,255,.11)", edge: g.dir > 0 ? "rgba(176,140,255,.35)" : "rgba(96,176,255,.35)", label: "FVG", text: g.dir > 0 ? "#cdb8ff" : "#a9d3ff" }));
+  if (o.ob) a.ob.forEach((b) => items.push({ kind: "box", t1: b.t1, t2: undefined, p1: b.hi, p2: b.lo, fill: b.dir > 0 ? "rgba(176,140,255,.14)" : "rgba(96,176,255,.14)", stroke: b.dir > 0 ? "rgba(190,160,255,.75)" : "rgba(120,190,255,.75)", sdash: [4, 3], label: b.dir > 0 ? "OB ↑" : "OB ↓", text: "#e8e0ff" }));
   if (o.struct) a.struct.forEach((s) => items.push({ kind: "line", t1: s.t1, t2: s.t2, p: s.price, color: s.kind === "CHoCH" ? "#ffb020" : "#9fb4d8", dash: [5, 4], w: s.kind === "CHoCH" ? 2 : 1.4, label: s.kind + (s.dir > 0 ? "↑" : "↓"), below: s.dir < 0 }));
   if (o.liq) {
     a.liq.forEach((l) => items.push({ kind: "line", t1: l.t1, t2: undefined, p: l.price, color: "#e8e8ff", dash: [2, 4], w: 1.2, label: l.type === "H" ? "EQH" : "EQL", below: l.type === "L" }));
     a.sweeps.forEach((s) => false && items.push({ kind: "tag", t1: s.t, p: s.price, color: "#ffe36a", label: s.type === "BSL" ? "BSL 스윕▼" : "SSL 스윕▲", below: s.type === "SSL" }));
   }
-  void rgba; return items;
+  /* 지지(그린)·저항(주황) 존: 두께감 + 왼쪽에서 번지는 그라데이션 + 중심선. 전환(R→S, S→R)은 점선 테두리로 구분 */
+  if (o.sr !== false) a.sr.forEach((l) => {
+    const sup = l.role === "S", base = sup ? (col.sup || "#2ee6a6") : (col.res || "#ff9f43"), flip = !!l.flip;
+    items.push({ kind: "box", t1: l.t1, t2: undefined, p1: l.price + th, p2: l.price - th, fill: rgba(base, flip ? 0.26 : 0.17), fade: rgba(base, 0), edge: rgba(base, flip ? 0.7 : 0.38), mid: rgba(base, flip ? 0.95 : 0.7), midW: flip ? 1.8 : 1.3, sdash: flip ? [6, 4] : null, label: flip ? (l.flip === "R→S" ? "지지 전환" : "저항 전환") : null, text: rgba(base, 1) });
+  });
+  return items;
 }
 
 /* ───────── 차트 만들기 ─────────
@@ -222,20 +305,28 @@ function build(el, data, opt) {
   const cs = data.candles, last = cs[cs.length - 1], pf = last.close >= 100 ? 2 : (last.close >= 1 ? 4 : 6);
   const main = chart.addSeries(LW.CandlestickSeries, { upColor: COL.up, downColor: COL.dn, borderUpColor: COL.up, borderDownColor: COL.dn, wickUpColor: COL.up, wickDownColor: COL.dn, priceLineColor: "", priceLineStyle: 2, priceFormat: { type: "price", precision: pf, minMove: Math.pow(10, -pf) } }, 0);
   main.setData(cs.map((c) => ({ time: c.time + KST, open: c.open, high: c.high, low: c.low, close: c.close })));
-  const ctl = { chart, main, overlay: new Overlay(), priceLines: [], kel: {}, subSeries: {}, opt, data, subs };
-  main.attachPrimitive(ctl.overlay);
+  const col = Object.assign({ kShade: "#3ddc97", sup: "#2ee6a6", res: "#ff9f43", night: "#5b6cff" }, opt.colors || {});
+  const rgba = (h, al) => { const n = parseInt(String(h).slice(1), 16); return "rgba(" + (n >> 16 & 255) + "," + (n >> 8 & 255) + "," + (n & 255) + "," + al + ")"; };
+  const ctl = { chart, main, overlay: new Overlay(), band: new BandFill(), priceLines: [], kel: {}, subSeries: {}, opt, data, subs };
+  main.attachPrimitive(ctl.band); main.attachPrimitive(ctl.overlay);
+  const TT = cs.map((c) => c.time + KST), nights = weekendBands(TT);
+  { const nb = new NightBand(); nb.set(nights, col.night); main.attachPrimitive(nb); ctl.nights = [nb]; }
   const lw = (lvl) => [1, 1.4, 2, 2.8, 3.6][Math.min(5, Math.max(1, lvl || 2)) - 1];
 
   /* 일봉 켈트너: 일봉 차트면 그대로 선, 분·시간봉이면 그날의 일봉 값을 계단 수평선으로 */
   const K = opt.kel || {}, isDaily = opt.iv === "1d";
   function drawKeltner() {
-    ["mid", "up", "lo"].forEach((k) => { if (ctl.kel[k]) { try { chart.removeSeries(ctl.kel[k]); } catch (e) {} ctl.kel[k] = null; } });
-    if (K.on === false || !data.daily || data.daily.length < 12) { ctl.dk = null; return; }
+    ["mid", "up", "lo", "up1", "lo1"].forEach((k) => { if (ctl.kel[k]) { try { chart.removeSeries(ctl.kel[k]); } catch (e) {} ctl.kel[k] = null; } });
+    if (K.on === false || !data.daily || data.daily.length < 12) { ctl.dk = null; ctl.band.set([], false, "rgba(0,0,0,0)"); return; }
     const dk = dailyKeltner(data.daily); ctl.dk = dk;
-    const st = isDaily ? { mid: [], up: [], lo: [] } : stepKeltner(cs, data.daily, dk);
-    if (isDaily) data.daily.forEach((d, i) => { const v = dk[i]; if (!v) return; st.mid.push({ time: d.time + KST, value: v.mid }); st.up.push({ time: d.time + KST, value: v.up }); st.lo.push({ time: d.time + KST, value: v.lo }); });
-    const mk = (pts, color, w) => { const s = chart.addSeries(LW.LineSeries, { color, lineWidth: lw(w), lineType: isDaily ? 0 : 1, priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false, priceFormat: { type: "price", precision: pf, minMove: Math.pow(10, -pf) } }, 0); s.setData(pts); return s; };
+    const sk = stepKeltner(cs, data.daily, dk);
+    const st = isDaily ? { mid: [], up: [], lo: [], up1: [], lo1: [] } : sk;
+    if (isDaily) data.daily.forEach((d, i) => { const v = dk[i]; if (!v) return; st.mid.push({ time: d.time + KST, value: v.mid }); st.up.push({ time: d.time + KST, value: v.up }); st.lo.push({ time: d.time + KST, value: v.lo }); st.up1.push({ time: d.time + KST, value: v.up1 }); st.lo1.push({ time: d.time + KST, value: v.lo1 }); });
+    ctl.band.set(sk.rows, !isDaily, rgba(col.kShade, 0.13));
+    const mk = (pts, color, w, lv) => { const s = chart.addSeries(LW.LineSeries, { color, lineWidth: lw(w), lineType: isDaily ? 0 : 1, priceLineVisible: false, lastValueVisible: lv !== false, crosshairMarkerVisible: false, priceFormat: { type: "price", precision: pf, minMove: Math.pow(10, -pf) } }, 0); s.setData(pts); return s; };
+    const w1 = Math.max(1, (K.wB || 3) - 1);   /* 1.0 선은 1.5 선보다 한 단계 얇게 · 중심선은 1.5 설정과 같은 굵기 */
     ctl.kel.mid = mk(st.mid, COL.kMid, K.wC); ctl.kel.up = mk(st.up, COL.kBand, K.wB); ctl.kel.lo = mk(st.lo, COL.kBand, K.wB);
+    ctl.kel.up1 = mk(st.up1, COL.kBand1, w1, false); ctl.kel.lo1 = mk(st.lo1, COL.kBand1, w1, false);
   }
   drawKeltner();
 
@@ -268,6 +359,7 @@ function build(el, data, opt) {
       ctl.subSeries[id] = sk; ctl[id] = st;
     }
   });
+  Object.keys(ctl.subSeries).forEach((k) => { const nb = new NightBand(); nb.set(nights, col.night); ctl.subSeries[k].attachPrimitive(nb); ctl.nights.push(nb); });
   const ps = chart.panes(); ps[0].setStretchFactor(subs.length ? 3.2 : 1); subs.forEach((_, i) => ps[i + 1] && ps[i + 1].setStretchFactor(1));
 
   /* ICT: 도형 + 지지·저항(전환 구분) */
@@ -275,11 +367,9 @@ function build(el, data, opt) {
   function drawIct() {
     ctl.priceLines.forEach((l) => { try { main.removePriceLine(l); } catch (e) {} }); ctl.priceLines = [];
     const a = ictAnalyze(cs); ctl.ictRes = a;
-    ctl.overlay.setItems(ictItems(a, I));
-    if (I.sr !== false) a.sr.forEach((l) => {
-      const flip = !!l.flip, color = flip ? (l.flip === "R→S" ? "#00e5c3" : "#ff5ee0") : (l.role === "R" ? "#ff8a6a" : "#5fd6a0");
-      ctl.priceLines.push(main.createPriceLine({ price: l.price, color, lineWidth: flip ? 2 : 1, lineStyle: flip ? 2 : 0, axisLabelVisible: false, title: "" }));
-    });
+    let rg = 0; const nr = Math.min(60, cs.length); for (let i = cs.length - nr; i < cs.length; i++) rg += cs[i].high - cs[i].low;
+    const th = Math.max(rg / nr * 0.6, cs[cs.length - 1].close * 0.0018);   /* 존 두께의 절반: 최근 봉 평균 변동폭의 60% (최소 0.18%) */
+    ctl.overlay.setItems(ictItems(a, I, col, th));
     const sw = []; /* 고점·저점 라벨(화살표 + 가격) */
     const k = 12;
     for (let i = k; i < cs.length - 1; i++) {

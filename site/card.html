@@ -35,7 +35,7 @@ window.renderCard=function(d){
  document.getElementById("ttl").textContent=d.title;
  document.getElementById("px").innerHTML="<small>Price</small>$"+d.price;
  const el=document.getElementById("chart");
- const ctl=ChartLib.build(el,{candles:d.candles,daily:d.daily||[]},{iv:d.iv,barSpacing:8,kel:{on:true,wC:3,wB:3},ict:{sr:true,struct:true,fvg:true,ob:true,liq:true,pd:true}});
+ const ctl=ChartLib.build(el,{candles:d.candles,daily:d.daily||[]},{iv:d.iv,colors:d.colors,barSpacing:8,kel:{on:true,wC:3,wB:3},ict:{sr:true,struct:true,fvg:true,ob:true,liq:true,pd:true}});
  document.getElementById("lg").innerHTML="";
  ctl.titles();
  return ctl.summary();
