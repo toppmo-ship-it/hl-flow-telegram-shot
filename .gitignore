@@ -1,3 +1,6 @@
 node_modules
 .cache
 *.png
+out_*
+rank_*.txt
+test-*.mjs

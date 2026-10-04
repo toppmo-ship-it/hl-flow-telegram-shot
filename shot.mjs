@@ -10,6 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { loadSiteInfo, loadUniverse, usdKrw, buildWeeklyTexts, buildSurgeText, pickRow, buildCardData, renderCard } from "./extras.mjs";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const SITE = path.join(ROOT, "site");
@@ -162,6 +163,63 @@ async function sendDocument(buf, name, replyTo) {
 
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
+/* ── 추가 기능: 순위 텍스트 · 종목별 카드 (실행 주기 상태는 .cache/state.json 로 이어받음) ── */
+const STATE_FILE = path.join(CACHE, "state.json");
+const loadState = () => { try { return JSON.parse(fs.readFileSync(STATE_FILE, "utf8")); } catch (e) { return {}; } };
+const saveState = (st) => { try { fs.mkdirSync(CACHE, { recursive: true }); fs.writeFileSync(STATE_FILE, JSON.stringify(st)); } catch (e) {} };
+const due = (last, everyMin) => !everyMin || !last || Date.now() - last >= everyMin * 60000 - 30000;
+async function sendText(text) {
+  const lines = text.split("\n"), chunks = []; let cur = "";
+  for (const ln of lines) { if ((cur + "\n" + ln).length > 3900) { chunks.push(cur); cur = ln; } else cur = cur ? cur + "\n" + ln : ln; }
+  if (cur) chunks.push(cur);
+  for (const c of chunks) {
+    const r = await fetch("https://api.telegram.org/bot" + tgToken() + "/sendMessage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: clean(process.env.TG_CHAT_ID), text: c, disable_web_page_preview: true }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.ok) throw new Error("텍스트 전송 실패 " + r.status + " " + (j.description || ""));
+  }
+}
+async function runExtras({ cfg0, q, dry, base }) {
+  const flag = (qv, cv) => (qv != null ? qv === "1" : !!cv);
+  const wantW = flag(q.rankw, cfg0.rankWeekly), wantS = flag(q.ranks, cfg0.rankSurge);
+  const cards = (q.cards != null ? String(q.cards).split(",") : (Array.isArray(cfg0.cards) ? cfg0.cards : [])).map((x) => x.replace(/[^0-9A-Za-z]/g, "")).filter(Boolean).slice(0, 12);
+  if (!wantW && !wantS && !cards.length) return;
+  const st = loadState(), now = Date.now(), force = q.force === "1";
+  const dueRank = (wantW || wantS) && (force || due(st.lastRank, +cfg0.rankEvery || 0));
+  const dueCards = cards.length && (force || due(st.lastCards, cfg0.cardEvery != null ? +cfg0.cardEvery : 60));
+  if (!dueRank && !dueCards) { log("추가 기능: 아직 보낼 주기가 아님"); return; }
+  const info = loadSiteInfo(SITE), uni = await loadUniverse(log), fx = await usdKrw(log);
+  log("추가 기능 시작 — HIP-3 " + uni.length + "종목, 환율 " + fx.toFixed(1));
+  if (dueRank) {
+    const texts = [];
+    if (wantW) { const r = await buildWeeklyTexts({ uni, info, fx, cacheDir: CACHE, log }); texts.push(...r.texts); if (r.note) log(r.note); }
+    if (wantS) texts.push(...await buildSurgeText({ uni, info, fx, log }));
+    for (const t of texts) { if (dry) console.log("\n──── 텔레그램 텍스트 ────\n" + t + "\n─────────────────────"); else await sendText(t); }
+    log("순위 텍스트", texts.length + "건", dry ? "(dry — 출력만)" : "전송");
+    st.lastRank = now;
+  }
+  if (dueCards) {
+    const iv = String(cfg0.cardIv || "1h").replace(/[^0-9a-z]/g, ""), days = Math.min(40, Math.max(3, +cfg0.cardDays || 20));
+    const browser = await puppeteer.launch({ executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome", headless: true, args: ["--no-sandbox", "--hide-scrollbars", "--disable-dev-shm-usage"], defaultViewport: { width: 1200, height: 760, deviceScaleFactor: 2 } });
+    try {
+      const page = await browser.newPage();
+      let n = 0;
+      for (const t of cards) {
+        const row = pickRow(uni, t, info);
+        if (!row) { log("카드 종목 없음:", t); continue; }
+        const d = await buildCardData({ row, ticker: t, info, iv, days, fx, log });
+        if (!d) { log("카드 데이터 부족:", t); continue; }
+        const png = await renderCard(page, base, d);
+        if (dry) { const f = path.join(ROOT, "out_card_" + t + ".png"); fs.writeFileSync(f, png); console.log("\n──── 카드 " + t + " ────\n" + d.caption); }
+        else await sendPhoto(png, d.caption);
+        n++;
+      }
+      log("종목 카드", n + "장", dry ? "(dry — 파일 저장)" : "전송");
+    } finally { await browser.close(); }
+    st.lastCards = now;
+  }
+  saveState(st);
+}
+
 async function main() {
   const T0 = Date.now(), deadline = T0 + 150000;
   const dry = process.env.SHOT_DRY === "1" || /^(1|true)$/i.test(process.env.SHOT_DRY || "");
@@ -235,18 +293,22 @@ async function main() {
       if (Date.now() - lastUpload > 60 * 60000) log("Supabase 백업", (await sbWriteStore(dump)) ? "OK" : "실패");
     }
     await browser.close(); browser = null;
-    if (!ready) { log("데이터 수집 중 — 이번엔 사진을 보내지 않음(다음 실행이 이어받음)"); return; }
-    if (process.env.SHOT_SAVE) fs.writeFileSync(process.env.SHOT_SAVE, png);
-    if (dry) { log("dry 모드 — 텔레그램 전송 생략"); return; }
-    const mid = await sendPhoto(png, "📈 흐름차트 · " + frame + " · " + ({ "4h": "4시간", "1h": "1시간", "8h": "8시간", "15m": "15분", "30m": "30분", "3m": "3분" }[iv] || iv) + "봉 · " + (lead || alt ? "" : "코인 제외 · ") + kstText());
-    log("사진 전송", mid);
-    if (sendDoc) {
-      try {
-        const d = new Date(Date.now() + 9 * 3600e3), p2 = (n) => String(n).padStart(2, "0");
-        const did = await sendDocument(png, "flow_" + frame + "_" + iv + "_" + d.getUTCFullYear() + p2(d.getUTCMonth() + 1) + p2(d.getUTCDate()) + "_" + p2(d.getUTCHours()) + p2(d.getUTCMinutes()) + ".png", mid);
-        log("원본 문서 전송", did);
-      } catch (e) { log(String((e && e.message) || e)); }
+    if (process.env.SHOT_SAVE && png) fs.writeFileSync(process.env.SHOT_SAVE, png);
+    if (!ready) log("데이터 수집 중 — 이번엔 차트 사진을 보내지 않음(다음 실행이 이어받음)");
+    else if (dry) log("dry 모드 — 차트 사진 전송 생략");
+    else {
+      const mid = await sendPhoto(png, "📈 흐름차트 · " + frame + " · " + ({ "4h": "4시간", "1h": "1시간", "8h": "8시간", "15m": "15분", "30m": "30분", "3m": "3분" }[iv] || iv) + "봉 · " + (lead || alt ? "" : "코인 제외 · ") + kstText());
+      log("사진 전송", mid);
+      if (sendDoc) {
+        try {
+          const d = new Date(Date.now() + 9 * 3600e3), p2 = (n) => String(n).padStart(2, "0");
+          const did = await sendDocument(png, "flow_" + frame + "_" + iv + "_" + d.getUTCFullYear() + p2(d.getUTCMonth() + 1) + p2(d.getUTCDate()) + "_" + p2(d.getUTCHours()) + p2(d.getUTCMinutes()) + ".png", mid);
+          log("원본 문서 전송", did);
+        } catch (e) { log(String((e && e.message) || e)); }
+      }
     }
+    /* 사진 직후 바로: 순위 텍스트 · 종목 카드 (설정 페이지의 토글) */
+    try { await runExtras({ cfg0, q, dry, base }); } catch (e) { log("추가 기능 오류:", String((e && e.message) || e)); }
   } finally {
     try { if (browser) await browser.close(); } catch (e) {}
     server.close();

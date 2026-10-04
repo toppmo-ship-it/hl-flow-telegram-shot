@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>종목 카드</title>
+<style>
+:root{--bg:#070b13;--panel:#0b111c;--line:#1b2840;--tx:#e6edf8;--mute:#8fa3c4;--up:#ff4d5d;--dn:#4fc3ff;--gold:#ffd84d}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:radial-gradient(900px 420px at 15% -10%,#0f2142 0,#05080f 62%,#03050a 100%);color:var(--tx);font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic","Nanum Gothic",system-ui,sans-serif}
+#card{position:relative;width:1200px;height:760px;padding:14px 16px 12px}
+#head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:0 6px 8px}
+#ttl{font-size:30px;font-weight:800;letter-spacing:.01em;text-shadow:0 0 14px rgba(120,200,255,.55)}
+#px{font-size:30px;font-weight:800;color:var(--gold);text-shadow:0 0 14px rgba(255,216,77,.5)}
+#px small{font-size:20px;color:var(--mute);font-weight:600;margin-right:8px}
+#chart{position:absolute;left:12px;right:12px;top:62px;bottom:10px;border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 0 22px rgba(60,140,255,.14)}
+.legend{position:absolute;left:24px;top:76px;z-index:5;font-size:15px;color:var(--mute);font-weight:600}
+.legend b{color:var(--gold)}
+</style>
+</head>
+<body>
+<div id="card">
+ <div id="head"><div id="ttl"></div><div id="px"></div></div>
+ <div id="chart"></div>
+ <div class="legend" id="lg"></div>
+</div>
+<script src="/vendor/lightweight-charts.js"></script>
+<script>
+(function(){
+"use strict";
+const LW=window.LightweightCharts,KST=9*3600;
+const pad=n=>String(n).padStart(2,"0"),WD=["일","월","화","수","목","금","토"];
+window.renderCard=function(d){
+ document.getElementById("ttl").textContent=d.title;
+ document.getElementById("px").innerHTML="<small>Price</small>$"+d.price;
+ const el=document.getElementById("chart");el.innerHTML="";
+ const chart=LW.createChart(el,{
+  autoSize:true,
+  layout:{background:{type:"solid",color:"#0a0f19"},textColor:"#9fb1cf",fontFamily:'"Pretendard","Malgun Gothic","Nanum Gothic",system-ui,sans-serif',fontSize:15,panes:{separatorColor:"#34507f",separatorHoverColor:"#6f9bff",enableResize:false}},
+  grid:{vertLines:{color:"#101a2b"},horzLines:{color:"#101a2b"}},
+  rightPriceScale:{borderColor:"#1c2a44",scaleMargins:{top:0.08,bottom:0.06}},
+  timeScale:{borderColor:"#1c2a44",timeVisible:true,rightOffset:6,barSpacing:9,
+   tickMarkFormatter:(t,type)=>{const x=new Date((t+KST)*1000);return type<=2?(x.getUTCMonth()+1)+"/"+x.getUTCDate()+"("+WD[x.getUTCDay()]+")":pad(x.getUTCHours())+":"+pad(x.getUTCMinutes());}},
+  localization:{timeFormatter:t=>{const x=new Date((t+KST)*1000);return (x.getUTCMonth()+1)+"/"+x.getUTCDate()+" "+pad(x.getUTCHours())+":"+pad(x.getUTCMinutes());}},
+  crosshair:{mode:0,vertLine:{visible:false},horzLine:{visible:false}}
+ });
+ const pf=d.candles.length&&d.candles[d.candles.length-1].close>=100?2:(d.candles[d.candles.length-1].close>=1?4:6);
+ const cs=chart.addSeries(LW.CandlestickSeries,{upColor:"#ff4d5d",downColor:"#4fc3ff",borderUpColor:"#ff4d5d",borderDownColor:"#4fc3ff",wickUpColor:"#ff4d5d",wickDownColor:"#4fc3ff",priceLineVisible:true,priceLineColor:"#7fa6ff",priceLineStyle:2,
+  priceFormat:{type:"price",precision:pf,minMove:Math.pow(10,-pf)}},0);
+ cs.setData(d.candles.map(c=>({time:c.time+KST,open:c.open,high:c.high,low:c.low,close:c.close})));
+ /* 지지·저항 가로선 */
+ (d.sr||[]).forEach(l=>cs.createPriceLine({price:l.price,color:l.type==="R"?"#ff8a6a":"#5fd6a0",lineWidth:1,lineStyle:0,axisLabelVisible:true,title:(l.type==="R"?"R: ":"S: ")+l.price.toPrecision(5)}));
+ /* 고점·저점 라벨(화살표 + 가격) */
+ const mk=(d.swings||[]).map(s=>({time:s.time+KST,position:s.type==="H"?"aboveBar":"belowBar",color:"#ffffff",shape:s.type==="H"?"arrowDown":"arrowUp",text:s.price.toPrecision(5)}));
+ LW.createSeriesMarkers(cs,mk);
+ /* 하단 지표: 거래량(거래대금 USD) 막대 + 20봉 평균선 */
+ const vs=chart.addSeries(LW.HistogramSeries,{priceFormat:{type:"custom",formatter:v=>v>=1e6?(v/1e6).toFixed(1)+"M":(v>=1e3?(v/1e3).toFixed(0)+"K":v.toFixed(0))},priceLineVisible:false,lastValueVisible:false},1);
+ vs.setData(d.candles.map(c=>({time:c.time+KST,value:c.volume,color:c.close>=c.open?"rgba(255,77,93,.78)":"rgba(79,195,255,.78)"})));
+ const ma=[];let sum=0;d.candles.forEach((c,i)=>{sum+=c.volume;if(i>=20)sum-=d.candles[i-20].volume;if(i>=19)ma.push({time:c.time+KST,value:sum/20});});
+ const ml=chart.addSeries(LW.LineSeries,{color:"#ffd84d",lineWidth:2,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false,priceFormat:{type:"custom",formatter:v=>v.toFixed(0)}},1);
+ ml.setData(ma);
+ const ps=chart.panes();ps[0].setStretchFactor(3);if(ps[1])ps[1].setStretchFactor(1);
+ chart.timeScale().fitContent();
+ document.getElementById("lg").innerHTML="하단: <b>거래량</b>(거래대금$) 막대 · <b>노랑선</b> = 20봉 평균";
+};
+})();
+</script>
+</body>
+</html>
