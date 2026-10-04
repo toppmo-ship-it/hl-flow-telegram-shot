@@ -165,7 +165,10 @@ const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 async function main() {
   const T0 = Date.now(), deadline = T0 + 150000;
   const dry = process.env.SHOT_DRY === "1" || /^(1|true)$/i.test(process.env.SHOT_DRY || "");
-  if (!dry && (!process.env.TG_BOT_TOKEN || !process.env.TG_CHAT_ID)) throw new Error("TG_BOT_TOKEN / TG_CHAT_ID 가 설정되지 않았어요 (저장소 Settings → Secrets)");
+  if (!dry && (!process.env.TG_BOT_TOKEN || !process.env.TG_CHAT_ID)) {   /* 아직 Secrets 미설정이면 실패(알림 메일)시키지 않고 조용히 건너뜀 */
+    log("TG_BOT_TOKEN / TG_CHAT_ID 가 설정되지 않아 건너뜀 — 저장소 Settings → Secrets and variables → Actions 에 추가하세요");
+    return;
+  }
   const q = Object.fromEntries(new URLSearchParams(process.env.SHOT_OVERRIDES || ""));   /* 수동 실행 시 한 번만 덮어쓰기: 예) res=pc&vz=200 */
   const cfg0 = Object.assign({}, DEF_CFG, (await sbRead(CFG_KEY)) || {});
   const list = (v, def) => (v == null ? def : String(v).split(",").map((x) => x.replace(/[^0-9a-z]/g, "")).filter(Boolean));
