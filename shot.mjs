@@ -161,7 +161,23 @@ async function sendDocument(buf, name, replyTo) {
   return j.result && j.result.message_id;
 }
 
-const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
+/* ── 진행 상황을 Supabase(tg_shot_status)에 올림 → 설정 페이지 하단 박스가 2초마다 읽어서 실시간으로 보여줌 ── */
+const STATUS_ON = !!SBK && (process.env.SHOT_STATUS === "1" || !/^(1|true)$/i.test(process.env.SHOT_DRY || ""));
+const ST = { run: process.env.GITHUB_RUN_NUMBER || String(Date.now()), start: Date.now(), state: "running", pct: 0, label: "시작", lines: [], updated: 0, done: 0 };
+let stTimer = null;
+async function stPost() {
+  ST.updated = Date.now();
+  try { await fetch(SBU + "/rest/v1/hlgrid_settings?on_conflict=key", { method: "POST", headers: { apikey: SBK, Authorization: "Bearer " + SBK, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" }, body: JSON.stringify({ key: "tg_shot_status", value: ST, updated_at: new Date().toISOString() }) }); } catch (e) {}
+}
+function stFlush(force) {
+  if (!STATUS_ON) return Promise.resolve();
+  if (force) { clearTimeout(stTimer); stTimer = null; return stPost(); }
+  if (!stTimer) stTimer = setTimeout(() => { stTimer = null; stPost(); }, 1200);
+  return Promise.resolve();
+}
+const stLine = (m) => { ST.lines.push([Date.now(), String(m).slice(0, 220)]); if (ST.lines.length > 40) ST.lines.shift(); };
+const log = (...a) => { console.log(new Date().toISOString().slice(11, 19), ...a); stLine(a.map(String).join(" ")); stFlush(); };
+const stage = (pct, label) => { ST.pct = Math.max(ST.pct, pct); ST.label = label; stLine("▶ " + label); stFlush(); };
 
 /* ── 추가 기능: 순위 텍스트 · 종목별 카드 (실행 주기 상태는 .cache/state.json 로 이어받음) ── */
 const STATE_FILE = path.join(CACHE, "state.json");
@@ -190,20 +206,24 @@ async function runExtras({ cfg0, q, dry, base }) {
   const info = loadSiteInfo(SITE), uni = await loadUniverse(log), fx = await usdKrw(log);
   log("추가 기능 시작 — HIP-3 " + uni.length + "종목, 환율 " + fx.toFixed(1));
   if (dueRank) {
+    stage(75, "순위 데이터 모으는 중");
     const texts = [];
     if (wantW) { const r = await buildWeeklyTexts({ uni, info, fx, cacheDir: CACHE, log }); texts.push(...r.texts); if (r.note) log(r.note); }
     if (wantS) texts.push(...await buildSurgeText({ uni, info, fx, log, cacheDir: CACHE }));
+    stage(84, "순위 텍스트 보내는 중");
     for (const t of texts) { if (dry) console.log("\n──── 텔레그램 텍스트 ────\n" + t + "\n─────────────────────"); else await sendText(t); }
     log("순위 텍스트", texts.length + "건", dry ? "(dry — 출력만)" : "전송");
     st.lastRank = now;
   }
   if (dueCards) {
+    stage(88, "종목 카드 준비 중");
     const iv = String(cfg0.cardIv || "1h").replace(/[^0-9a-z]/g, ""), days = Math.min(40, Math.max(3, +cfg0.cardDays || 20));
     const browser = await puppeteer.launch({ executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome", headless: true, args: ["--no-sandbox", "--hide-scrollbars", "--disable-dev-shm-usage"], defaultViewport: { width: 1200, height: 1100, deviceScaleFactor: 2 } });
     try {
       const page = await browser.newPage();
       let n = 0;
       for (const t of cards) {
+        stage(88 + Math.round(10 * n / Math.max(1, cards.length)), "종목 카드 " + (n + 1) + "/" + cards.length + " 만드는 중 · " + t);
         const row = pickRow(uni, t, info);
         if (!row) { log("카드 종목 없음:", t); continue; }
         const d = await buildCardData({ row, ticker: t, info, iv, days, fx, log });
@@ -229,6 +249,7 @@ async function main() {
     return;
   }
   const q = Object.fromEntries(new URLSearchParams(process.env.SHOT_OVERRIDES || ""));   /* 수동 실행 시 한 번만 덮어쓰기: 예) res=pc&vz=200 */
+  stage(3, "설정 읽는 중");
   const cfg0 = Object.assign({}, DEF_CFG, (await sbRead(CFG_KEY)) || {});
   const list = (v, def) => (v == null ? def : String(v).split(",").map((x) => x.replace(/[^0-9a-z]/g, "")).filter(Boolean));
   const frame = String(q.frame || cfg0.frame).replace(/[^0-9A-Za-z]/g, ""), iv = String(q.iv || cfg0.iv).replace(/[^0-9a-z]/g, "");
@@ -249,11 +270,13 @@ async function main() {
   const sectors = secRaw.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 40);
   log("설정", R.label, frame + "/" + iv, "거래대금[" + vol + "] 켈[" + kel + "] 대장" + (lead ? "O" : "X") + " 알트" + (alt ? "O" : "X"), "섹터", sectors.length || "전체", "세로" + vz + "%", "굵기" + sw + "/" + swi + "/" + swc, "지수" + idx.length, "원자재" + cmd.length, "→", Math.round(VW * dsf) + "x" + Math.round(VH * dsf));
 
+  stage(8, "저장된 캔들 이어받는 중");
   const { store, from } = await loadStore();
   log("저장본", from, store ? Object.keys(store.day || {}).length + "/" + Object.keys((store.raw && store.raw[iv]) || {}).length + "종목" : "");
   const { server, base } = await startServer();
   let browser = null;
   try {
+    stage(14, "차트 화면 여는 중");
     browser = await puppeteer.launch({
       executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome",
       headless: true,
@@ -271,6 +294,7 @@ async function main() {
     const dataOk = (i) => !!(i && !i.loading && i.grid > 0 && i.tot > 0 && i.n >= Math.ceil(i.tot * 0.9) && i.day >= Math.ceil(i.dayTot * 0.9));
     while (Date.now() < deadline) {
       info = await page.evaluate(() => (window.__shotInfo ? window.__shotInfo() : null)).catch(() => null);
+      if (info && info.tot > 0) { ST.pct = Math.max(ST.pct, Math.round(18 + 38 * Math.min(1, ((info.n / info.tot) + (info.dayTot ? info.day / info.dayTot : 1)) / 2))); ST.label = "차트 데이터 받는 중 (종목 " + info.n + "/" + info.tot + ")"; stFlush(); }
       if (info && Date.now() - lastLog > 5000) { lastLog = Date.now(); log("대기 n=" + info.n + "/" + info.tot, "day=" + info.day + "/" + info.dayTot, "loading=" + info.loading, JSON.stringify(info.fetch)); }
       if (dataOk(info)) {
         if (!readyAt) readyAt = Date.now();
@@ -280,6 +304,7 @@ async function main() {
     }
     const ready = dataOk(info);
     log("준비", ready ? "완료" : "미완", JSON.stringify(info && { n: info.n, tot: info.tot, day: info.day, live: !!info.live, fetch: info.fetch }));
+    stage(58, ready ? "차트 사진 찍는 중" : "데이터 수집이 덜 끝남");
     await page.evaluate(() => { window.__shotFreeze = true; }).catch(() => {});
     await new Promise((r) => setTimeout(r, 1200));
     let png = null;
@@ -298,8 +323,9 @@ async function main() {
     if (!ready) log("데이터 수집 중 — 이번엔 차트 사진을 보내지 않음(다음 실행이 이어받음)");
     else if (dry) log("dry 모드 — 차트 사진 전송 생략");
     else {
+      stage(64, "텔레그램으로 차트 사진 보내는 중");
       const mid = await sendPhoto(png, "📈 흐름차트 · " + frame + " · " + ({ "4h": "4시간", "1h": "1시간", "8h": "8시간", "15m": "15분", "30m": "30분", "3m": "3분" }[iv] || iv) + "봉 · " + (lead || alt ? "" : "코인 제외 · ") + kstText());
-      log("사진 전송", mid);
+      log("사진 전송", mid); stage(72, "차트 사진 전송 완료");
       if (sendDoc) {
         try {
           const d = new Date(Date.now() + 9 * 3600e3), p2 = (n) => String(n).padStart(2, "0");
@@ -315,6 +341,8 @@ async function main() {
     server.close();
   }
   log("끝", Math.round((Date.now() - T0) / 1000) + "초");
+  ST.state = "done"; ST.pct = 100; ST.label = "완료"; ST.done = Date.now(); stLine("✅ 모두 끝 (" + Math.round((Date.now() - T0) / 1000) + "초)");
+  await stFlush(true);
 }
 
-main().then(() => process.exit(0)).catch((e) => { console.error("오류:", e && e.message || e); process.exit(1); });
+main().then(() => process.exit(0)).catch(async (e) => { console.error("오류:", e && e.message || e); ST.state = "error"; ST.label = "오류"; stLine("❌ " + String((e && e.message) || e)); ST.done = Date.now(); await stFlush(true); process.exit(1); });
