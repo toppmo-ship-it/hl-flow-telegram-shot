@@ -356,6 +356,7 @@ export async function renderCard(page, base, data) {
     const o = []; if (sum.rsi != null) o.push("RSI " + sum.rsi); if (sum.st533) o.push("스토 5/3/3 " + sum.st533.k + "/" + sum.st533.d); if (sum.st2599) o.push("스토 25/9/9 " + sum.st2599.k + "/" + sum.st2599.d);
     if (o.length) L.push("📊 " + o.join(" · "));
     data.caption += "\n\n" + L.join("\n");
+    if (data.caption.length > 1000) data.caption = data.caption.slice(0, 997) + "…";
   }
   return await page.screenshot({ type: "png" });
 }

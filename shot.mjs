@@ -10,7 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { loadSiteInfo, loadUniverse, usdKrw, buildWeeklyTexts, buildSurgeText, pickRow, buildCardData, renderCard } from "./extras.mjs";
+import { loadSiteInfo, loadUniverse, usdKrw, buildWeeklyTexts, buildSurgeText, pickRow, buildCardData, renderCard, flushCardCache } from "./extras.mjs";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const SITE = path.join(ROOT, "site");
@@ -226,7 +226,7 @@ async function runExtras({ cfg0, q, dry, base }) {
         stage(88 + Math.round(10 * n / Math.max(1, cards.length)), "종목 카드 " + (n + 1) + "/" + cards.length + " 만드는 중 · " + t);
         const row = pickRow(uni, t, info);
         if (!row) { log("카드 종목 없음:", t); continue; }
-        const d = await buildCardData({ row, ticker: t, info, iv, days, fx, log });
+        const d = await buildCardData({ row, ticker: t, info, iv, days, fx, log, cacheDir: CACHE, mode: cfg0.mode });
         if (!d) { log("카드 데이터 부족:", t); continue; }
         d.colors = cfg0.colors || null;
         const png = await renderCard(page, base, d);
@@ -235,7 +235,7 @@ async function runExtras({ cfg0, q, dry, base }) {
         n++;
       }
       log("종목 카드", n + "장", dry ? "(dry — 파일 저장)" : "전송");
-    } finally { await browser.close(); }
+    } finally { await browser.close(); flushCardCache(CACHE); }
     st.lastCards = now;
   }
   saveState(st);
