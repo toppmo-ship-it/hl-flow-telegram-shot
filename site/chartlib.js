@@ -6,6 +6,7 @@
    ═══════════════════════════════════════════════════════════════ */
 (function () {
 "use strict";
+const root_ = typeof window !== "undefined" ? window : globalThis;
 const LW = window.LightweightCharts, KST = 9 * 3600, DAY = 86400;
 const COL = { up: "#ff4d5d", dn: "#4fc3ff", kMid: "#ff9f1a", kBand: "#ffd84d", kBand1: "#f0dc6e", rsi: "#c792ff", sk: "#4fc3ff", sd: "#ff9f43", vol: "#ffd84d" };
 const mean = (a) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0);
@@ -278,6 +279,99 @@ function weekendBands(TT) {
   return out;
 }
 
+/* ───────── 차트 패턴 표시 (모양 + 이름표 + 설명 + 과거 통계) ───────── */
+const PCOL = { up: "#ff5d6e", dn: "#4fb4ff", neu: "#b79cff", ok: "#2ee6a6", bad: "#8d9ab8" };
+class PatternLayer {
+  constructor() { this.res = null; this.from = 0; this.chart = null; this.series = null; this.req = null; }
+  attached(p) { this.chart = p.chart; this.series = p.series; this.req = p.requestUpdate; }
+  detached() {}
+  updateAllViews() {}
+  set(res, from) { this.res = res; this.from = from; this.req && this.req(); }
+  paneViews() { const self = this; return [{ zOrder: () => "top", renderer: () => ({ draw: (t) => t.useMediaCoordinateSpace((s) => self.draw(s)) }) }]; }
+  draw({ context: c, mediaSize }) {
+    if (!this.chart || !this.series || !this.res) return;
+    const ts = this.chart.timeScale(), W = mediaSize.width, Hh = mediaSize.height;
+    const X = (i) => ts.logicalToCoordinate(i), Y = (p) => this.series.priceToCoordinate(p);
+    const pats = this.res.pats.filter((p) => p.end >= this.from - 5 && p.start <= 1e9);
+    const FONT = '"Pretendard","Malgun Gothic","Nanum Gothic",sans-serif';
+    const colOf = (p) => (p.state === "success" ? PCOL.ok : (p.state === "fail" || p.state === "flat") ? PCOL.bad : ((p.dirFinal != null ? p.dirFinal : p.dir) > 0 ? PCOL.up : (p.dirFinal != null ? p.dirFinal : p.dir) < 0 ? PCOL.dn : PCOL.neu));
+    const rgba = (h, al) => { const n = parseInt(h.slice(1), 16); return "rgba(" + (n >> 16 & 255) + "," + (n >> 8 & 255) + "," + (n & 255) + "," + al + ")"; };
+    const live = (p) => p.state === "forming" || p.state === "confirmed";
+    const lineAt = (a, b, x) => (b[0] === a[0] ? a[1] : a[1] + (b[1] - a[1]) * (x - a[0]) / (b[0] - a[0]));
+    c.save(); c.lineJoin = "round"; c.lineCap = "round";
+    const tags = [];
+    pats.forEach((p) => {
+      const col = colOf(p), a = live(p) ? 1 : 0.5;
+      const xe = p.confirmI != null && p.confirmI > 0 ? p.confirmI : p.end, P = (i, v) => { const x = X(i), y = Y(v); return x == null || y == null ? null : [x, y]; };
+      /* 면(삼각형·깃발·박스 등) */
+      if (p.lines) {
+        const pa = P(p.lines[0][0][0], p.lines[0][0][1]), pb = P(xe, lineAt(p.lines[0][0], p.lines[0][1], xe)), pc2 = P(xe, lineAt(p.lines[1][0], p.lines[1][1], xe)), pd = P(p.lines[1][0][0], p.lines[1][0][1]);
+        if (pa && pb && pc2 && pd) { c.fillStyle = rgba(col, live(p) ? 0.10 : 0.05); c.beginPath(); c.moveTo(pa[0], pa[1]); c.lineTo(pb[0], pb[1]); c.lineTo(pc2[0], pc2[1]); c.lineTo(pd[0], pd[1]); c.closePath(); c.fill();
+          c.strokeStyle = rgba(col, 0.85 * a); c.lineWidth = 1.5; c.setLineDash([]); c.beginPath(); c.moveTo(pa[0], pa[1]); c.lineTo(pb[0], pb[1]); c.moveTo(pd[0], pd[1]); c.lineTo(pc2[0], pc2[1]); c.stroke(); }
+      }
+      /* 컵: 부드러운 곡선 */
+      if (p.type === "cupHandle" && p.cup) {
+        const r1 = P(p.pts[0][0], p.pts[0][1]), bt = P(p.pts[1][0], p.pts[1][1]), r2 = P(p.pts[2][0], p.pts[2][1]), hl = P(p.pts[3][0], p.pts[3][1]);
+        if (r1 && bt && r2 && hl) { c.strokeStyle = rgba(col, 0.9 * a); c.lineWidth = 2.2; c.setLineDash([]); c.beginPath(); c.moveTo(r1[0], r1[1]); c.quadraticCurveTo((r1[0] + r2[0]) / 2, 2 * bt[1] - (r1[1] + r2[1]) / 2, r2[0], r2[1]); c.lineTo(hl[0], hl[1]); c.stroke(); }
+      } else if (p.pts && p.pts.length > 1) {
+        c.strokeStyle = rgba(col, 0.9 * a); c.lineWidth = live(p) ? (p.pole ? 2.6 : 2.2) : 1.5; c.setLineDash([]); c.beginPath(); let st = false;
+        p.pts.forEach((q) => { const z = P(q[0], q[1]); if (!z) return; if (!st) { c.moveTo(z[0], z[1]); st = true; } else c.lineTo(z[0], z[1]); }); c.stroke();
+      }
+      /* 꼭짓점 점 */
+      (live(p) ? (p.pts || []) : []).forEach((q) => { const z = P(q[0], q[1]); if (!z) return; c.fillStyle = "#0a0f19"; c.beginPath(); c.arc(z[0], z[1], 4, 0, 6.3); c.fill(); c.strokeStyle = rgba(col, a); c.lineWidth = 1.8; c.stroke(); });
+      /* 넥라인(점선) */
+      if (p.neck) { const n0 = P(p.neck[0][0], p.neck[0][1]), n1 = P(xe, lineAt(p.neck[0], p.neck[1], xe)); if (n0 && n1) { c.strokeStyle = rgba(col, 0.75 * a); c.lineWidth = 1.4; c.setLineDash([6, 5]); c.beginPath(); c.moveTo(n0[0], n0[1]); c.lineTo(n1[0], n1[1]); c.stroke(); c.setLineDash([]); } }
+      /* 돌파 지점 · 결과 · 목표 */
+      if (p.confirmI > 0) {
+        const z = P(p.confirmI, p.entry); if (z) { c.fillStyle = col; c.beginPath(); c.arc(z[0], z[1], 5.5, 0, 6.3); c.fill(); c.strokeStyle = "#fff"; c.lineWidth = 1.6; c.stroke();
+          c.fillStyle = "#fff"; c.font = "800 9px " + FONT; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(p.dirReal > 0 ? "▲" : "▼", z[0], z[1] + 0.5); }
+        if (live(p) && p.target != null) { const t0 = P(p.confirmI, p.target), t1 = P(Math.min(p.confirmI + 40, 1e9), p.target); if (t0 && t1) { c.strokeStyle = rgba(col, 0.8); c.lineWidth = 1.3; c.setLineDash([2, 5]); c.beginPath(); c.moveTo(t0[0], t0[1]); c.lineTo(t1[0], t1[1]); c.stroke(); c.setLineDash([]); } }
+        if (p.resI) { const r = P(p.resI, p.state === "success" ? p.entry + p.dirReal * p.height * 0.6 : p.entry - p.dirReal * p.height * 0.6); if (r) { c.fillStyle = col; c.font = "800 15px " + FONT; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(p.state === "success" ? "✓" : "✕", r[0], r[1]); } }
+      }
+      /* 이름표 정보 */
+      const dE = p.dirFinal != null ? p.dirFinal : p.dir, ys = (p.pts || []).concat(p.lines ? p.lines.flat() : []).map((q) => Y(q[1])).filter((y) => y != null), xs = (p.pts || []).map((q) => X(q[0])).filter((x) => x != null);
+      if (!ys.length || !xs.length) return;
+      const stText = p.state === "forming" ? "형성 중" : p.state === "confirmed" ? (p.dirReal > 0 ? "돌파 확정" : "이탈 확정") : p.state === "success" ? "✓ 성공" : p.state === "fail" ? "✕ 실패" : "기간 내 미도달";
+      const pct = p.targetPct != null ? ((p.targetPct >= 0 ? "+" : "") + p.targetPct.toFixed(1) + "%") : null;
+      const dmap = (root_.Patterns && root_.Patterns.DESC[p.type]) || {}, desc = dmap[p.state === "flat" ? "forming" : p.state] || dmap.forming || "";
+      let l3 = null; if (live(p) && !(root_.Patterns && root_.Patterns.META[p.type].info)) { const st = this.res.stats[p.type], tot = st ? st.s + st.f : 0; l3 = tot >= 3 ? "이 종목 과거 " + tot + "회 중 " + st.s + "회 성공 · 최근 " + this.res.span + "일" : "과거 표본 " + tot + "회 · 통계 부족"; }
+      tags.push({ p, col, name: p.name, stText, pct, desc, l3, cx: (Math.min(...xs) + Math.max(...xs)) / 2, top: Math.min(...ys), bot: Math.max(...ys), below: dE > 0, live: live(p), end: p.end });
+    });
+    /* 이름표 배치: 최신·진행 중 먼저, 겹치면 밀어내고 그래도 겹치면 설명 줄을 생략 */
+    tags.sort((a, b) => (b.live - a.live) || (b.end - a.end));
+    const placed = [];
+    const hit = (r) => placed.some((q) => r.x < q.x + q.w + 4 && r.x + r.w + 4 > q.x && r.y < q.y + q.h + 3 && r.y + r.h + 3 > q.y);
+    tags.forEach((t) => {
+      const lines = [{ txt: t.name, f: "800 14px " + FONT, col: "#ffffff" }];
+      const sub = [t.stText, t.pct ? "목표 " + t.pct : null].filter(Boolean).join(" · ");
+      for (const mode of ["full", "short"]) {
+        const L = mode === "full" ? [lines[0], { txt: sub, f: "800 12px " + FONT, col: t.col }, { txt: t.desc, f: "500 11.5px " + FONT, col: "#aebdd8" }].concat(t.l3 ? [{ txt: t.l3, f: "700 11px " + FONT, col: "#ffd84d" }] : []) : [lines[0], { txt: sub, f: "800 12px " + FONT, col: t.col }];
+        let w = 0; L.forEach((l) => { c.font = l.f; l.w = c.measureText(l.txt).width; w = Math.max(w, l.w); });
+        w += 22; const h = L.reduce((s, l) => s + (l.f.indexOf("14px") > 0 ? 19 : 16), 0) + 10;
+        let x = Math.max(8, Math.min(W - w - 8, t.cx - w / 2)), ok = false, y = 0;
+        for (let k = 0; k < 7 && !ok; k++) {
+          const off = 12 + k * (h * 0.55 + 4);
+          y = t.below ? t.bot + off : t.top - off - h; y = Math.max(4, Math.min(Hh - h - 4, y));
+          ok = !hit({ x, y, w, h });
+        }
+        if (!ok && mode === "full") continue;
+        if (!ok) return;
+        placed.push({ x, y, w, h });
+        /* 카드 그리기 */
+        const r = 9; c.fillStyle = "rgba(8,13,24,.92)"; c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); c.fill();
+        c.strokeStyle = rgba(t.col, 0.55); c.lineWidth = 1; c.stroke();
+        c.fillStyle = t.col; c.beginPath(); c.moveTo(x + r, y); c.arcTo(x, y, x, y + h, r); c.arcTo(x, y + h, x + r, y + h, r); c.lineTo(x + 4, y + h); c.lineTo(x + 4, y); c.closePath(); c.fill();
+        let yy = y + 6; c.textAlign = "left"; c.textBaseline = "top";
+        L.forEach((l) => { c.font = l.f; c.fillStyle = l.col; c.fillText(l.txt, x + 13, yy); yy += l.f.indexOf("14px") > 0 ? 19 : 16; });
+        /* 꼬리선: 이름표 → 패턴 */
+        c.strokeStyle = rgba(t.col, 0.5); c.lineWidth = 1; c.beginPath(); const ax = Math.max(x + 10, Math.min(x + w - 10, t.cx)); if (t.below) { c.moveTo(ax, y); c.lineTo(ax, Math.max(t.bot + 3, y - 10)); } else { c.moveTo(ax, y + h); c.lineTo(ax, Math.min(t.top - 3, y + h + 10)); } c.stroke();
+        break;
+      }
+    });
+    c.restore();
+  }
+}
+
 /* ICT 결과 → 도형 목록 */
 function ictItems(a, o, col, th) {
   const items = [], rgba = (h, al) => { const n = parseInt(h.slice(1), 16); return "rgba(" + (n >> 16 & 255) + "," + (n >> 8 & 255) + "," + (n & 255) + "," + al + ")"; };
@@ -323,7 +417,8 @@ function build(el, data, opt) {
   main.setData(cs.map((c) => ({ time: c.time + KST, open: c.open, high: c.high, low: c.low, close: c.close })));
   const col = Object.assign({ kShade: "#3ddc97", sup: "#2ee6a6", res: "#ff9f43", night: "#5b6cff" }, opt.colors || {});
   const rgba = (h, al) => { const n = parseInt(String(h).slice(1), 16); return "rgba(" + (n >> 16 & 255) + "," + (n >> 8 & 255) + "," + (n & 255) + "," + al + ")"; };
-  const ctl = { chart, main, overlay: new Overlay(), band: new BandFill(), priceLines: [], kel: {}, subSeries: {}, opt, data, subs };
+  const patMode = opt.mode !== "ict" && !!(root_.Patterns);
+  const ctl = { chart, main, overlay: new Overlay(), band: new BandFill(), priceLines: [], kel: {}, subSeries: {}, opt, data, subs, patMode };
   main.attachPrimitive(ctl.band); main.attachPrimitive(ctl.overlay);
   const TT = cs.map((c) => c.time + KST), nights = weekendBands(TT);
   { const nb = new NightBand(); nb.set(nights, col.night); main.attachPrimitive(nb); ctl.nights = [nb]; }
@@ -380,9 +475,11 @@ function build(el, data, opt) {
   const ps = chart.panes(); ps[0].setStretchFactor(subs.length ? 6.5 : 1); subs.forEach((id, i) => ps[i + 1] && ps[i + 1].setStretchFactor(id === "rsi" ? 1.7 : 1));
 
   /* ICT: 도형 + 지지·저항(전환 구분) */
-  const I = opt.ict || {};
+  const I = patMode ? {} : (opt.ict || {});
+  const winFrom = opt.windowBars ? Math.max(-1, cs.length - opt.windowBars) : -1;
   function drawIct() {
     ctl.priceLines.forEach((l) => { try { main.removePriceLine(l); } catch (e) {} }); ctl.priceLines = [];
+    if (patMode) { ctl.ictRes = { sr: [], struct: [], fvg: [], ob: [], liq: [], sweeps: [], pd: null, trend: 0, lastEvent: null }; return ctl.ictRes; }
     const a = ictAnalyze(cs); ctl.ictRes = a;
     let rg = 0; const nr = Math.min(60, cs.length); for (let i = cs.length - nr; i < cs.length; i++) rg += cs[i].high - cs[i].low;
     const th = Math.max(rg / nr * 0.6, cs[cs.length - 1].close * 0.0018);   /* 존 두께의 절반: 최근 봉 평균 변동폭의 60% (최소 0.18%) */
@@ -398,6 +495,7 @@ function build(el, data, opt) {
     return a;
   }
   const a = drawIct();
+  if (patMode) { ctl.pat = root_.Patterns.detect(cs); ctl.patLayer = new PatternLayer(); main.attachPrimitive(ctl.patLayer); ctl.patLayer.set(ctl.pat, winFrom); }
 
   /* 패널 제목(왼쪽 위) */
   function titles() {
@@ -407,10 +505,10 @@ function build(el, data, opt) {
     const lg = []; if (K.on !== false) lg.push("일봉 켈트너(20/10/1.5) — 중심선 주황 · 상하단 노랑" + (isDaily ? "" : " · 그날의 일봉 값(계단)"));
     const d = document.createElement("div"); d.className = "paneTitle"; d.textContent = lg.join(""); d.style.cssText = "position:absolute;left:10px;top:6px;z-index:6;font:700 13px 'Pretendard','Malgun Gothic','Nanum Gothic',sans-serif;color:#c9d6ee;background:rgba(10,15,25,.78);padding:2px 7px;border-radius:5px;pointer-events:none"; if (lg.length) el.appendChild(d);
   }
-  chart.timeScale().setVisibleLogicalRange({ from: -1, to: cs.length - 1 + Math.max(18, Math.round(cs.length * 0.09)) });   /* 오른쪽 여백 18봉: 최신 봉·가격 숫자가 겹치지 않게 */
+  chart.timeScale().setVisibleLogicalRange({ from: winFrom, to: cs.length - 1 + Math.max(18, Math.round((cs.length - winFrom) * 0.09)) });   /* 오른쪽 여백 18봉: 최신 봉·가격 숫자가 겹치지 않게 */
   setTimeout(titles, 60); ctl.titles = titles;
   /* 라이브 갱신용 */
-  ctl.refreshAll = () => { drawKeltner(); const r = drawIct(); return r; };
+  ctl.refreshAll = () => { drawKeltner(); const r = drawIct(); if (ctl.patLayer) { ctl.pat = root_.Patterns.detect(cs); ctl.patLayer.set(ctl.pat, winFrom); } return r; };
   ctl.summary = () => summarize(ctl, cs, data.daily);
   return ctl;
 }
@@ -425,8 +523,13 @@ function summarize(ctl, cs, daily) {
   const ev = a.lastEvent;
   out.ict = { trend: a.trend > 0 ? "상승 구조" : a.trend < 0 ? "하락 구조" : "구조 불명", last: ev ? ev.kind + (ev.dir > 0 ? "↑" : "↓") + " (" + (cs.length - 1 - ev.i) + "봉 전)" : "—", fvg: a.fvg.length, ob: a.ob.length,
     pd: a.pd ? a.pd.zone : "—", flips: a.sr.filter((x) => x.flip).map((x) => x.flip + " " + x.price.toPrecision(5)), eqh: a.liq.filter((x) => x.type === "H").length, eql: a.liq.filter((x) => x.type === "L").length, sweeps: a.sweeps.map((s) => s.type) };
+  if (ctl.pat) {
+    const live = ctl.pat.pats.filter((p) => p.state === "forming" || p.state === "confirmed").filter((p) => !(root_.Patterns.META[p.type].info)).slice(-4);
+    out.patterns = { live: live.map((p) => ({ name: p.name, state: p.state, dirReal: p.dirReal, pct: p.targetPct })), span: ctl.pat.span, stats: Object.values(ctl.pat.stats).map((x) => ({ name: x.name, s: x.s, f: x.f })).filter((x) => x.s + x.f >= 3).sort((a, b) => (b.s + b.f) - (a.s + a.f)).slice(0, 5) };
+  }
   const lastRsi = ctl.rsi ? ctl.rsi[ctl.rsi.length - 1] : null; out.rsi = lastRsi == null ? null : Math.round(lastRsi);
   ["st533", "st2599"].forEach((id) => { const s = ctl[id]; if (s) out[id] = { k: Math.round(s.k[s.k.length - 1] || 0), d: Math.round(s.d[s.d.length - 1] || 0) }; });
+  if (ctl.patMode) delete out.ict;
   return out;
 }
 

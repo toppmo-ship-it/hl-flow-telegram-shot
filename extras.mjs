@@ -301,12 +301,22 @@ function swings(cs) {
   return out.slice(-10);
 }
 const IVMS = { "15m": 900e3, "30m": 1800e3, "1h": 3600e3, "2h": 7200e3, "4h": 14400e3 };
-export async function buildCardData({ row, ticker, info, iv, days, fx, log }) {
+/* 카드용 캔들 저장본(.cache/cardbars.json): 패턴 통계를 위해 최대 5000봉(약 240일)을 쌓아 두고 매번 마지막 3봉부터만 이어받음 */
+let CB = null, CBFILE = null, CBDIRTY = false;
+function cbLoad(cacheDir) { if (CB) return; CB = {}; CBFILE = cacheDir ? path.join(cacheDir, "cardbars.json") : null; try { if (CBFILE) CB = JSON.parse(fs.readFileSync(CBFILE, "utf8")); } catch (e) { CB = {}; } }
+export function flushCardCache(cacheDir) { if (!CB || !CBDIRTY || !CBFILE) return; try { fs.mkdirSync(cacheDir, { recursive: true }); fs.writeFileSync(CBFILE, JSON.stringify(CB)); } catch (e) {} CBDIRTY = false; }
+export async function buildCardData({ row, ticker, info, iv, days, fx, log, cacheDir, mode }) {
   const ms = IVMS[iv] || 3600e3, now = Date.now();
-  const n = Math.min(900, Math.ceil(days * 864e5 / ms));
-  const cs0 = await hl({ type: "candleSnapshot", req: { coin: row.full, interval: iv, startTime: now - n * ms, endTime: now } }, log);
-  if (!cs0 || cs0.length < 30) return null;
-  const candles = cs0.map((c) => ({ time: Math.round(c.t / 1000), open: +c.o, high: +c.h, low: +c.l, close: +c.c, volume: +c.v * (+c.h + +c.l + +c.c) / 3 }));   /* 거래량 = 거래대금(USD) */
+  const lookN = Math.min(5000, Math.ceil(240 * 864e5 / ms));
+  cbLoad(cacheDir);
+  const key = row.full + "|" + iv, old = CB[key], have = old && old.length > 100 && old[0][0] <= now - lookN * ms + 36 * ms;
+  const from = have ? old[old.length - 3][0] : now - lookN * ms;
+  const got = await hl({ type: "candleSnapshot", req: { coin: row.full, interval: iv, startTime: from, endTime: now } }, log);
+  let rows = have ? old : [];
+  if (got && got.length) { const m = new Map(rows.map((x) => [x[0], x])); got.forEach((c) => m.set(c.t, [c.t, +c.o, +c.h, +c.l, +c.c, +c.v])); rows = [...m.values()].sort((a, b) => a[0] - b[0]).slice(-lookN); CB[key] = rows; CBDIRTY = true; }
+  if (rows.length < 30) return null;
+  const candles = rows.map((c) => ({ time: Math.round(c[0] / 1000), open: c[1], high: c[2], low: c[3], close: c[4], volume: c[5] * (c[2] + c[3] + c[4]) / 3 }));
+  const windowBars = Math.min(candles.length, Math.ceil(days * 864e5 / ms));   /* 거래량 = 거래대금(USD) */
   /* 일봉(켈트너 20/10/1.5·ICT용): 최근 120일 */
   const dd = await hl({ type: "candleSnapshot", req: { coin: row.full, interval: "1d", startTime: now - 120 * 864e5, endTime: now } }, log).catch(() => null);
   const daily = (dd || []).map((c) => ({ time: Math.round(c.t / 1000), open: +c.o, high: +c.h, low: +c.l, close: +c.c, volume: +c.v }));
@@ -322,7 +332,7 @@ export async function buildCardData({ row, ticker, info, iv, days, fx, log }) {
     dot + " 거래량: 평소의 " + (mult == null ? "—" : mult.toFixed(1)) + "배 (직전 20봉 평균 대비)\n" +
     (body >= 0 ? "🔺" : "🔽") + " 몸통: " + (body >= 0 ? "+" : "") + body.toFixed(2) + "%" + (rsi != null ? " (RSI " + Math.round(rsi) + ")" : "") + "\n" +
     "💰 현재가: " + fmtP(price) + "\n💵 24시간 거래대금: " + fmt(eok(turn24, fx)) + "억원 ($" + (turn24 / 1e6).toFixed(1) + "M)\n⏱ " + kstStamp(now).slice(-9) + " · " + ivKo + "봉 진행 중";
-  return { iv, daily, title: ticker + (name ? " (" + name + ")" : "") + " - " + iv.toUpperCase() + " (Vol) (HYPERLIQUID)", price: fmtP(price), candles, sr: levels(candles, price), swings: swings(candles), caption };
+  return { iv, mode: mode || "pattern", windowBars, daily, title: ticker + (name ? " (" + name + ")" : "") + " - " + iv.toUpperCase() + " (Vol) (HYPERLIQUID)", price: fmtP(price), candles, sr: levels(candles, price), swings: swings(candles), caption };
 }
 export function pickRow(uni, ticker, info) {
   const alias = info.alias[ticker] || ticker;
@@ -336,8 +346,13 @@ export async function renderCard(page, base, data) {
   if (sum) {
     const L = [];
     if (sum.kel) L.push("🟠 일봉 켈트너: 중심 " + sum.kel.mid.toPrecision(5) + " · 상단 " + sum.kel.up.toPrecision(5) + " · 하단 " + sum.kel.lo.toPrecision(5) + " → " + sum.kel.pos);
-    const t = sum.ict; L.push("🧭 ICT: " + t.trend + " · 최근 " + t.last + " · " + t.pd + " 구간 · FVG " + t.fvg + " · OB " + t.ob + (t.eqh || t.eql ? " · EQH " + t.eqh + "/EQL " + t.eql : ""));
-    if (t.flips.length) L.push("🔁 전환 레벨: " + t.flips.join(", "));
+    if (sum.patterns) {
+      const pt = sum.patterns, nm = (p) => p.name + (p.state === "confirmed" ? "(" + (p.dirReal > 0 ? "돌파" : "이탈") + " 확정)" : "(형성 중)");
+      L.push("🧩 패턴: " + (pt.live.length ? pt.live.map(nm).join(" · ") : "현재 진행 중인 패턴 없음"));
+      if (pt.stats.length) L.push("📊 과거 " + pt.span + "일 통계: " + pt.stats.map((x) => x.name + " " + x.s + "/" + (x.s + x.f)).join(" · ") + " (성공=목표 60% 도달)");
+    }
+    const t = sum.ict; if (t) L.push("🧭 ICT: " + t.trend + " · 최근 " + t.last + " · " + t.pd + " 구간 · FVG " + t.fvg + " · OB " + t.ob + (t.eqh || t.eql ? " · EQH " + t.eqh + "/EQL " + t.eql : ""));
+    if (t && t.flips.length) L.push("🔁 전환 레벨: " + t.flips.join(", "));
     const o = []; if (sum.rsi != null) o.push("RSI " + sum.rsi); if (sum.st533) o.push("스토 5/3/3 " + sum.st533.k + "/" + sum.st533.d); if (sum.st2599) o.push("스토 25/9/9 " + sum.st2599.k + "/" + sum.st2599.d);
     if (o.length) L.push("📊 " + o.join(" · "));
     data.caption += "\n\n" + L.join("\n");
