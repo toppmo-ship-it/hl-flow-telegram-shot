@@ -34,6 +34,9 @@ function zigzag(cs, atr, k, minPct) {
       else if (cs[i].high - lP >= th) { piv.push({ i: lI, price: lP, type: "L", c: i }); trend = 1; hP = cs[i].high; hI = i; }
     }
   }
+  /* 아직 확정 전인 마지막 꼭짓점(진행 중 다리의 현재 극값)도 넣어서, 방금 만들어지는 패턴을 놓치지 않게 함 */
+  if (trend === 1 && hI > (piv.length ? piv[piv.length - 1].i : -1)) piv.push({ i: hI, price: hP, type: "H", c: cs.length - 1, prov: true });
+  else if (trend === -1 && lI > (piv.length ? piv[piv.length - 1].i : -1)) piv.push({ i: lI, price: lP, type: "L", c: cs.length - 1, prov: true });
   return piv;
 }
 
@@ -223,6 +226,15 @@ function detect(cs, opt) {
     }
   }
 
+  /* 손절 기준선(진행 중인 패턴용) */
+  all.forEach((p) => {
+    const q = p.pts;
+    if (p.type === "doubleBottom") p.stop = Math.min(q[0][1], q[2][1]);
+    else if (p.type === "doubleTop") p.stop = Math.max(q[0][1], q[2][1]);
+    else if (p.type === "invHeadShoulders") p.stop = q[2][1];
+    else if (p.type === "headShoulders") p.stop = q[2][1];
+    else if (p.type === "cupHandle") p.stop = q[3][1];
+  });
   /* 상태 판정 */
   all.forEach((p) => {
     if (META[p.type].info) { p.state = p.end >= n - 1 - Math.max(8, (p.end - p.start) * 0.4) ? "forming" : "expired"; return; }
@@ -233,7 +245,7 @@ function detect(cs, opt) {
   });
   let pats = all.filter((p) => p.state && p.state !== "expired");
   /* 겹치는 패턴 정리: 같은 시간대에서 점수 높은 것만 */
-  pats.forEach((p) => { p.score = p.w * (0.6 + 0.6 * Math.max(0, Math.min(1.2, p.q || 1))) + (p.state === "success" || p.state === "fail" || p.state === "confirmed" ? 0.25 : 0) + (p.end - p.start) / 4000; });
+  pats.forEach((p) => { p.score = p.w * (0.6 + 0.6 * Math.max(0, Math.min(1.2, p.q || 1))) + (p.state === "success" || p.state === "fail" || p.state === "confirmed" ? 0.25 : 0) + (p.state === "forming" && p.end >= n - 60 ? 0.6 : 0) + (p.end - p.start) / 4000; });
   pats.sort((a, b) => b.score - a.score);
   const keep = [];
   pats.forEach((p) => {

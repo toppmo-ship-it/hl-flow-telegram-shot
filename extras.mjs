@@ -307,7 +307,7 @@ function cbLoad(cacheDir) { if (CB) return; CB = {}; CBFILE = cacheDir ? path.jo
 export function flushCardCache(cacheDir) { if (!CB || !CBDIRTY || !CBFILE) return; try { fs.mkdirSync(cacheDir, { recursive: true }); fs.writeFileSync(CBFILE, JSON.stringify(CB)); } catch (e) {} CBDIRTY = false; }
 export async function buildCardData({ row, ticker, info, iv, days, fx, log, cacheDir, mode }) {
   const ms = IVMS[iv] || 3600e3, now = Date.now();
-  const lookN = Math.min(5000, Math.ceil(240 * 864e5 / ms));
+  const lookN = Math.min(5000, Math.ceil(60 * 864e5 / ms));   /* 패턴이 윈도 앞에서 시작해도 잡히도록 표시 구간 앞쪽 여유 포함 */
   cbLoad(cacheDir);
   const key = row.full + "|" + iv, old = CB[key], have = old && old.length > 100 && old[0][0] <= now - lookN * ms + 36 * ms;
   const from = have ? old[old.length - 3][0] : now - lookN * ms;
@@ -341,6 +341,7 @@ export function pickRow(uni, ticker, info) {
 /* 카드 이미지 렌더(site/card.html) */
 export async function renderCard(page, base, data) {
   await page.goto(base + "/card.html", { waitUntil: "domcontentloaded", timeout: 20000 });
+  { const k = kst(Date.now()); data.stamp = k.getUTCFullYear() + "-" + p2(k.getUTCMonth() + 1) + "-" + p2(k.getUTCDate()) + "(" + WDK[k.getUTCDay()] + ") " + p2(k.getUTCHours()) + ":" + p2(k.getUTCMinutes()) + ":" + p2(k.getUTCSeconds()); }
   const sum = await page.evaluate((d) => window.renderCard(d), data);
   await sleep(700);
   if (sum) {
@@ -349,7 +350,6 @@ export async function renderCard(page, base, data) {
     if (sum.patterns) {
       const pt = sum.patterns, nm = (p) => p.name + (p.state === "confirmed" ? "(" + (p.dirReal > 0 ? "돌파" : "이탈") + " 확정)" : "(형성 중)");
       L.push("🧩 패턴: " + (pt.live.length ? pt.live.map(nm).join(" · ") : "현재 진행 중인 패턴 없음"));
-      if (pt.stats.length) L.push("📊 과거 " + pt.span + "일 통계: " + pt.stats.map((x) => x.name + " " + x.s + "/" + (x.s + x.f)).join(" · ") + " (성공=목표 60% 도달)");
     }
     const t = sum.ict; if (t) L.push("🧭 ICT: " + t.trend + " · 최근 " + t.last + " · " + t.pd + " 구간 · FVG " + t.fvg + " · OB " + t.ob + (t.eqh || t.eql ? " · EQH " + t.eqh + "/EQL " + t.eql : ""));
     if (t && t.flips.length) L.push("🔁 전환 레벨: " + t.flips.join(", "));

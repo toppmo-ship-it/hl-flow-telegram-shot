@@ -279,92 +279,129 @@ function weekendBands(TT) {
   return out;
 }
 
-/* ───────── 차트 패턴 표시 (모양 + 이름표 + 설명 + 과거 통계) ───────── */
-const PCOL = { up: "#ff5d6e", dn: "#4fb4ff", neu: "#b79cff", ok: "#2ee6a6", bad: "#8d9ab8" };
+/* ───────── 차트 패턴 표시 (선·수직선·수평선 + 이름표). 이름표는 캔들을 절대 가리지 않는 빈 자리에만 놓음 ───────── */
+const PCOL = { up: "#ff5d6e", dn: "#4fb4ff", neu: "#b79cff" };
 class PatternLayer {
-  constructor() { this.res = null; this.from = 0; this.chart = null; this.series = null; this.req = null; }
+  constructor() { this.res = null; this.from = 0; this.cs = null; this.ext = 30; this.chart = null; this.series = null; this.req = null; }
   attached(p) { this.chart = p.chart; this.series = p.series; this.req = p.requestUpdate; }
   detached() {}
   updateAllViews() {}
-  set(res, from) { this.res = res; this.from = from; this.req && this.req(); }
+  set(res, from, cs, ext) { this.res = res; this.from = from; this.cs = cs; this.ext = ext; this.req && this.req(); }
   paneViews() { const self = this; return [{ zOrder: () => "top", renderer: () => ({ draw: (t) => t.useMediaCoordinateSpace((s) => self.draw(s)) }) }]; }
   draw({ context: c, mediaSize }) {
-    if (!this.chart || !this.series || !this.res) return;
-    const ts = this.chart.timeScale(), W = mediaSize.width, Hh = mediaSize.height;
+    if (!this.chart || !this.series || !this.res || !this.cs) return;
+    const ts = this.chart.timeScale(), W = mediaSize.width, Hh = mediaSize.height, cs = this.cs, n = cs.length, xExt = n - 1 + this.ext;
     const X = (i) => ts.logicalToCoordinate(i), Y = (p) => this.series.priceToCoordinate(p);
-    const pats = this.res.pats.filter((p) => p.end >= this.from - 5 && p.start <= 1e9);
-    const FONT = '"Pretendard","Malgun Gothic","Nanum Gothic",sans-serif';
-    const colOf = (p) => (p.state === "success" ? PCOL.ok : (p.state === "fail" || p.state === "flat") ? PCOL.bad : ((p.dirFinal != null ? p.dirFinal : p.dir) > 0 ? PCOL.up : (p.dirFinal != null ? p.dirFinal : p.dir) < 0 ? PCOL.dn : PCOL.neu));
-    const rgba = (h, al) => { const n = parseInt(h.slice(1), 16); return "rgba(" + (n >> 16 & 255) + "," + (n >> 8 & 255) + "," + (n & 255) + "," + al + ")"; };
+    const PT = root_.Patterns, FONT = '"Pretendard","Malgun Gothic","Nanum Gothic",sans-serif';
+    const pats = this.res.pats.filter((p) => p.end >= this.from - 5);
     const live = (p) => p.state === "forming" || p.state === "confirmed";
+    const dirOf = (p) => (p.dirFinal != null ? p.dirFinal : p.dir);
+    const colOf = (p) => (dirOf(p) > 0 ? PCOL.up : dirOf(p) < 0 ? PCOL.dn : PCOL.neu);
+    const rgba = (h, al) => { const n2 = parseInt(h.slice(1), 16); return "rgba(" + (n2 >> 16 & 255) + "," + (n2 >> 8 & 255) + "," + (n2 & 255) + "," + al + ")"; };
     const lineAt = (a, b, x) => (b[0] === a[0] ? a[1] : a[1] + (b[1] - a[1]) * (x - a[0]) / (b[0] - a[0]));
+    /* ── 캔들 위치(회피 대상) ── */
+    const bx = [], bt = [], bb = []; let sp = 6;
+    { const x1 = X(n - 1), x0 = X(Math.max(0, n - 2)); if (x1 != null && x0 != null) sp = Math.max(1, Math.abs(x1 - x0)); }
+    const pad = Math.max(3, sp * 0.5 + 2.5);
+    for (let i = Math.max(0, this.from - 3); i < n; i++) { const x = X(i); if (x == null || x < -20 || x > W + 20) continue; const yh = Y(cs[i].high), yl = Y(cs[i].low); if (yh == null || yl == null) continue; bx.push(x); bt.push(Math.min(yh, yl)); bb.push(Math.max(yh, yl)); }
+    const hitCandle = (x, y, w, h) => {
+      let lo = 0, hi = bx.length; while (lo < hi) { const m = (lo + hi) >> 1; if (bx[m] < x - pad) lo = m + 1; else hi = m; }
+      for (let k = lo; k < bx.length && bx[k] <= x + w + pad; k++) if (y < bb[k] + pad && y + h > bt[k] - pad) return true; return false;
+    };
     c.save(); c.lineJoin = "round"; c.lineCap = "round";
-    const tags = [];
+    const tags = [], labelRects = [];
+    const pill = (txt, x, y, col) => { c.font = "800 11px " + FONT; const w = c.measureText(txt).width + 12, h = 17; c.fillStyle = "rgba(8,13,24,.9)"; c.strokeStyle = rgba(col, 0.7); c.lineWidth = 1; c.beginPath(); c.roundRect ? c.roundRect(x, y, w, h, 6) : c.rect(x, y, w, h); c.fill(); c.stroke(); c.fillStyle = col; c.textAlign = "left"; c.textBaseline = "middle"; c.fillText(txt, x + 6, y + h / 2 + 0.5); labelRects.push({ x, y, w, h }); };
+    const P = (i, v) => { const x = X(i), y = Y(v); return x == null || y == null ? null : [x, y]; };
+    const seg = (a, b, col, w, dash) => { if (!a || !b) return; c.strokeStyle = col; c.lineWidth = w; c.setLineDash(dash || []); c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke(); c.setLineDash([]); };
+
     pats.forEach((p) => {
-      const col = colOf(p), a = live(p) ? 1 : 0.5;
-      const xe = p.confirmI != null && p.confirmI > 0 ? p.confirmI : p.end, P = (i, v) => { const x = X(i), y = Y(v); return x == null || y == null ? null : [x, y]; };
-      /* 면(삼각형·깃발·박스 등) */
+      const lv = live(p), col = colOf(p), a = lv ? 1 : 0.45, dE = dirOf(p), role = PT && PT.META[p.type];
+      const xe = p.confirmI > 0 ? p.confirmI : p.end;
+      /* 삼각형·깃발·박스·쐐기·채널: 면 + 두 추세선 (진행 중이면 오른쪽으로 연장) */
       if (p.lines) {
-        const pa = P(p.lines[0][0][0], p.lines[0][0][1]), pb = P(xe, lineAt(p.lines[0][0], p.lines[0][1], xe)), pc2 = P(xe, lineAt(p.lines[1][0], p.lines[1][1], xe)), pd = P(p.lines[1][0][0], p.lines[1][0][1]);
-        if (pa && pb && pc2 && pd) { c.fillStyle = rgba(col, live(p) ? 0.10 : 0.05); c.beginPath(); c.moveTo(pa[0], pa[1]); c.lineTo(pb[0], pb[1]); c.lineTo(pc2[0], pc2[1]); c.lineTo(pd[0], pd[1]); c.closePath(); c.fill();
-          c.strokeStyle = rgba(col, 0.85 * a); c.lineWidth = 1.5; c.setLineDash([]); c.beginPath(); c.moveTo(pa[0], pa[1]); c.lineTo(pb[0], pb[1]); c.moveTo(pd[0], pd[1]); c.lineTo(pc2[0], pc2[1]); c.stroke(); }
+        const L0 = p.lines[0], L1 = p.lines[1];
+        let xr = lv ? xExt : xe, apex = null;
+        const s0 = (L0[1][1] - L0[0][1]) / Math.max(1, L0[1][0] - L0[0][0]), s1 = (L1[1][1] - L1[0][1]) / Math.max(1, L1[1][0] - L1[0][0]);
+        if (lv && Math.abs(s0 - s1) > 1e-9) { const xa = (L1[0][1] - L0[0][1] + s0 * L0[0][0] - s1 * L1[0][0]) / (s0 - s1); if (xa > p.end && xa < xExt) { apex = xa; xr = xa; } }
+        const pa = P(L0[0][0], L0[0][1]), pb = P(xr, lineAt(L0[0], L0[1], xr)), pc2 = P(xr, lineAt(L1[0], L1[1], xr)), pd = P(L1[0][0], L1[0][1]);
+        if (pa && pb && pc2 && pd) { c.fillStyle = rgba(col, lv ? 0.09 : 0.045); c.beginPath(); c.moveTo(pa[0], pa[1]); c.lineTo(pb[0], pb[1]); c.lineTo(pc2[0], pc2[1]); c.lineTo(pd[0], pd[1]); c.closePath(); c.fill(); }
+        /* 실선(패턴 구간) + 점선(연장) */
+        const e0 = P(p.end, lineAt(L0[0], L0[1], p.end)), e1 = P(p.end, lineAt(L1[0], L1[1], p.end));
+        seg(pa, e0, rgba(col, 0.9 * a), lv ? 1.9 : 1.4); seg(pd, e1, rgba(col, 0.9 * a), lv ? 1.9 : 1.4);
+        if (lv) {
+          seg(e0, pb, rgba(col, 0.95), 1.9, [7, 5]); seg(e1, pc2, rgba(col, 0.95), 1.9, [7, 5]);
+          if (apex != null) { const t0 = P(apex, lineAt(L0[0], L0[1], apex)); if (t0) { c.strokeStyle = rgba(col, 0.5); c.lineWidth = 1.2; c.setLineDash([3, 5]); c.beginPath(); c.moveTo(t0[0], 6); c.lineTo(t0[0], Hh - 6); c.stroke(); c.setLineDash([]); } }
+          /* 돌파선/손절선(또는 이탈선) 이름 */
+          const up = dE >= 0 ? "돌파선" : "손절선", lo = dE > 0 ? "손절선" : "이탈선";
+          if (pb) pill(dE === 0 ? "상단 돌파" : up, Math.min(W - 70, pb[0] - 66), pb[1] - 21, col);
+          if (pc2) pill(dE === 0 ? "하단 이탈" : lo, Math.min(W - 70, pc2[0] - 66), pc2[1] + 4, col);
+        }
       }
-      /* 컵: 부드러운 곡선 */
+      /* 컵 곡선 */
       if (p.type === "cupHandle" && p.cup) {
-        const r1 = P(p.pts[0][0], p.pts[0][1]), bt = P(p.pts[1][0], p.pts[1][1]), r2 = P(p.pts[2][0], p.pts[2][1]), hl = P(p.pts[3][0], p.pts[3][1]);
-        if (r1 && bt && r2 && hl) { c.strokeStyle = rgba(col, 0.9 * a); c.lineWidth = 2.2; c.setLineDash([]); c.beginPath(); c.moveTo(r1[0], r1[1]); c.quadraticCurveTo((r1[0] + r2[0]) / 2, 2 * bt[1] - (r1[1] + r2[1]) / 2, r2[0], r2[1]); c.lineTo(hl[0], hl[1]); c.stroke(); }
-      } else if (p.pts && p.pts.length > 1) {
-        c.strokeStyle = rgba(col, 0.9 * a); c.lineWidth = live(p) ? (p.pole ? 2.6 : 2.2) : 1.5; c.setLineDash([]); c.beginPath(); let st = false;
+        const r1 = P(p.pts[0][0], p.pts[0][1]), bt2 = P(p.pts[1][0], p.pts[1][1]), r2 = P(p.pts[2][0], p.pts[2][1]), hl = P(p.pts[3][0], p.pts[3][1]);
+        if (r1 && bt2 && r2 && hl) { c.strokeStyle = rgba(col, 0.9 * a); c.lineWidth = lv ? 2.4 : 1.6; c.beginPath(); c.moveTo(r1[0], r1[1]); c.quadraticCurveTo((r1[0] + r2[0]) / 2, 2 * bt2[1] - (r1[1] + r2[1]) / 2, r2[0], r2[1]); c.lineTo(hl[0], hl[1]); c.stroke(); }
+      } else if (p.pts && p.pts.length > 1 && !(p.lines && !p.pole)) {
+        c.strokeStyle = rgba(col, 0.9 * a); c.lineWidth = lv ? (p.pole ? 2.8 : 2.3) : 1.5; c.beginPath(); let st = false;
         p.pts.forEach((q) => { const z = P(q[0], q[1]); if (!z) return; if (!st) { c.moveTo(z[0], z[1]); st = true; } else c.lineTo(z[0], z[1]); }); c.stroke();
       }
-      /* 꼭짓점 점 */
-      (live(p) ? (p.pts || []) : []).forEach((q) => { const z = P(q[0], q[1]); if (!z) return; c.fillStyle = "#0a0f19"; c.beginPath(); c.arc(z[0], z[1], 4, 0, 6.3); c.fill(); c.strokeStyle = rgba(col, a); c.lineWidth = 1.8; c.stroke(); });
-      /* 넥라인(점선) */
-      if (p.neck) { const n0 = P(p.neck[0][0], p.neck[0][1]), n1 = P(xe, lineAt(p.neck[0], p.neck[1], xe)); if (n0 && n1) { c.strokeStyle = rgba(col, 0.75 * a); c.lineWidth = 1.4; c.setLineDash([6, 5]); c.beginPath(); c.moveTo(n0[0], n0[1]); c.lineTo(n1[0], n1[1]); c.stroke(); c.setLineDash([]); } }
-      /* 돌파 지점 · 결과 · 목표 */
-      if (p.confirmI > 0) {
-        const z = P(p.confirmI, p.entry); if (z) { c.fillStyle = col; c.beginPath(); c.arc(z[0], z[1], 5.5, 0, 6.3); c.fill(); c.strokeStyle = "#fff"; c.lineWidth = 1.6; c.stroke();
-          c.fillStyle = "#fff"; c.font = "800 9px " + FONT; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(p.dirReal > 0 ? "▲" : "▼", z[0], z[1] + 0.5); }
-        if (live(p) && p.target != null) { const t0 = P(p.confirmI, p.target), t1 = P(Math.min(p.confirmI + 40, 1e9), p.target); if (t0 && t1) { c.strokeStyle = rgba(col, 0.8); c.lineWidth = 1.3; c.setLineDash([2, 5]); c.beginPath(); c.moveTo(t0[0], t0[1]); c.lineTo(t1[0], t1[1]); c.stroke(); c.setLineDash([]); } }
-        if (p.resI) { const r = P(p.resI, p.state === "success" ? p.entry + p.dirReal * p.height * 0.6 : p.entry - p.dirReal * p.height * 0.6); if (r) { c.fillStyle = col; c.font = "800 15px " + FONT; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(p.state === "success" ? "✓" : "✕", r[0], r[1]); } }
+      if (lv) (p.pts || []).forEach((q) => { if (p.lines && !p.pole) return; const z = P(q[0], q[1]); if (!z) return; c.fillStyle = "#0a0f19"; c.beginPath(); c.arc(z[0], z[1], 4, 0, 6.3); c.fill(); c.strokeStyle = rgba(col, 1); c.lineWidth = 1.8; c.stroke(); });
+      /* 넥라인(수평) + 수직 연결선 + 손절선: 진행 중이면 오른쪽 끝까지 */
+      if (p.neck) {
+        const n0 = P(p.neck[0][0], p.neck[0][1]), xn = lv ? xExt : xe, n1 = P(xn, lineAt(p.neck[0], p.neck[1], xn)), nEnd = P(Math.min(xn, xe), lineAt(p.neck[0], p.neck[1], Math.min(xn, xe)));
+        seg(n0, nEnd, rgba(col, 0.85 * a), 1.5, [6, 5]);
+        if (lv && n1) {
+          seg(nEnd, n1, rgba(col, 0.95), 1.7, [3, 4]);
+          pill(dE >= 0 ? "돌파선" : "이탈선", Math.min(W - 70, n1[0] - 66), n1[1] - (dE >= 0 ? 21 : -4), col);
+          /* 수직선: 각 꼭짓점 ↔ 넥라인 */
+          (p.pts || []).forEach((q, k) => { const isKey = (p.type === "doubleBottom" || p.type === "doubleTop") ? k !== 1 : (p.type === "headShoulders" || p.type === "invHeadShoulders") ? k % 2 === 0 : false; if (!isKey) return; const z = P(q[0], q[1]), nl = P(q[0], lineAt(p.neck[0], p.neck[1], q[0])); if (z && nl) seg(z, nl, rgba(col, 0.45), 1.2, [2, 4]); });
+          if (p.stop != null) { const s0p = P(p.pts[0][0], p.stop), s1p = P(xExt, p.stop); if (s0p && s1p) { seg(s0p, s1p, "rgba(160,174,200,.6)", 1.3, [5, 5]); pill("손절선", Math.min(W - 70, s1p[0] - 66), s1p[1] + (dE >= 0 ? 4 : -21), "#a9b6d0"); } }
+        }
       }
-      /* 이름표 정보 */
-      const dE = p.dirFinal != null ? p.dirFinal : p.dir, ys = (p.pts || []).concat(p.lines ? p.lines.flat() : []).map((q) => Y(q[1])).filter((y) => y != null), xs = (p.pts || []).map((q) => X(q[0])).filter((x) => x != null);
+      /* 돌파 지점 표시(작게) */
+      if (p.confirmI > 0) { const z = P(p.confirmI, p.entry); if (z) { c.fillStyle = col; c.beginPath(); c.arc(z[0], z[1], 4.5, 0, 6.3); c.fill(); c.strokeStyle = "#fff"; c.lineWidth = 1.3; c.stroke(); } }
+      /* 이름표 후보 */
+      const ys = (p.pts || []).concat(p.lines ? p.lines.flat() : []).map((q) => Y(q[1])).filter((y) => y != null), xs = (p.pts || []).map((q) => X(q[0])).filter((x) => x != null);
       if (!ys.length || !xs.length) return;
-      const stText = p.state === "forming" ? "형성 중" : p.state === "confirmed" ? (p.dirReal > 0 ? "돌파 확정" : "이탈 확정") : p.state === "success" ? "✓ 성공" : p.state === "fail" ? "✕ 실패" : "기간 내 미도달";
-      const pct = p.targetPct != null ? ((p.targetPct >= 0 ? "+" : "") + p.targetPct.toFixed(1) + "%") : null;
-      const dmap = (root_.Patterns && root_.Patterns.DESC[p.type]) || {}, desc = dmap[p.state === "flat" ? "forming" : p.state] || dmap.forming || "";
-      let l3 = null; if (live(p) && !(root_.Patterns && root_.Patterns.META[p.type].info)) { const st = this.res.stats[p.type], tot = st ? st.s + st.f : 0; l3 = tot >= 3 ? "이 종목 과거 " + tot + "회 중 " + st.s + "회 성공 · 최근 " + this.res.span + "일" : "과거 표본 " + tot + "회 · 통계 부족"; }
-      tags.push({ p, col, name: p.name, stText, pct, desc, l3, cx: (Math.min(...xs) + Math.max(...xs)) / 2, top: Math.min(...ys), bot: Math.max(...ys), below: dE > 0, live: live(p), end: p.end });
+      const dmap = (PT && PT.DESC[p.type]) || {}, desc = (live(p) && p.state === "confirmed" ? dmap.confirmed : dmap.forming) || "";
+      tags.push({ p, col, name: p.name, stTxt: p.state === "forming" ? "형성 중" : p.state === "confirmed" ? (p.dirReal > 0 ? "돌파 확정" : "이탈 확정") : null, desc, cx: (Math.min(...xs) + Math.max(...xs)) / 2, top: Math.min(...ys), bot: Math.max(...ys), below: dE > 0, lv, end: p.end, info: role && role.info });
     });
-    /* 이름표 배치: 최신·진행 중 먼저, 겹치면 밀어내고 그래도 겹치면 설명 줄을 생략 */
-    tags.sort((a, b) => (b.live - a.live) || (b.end - a.end));
-    const placed = [];
+
+    /* ── 이름표 배치: 캔들·다른 이름표·가격선 라벨과 겹치지 않는 가장 가까운 빈 자리 ── */
+    tags.sort((a, b) => (b.lv - a.lv) || (b.end - a.end));
+    const placed = labelRects.slice();
     const hit = (r) => placed.some((q) => r.x < q.x + q.w + 4 && r.x + r.w + 4 > q.x && r.y < q.y + q.h + 3 && r.y + r.h + 3 > q.y);
     tags.forEach((t) => {
-      const lines = [{ txt: t.name, f: "800 14px " + FONT, col: "#ffffff" }];
-      const sub = [t.stText, t.pct ? "목표 " + t.pct : null].filter(Boolean).join(" · ");
-      for (const mode of ["full", "short"]) {
-        const L = mode === "full" ? [lines[0], { txt: sub, f: "800 12px " + FONT, col: t.col }, { txt: t.desc, f: "500 11.5px " + FONT, col: "#aebdd8" }].concat(t.l3 ? [{ txt: t.l3, f: "700 11px " + FONT, col: "#ffd84d" }] : []) : [lines[0], { txt: sub, f: "800 12px " + FONT, col: t.col }];
-        let w = 0; L.forEach((l) => { c.font = l.f; l.w = c.measureText(l.txt).width; w = Math.max(w, l.w); });
-        w += 22; const h = L.reduce((s, l) => s + (l.f.indexOf("14px") > 0 ? 19 : 16), 0) + 10;
-        let x = Math.max(8, Math.min(W - w - 8, t.cx - w / 2)), ok = false, y = 0;
-        for (let k = 0; k < 7 && !ok; k++) {
-          const off = 12 + k * (h * 0.55 + 4);
-          y = t.below ? t.bot + off : t.top - off - h; y = Math.max(4, Math.min(Hh - h - 4, y));
-          ok = !hit({ x, y, w, h });
+      const variants = [];
+      const L1 = [{ txt: t.name, f: "800 14px " + FONT, col: "#ffffff" }];
+      if (t.stTxt) L1.push({ txt: t.stTxt, f: "800 11.5px " + FONT, col: t.col, inline: true });
+      if (t.desc && (t.lv || true)) variants.push(L1.concat([{ txt: t.desc, f: "500 11.5px " + FONT, col: "#aebdd8" }]));
+      variants.push(L1);
+      for (const L of variants) {
+        c.font = L[0].f; const wName = c.measureText(L[0].txt).width; let wFirst = wName; if (L[1] && L[1].inline) { c.font = L[1].f; wFirst += 10 + c.measureText(L[1].txt).width; }
+        let w = wFirst; const rest = L.filter((l, k) => k > 0 && !l.inline); rest.forEach((l) => { c.font = l.f; w = Math.max(w, c.measureText(l.txt).width); });
+        w += 24; const h = 27 + rest.length * 17;
+        /* 후보를 가까운 순으로 */
+        const want = t.below ? t.bot + 14 : t.top - 14 - h, cand = [];
+        for (let dy = -Hh; dy <= Hh; dy += 8) for (let dx = -W * 0.6; dx <= W * 0.6; dx += 14) {
+          const x = t.cx - w / 2 + dx, y = want + dy; if (x < 4 || x + w > W - 4 || y < 4 || y + h > Hh - 4) continue;
+          const inside = y < t.bot + 4 && y + h > t.top - 4 && x < t.cx + 1e6; cand.push({ x, y, cost: Math.abs(dx) * 0.8 + Math.abs(dy) + (inside ? 160 : 0) });
         }
-        if (!ok && mode === "full") continue;
-        if (!ok) return;
-        placed.push({ x, y, w, h });
-        /* 카드 그리기 */
-        const r = 9; c.fillStyle = "rgba(8,13,24,.92)"; c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); c.fill();
-        c.strokeStyle = rgba(t.col, 0.55); c.lineWidth = 1; c.stroke();
+        cand.sort((a, b) => a.cost - b.cost);
+        let pos = null; for (const q of cand) { const r = { x: q.x, y: q.y, w, h }; if (!hitCandle(r.x, r.y, r.w, r.h) && !hit(r)) { pos = r; break; } }
+        if (!pos) continue;
+        placed.push(pos);
+        const { x, y } = pos, r = 9;
+        c.fillStyle = "rgba(8,13,24,.93)"; c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); c.fill();
+        c.strokeStyle = rgba(t.col, t.lv ? 0.65 : 0.4); c.lineWidth = 1; c.stroke();
         c.fillStyle = t.col; c.beginPath(); c.moveTo(x + r, y); c.arcTo(x, y, x, y + h, r); c.arcTo(x, y + h, x + r, y + h, r); c.lineTo(x + 4, y + h); c.lineTo(x + 4, y); c.closePath(); c.fill();
-        let yy = y + 6; c.textAlign = "left"; c.textBaseline = "top";
-        L.forEach((l) => { c.font = l.f; c.fillStyle = l.col; c.fillText(l.txt, x + 13, yy); yy += l.f.indexOf("14px") > 0 ? 19 : 16; });
-        /* 꼬리선: 이름표 → 패턴 */
-        c.strokeStyle = rgba(t.col, 0.5); c.lineWidth = 1; c.beginPath(); const ax = Math.max(x + 10, Math.min(x + w - 10, t.cx)); if (t.below) { c.moveTo(ax, y); c.lineTo(ax, Math.max(t.bot + 3, y - 10)); } else { c.moveTo(ax, y + h); c.lineTo(ax, Math.min(t.top - 3, y + h + 10)); } c.stroke();
+        let yy = y + 7; c.textAlign = "left"; c.textBaseline = "top";
+        c.font = L[0].f; c.fillStyle = L[0].col; c.fillText(L[0].txt, x + 13, yy);
+        if (L[1] && L[1].inline) { c.font = L[1].f; c.fillStyle = L[1].col; c.fillText(L[1].txt, x + 13 + wName + 10, yy + 2); }
+        yy += 20; rest.forEach((l) => { c.font = l.f; c.fillStyle = l.col; c.fillText(l.txt, x + 13, yy); yy += 17; });
+        /* 연결선: 이름표 → 패턴 (캔들 위를 지나가지 않도록 가는 점선) */
+        const ax = Math.max(x + 8, Math.min(x + w - 8, t.cx)), ay = pos.y > t.bot ? y : (pos.y + h < t.top ? y + h : (y < t.top ? y + h : y)), ty = pos.y > t.bot ? t.bot : t.top;
+        if (Math.abs(ay - ty) > 14) { c.strokeStyle = rgba(t.col, 0.4); c.lineWidth = 1; c.setLineDash([2, 4]); c.beginPath(); c.moveTo(ax, ay); c.lineTo(ax, ty); c.stroke(); c.setLineDash([]); }
         break;
       }
     });
@@ -495,7 +532,7 @@ function build(el, data, opt) {
     return a;
   }
   const a = drawIct();
-  if (patMode) { ctl.pat = root_.Patterns.detect(cs); ctl.patLayer = new PatternLayer(); main.attachPrimitive(ctl.patLayer); ctl.patLayer.set(ctl.pat, winFrom); }
+  if (patMode) { ctl.pat = root_.Patterns.detect(cs); ctl.patLayer = new PatternLayer(); main.attachPrimitive(ctl.patLayer); ctl.patLayer.set(ctl.pat, winFrom, cs, Math.max(14, Math.round((cs.length - winFrom) * 0.09) - 2)); }
 
   /* 패널 제목(왼쪽 위) */
   function titles() {
@@ -508,7 +545,7 @@ function build(el, data, opt) {
   chart.timeScale().setVisibleLogicalRange({ from: winFrom, to: cs.length - 1 + Math.max(18, Math.round((cs.length - winFrom) * 0.09)) });   /* 오른쪽 여백 18봉: 최신 봉·가격 숫자가 겹치지 않게 */
   setTimeout(titles, 60); ctl.titles = titles;
   /* 라이브 갱신용 */
-  ctl.refreshAll = () => { drawKeltner(); const r = drawIct(); if (ctl.patLayer) { ctl.pat = root_.Patterns.detect(cs); ctl.patLayer.set(ctl.pat, winFrom); } return r; };
+  ctl.refreshAll = () => { drawKeltner(); const r = drawIct(); if (ctl.patLayer) { ctl.pat = root_.Patterns.detect(cs); ctl.patLayer.set(ctl.pat, winFrom, cs, Math.max(14, Math.round((cs.length - winFrom) * 0.09) - 2)); } return r; };
   ctl.summary = () => summarize(ctl, cs, data.daily);
   return ctl;
 }
