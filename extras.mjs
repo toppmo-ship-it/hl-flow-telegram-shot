@@ -11,7 +11,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const KST_MS = 9 * 3600e3;
 
 /* ── HL 호출: 분당 가중치 예산(900) + 429 재시도 ── */
-const BUDGET = 900;
+const BUDGET = 1100;   /* HL 실제 한도는 분당 1200 — 여유 100을 두고 사용 (이전 900 은 매 실행 ~55초 대기를 만들었음) */
 let used = [];
 const weightOf = (b) => {
   if (b && b.type === "candleSnapshot" && b.req) {
