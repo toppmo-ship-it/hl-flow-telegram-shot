@@ -281,6 +281,77 @@ function weekendBands(TT) {
   return out;
 }
 
+/* ───────── Nubia VWAP 지지·저항 (TradingView 'Nubia - HighSpeed Optimized' 이식) ─────────
+   봉마다: 최근 len봉 안의 최고가(최저가) 봉 이후 구간만 거래량 가중평균(VWAP). 고점 VWAP(빨강선)·저점 VWAP(초록선) + 중심(hlc3) VWAP 까지 음영.
+   #1 26 · #2 130 · #3 520 · #4 1040 봉. 바깥 레벨은 안쪽 레벨보다 더 바깥일 때만 보임(원본 규칙 그대로). */
+const NUBIA_LENS = [26, 130, 520, 1040];
+function nubiaVwap(cs, lens) {
+  const n = cs.length, PV = new Float64Array(n + 1), PH = new Float64Array(n + 1), PL = new Float64Array(n + 1), PM = new Float64Array(n + 1);
+  cs.forEach((c, i) => {
+    const m = (c.high + c.low + c.close) / 3, v = m > 0 ? c.volume / m : 0;   /* 데이터의 volume 은 거래대금이라 가격으로 나눠 수량으로 되돌림 */
+    PV[i + 1] = PV[i] + v; PH[i + 1] = PH[i] + v * c.high; PL[i + 1] = PL[i] + v * c.low; PM[i + 1] = PM[i] + v * m;
+  });
+  const levels = lens.map(() => ({ hi: new Array(n).fill(null), lo: new Array(n).fill(null) }));
+  lens.forEach((L, li) => {
+    const out = levels[li];
+    for (let i = 0; i < n; i++) {
+      let hI = i, lI = i;
+      for (let j = i; j > i - L && j >= 0; j--) { if (cs[j].high > cs[hI].high) hI = j; if (cs[j].low < cs[lI].low) lI = j; }
+      const at = (k, P) => { const v = PV[i + 1] - PV[i + 1 - k]; return v > 0 ? (P[i + 1] - P[i + 1 - k]) / v : null; };
+      const kh = i - hI, kl = i - lI;
+      if (kh > 0) { const val = at(kh, PH), mid = at(kh, PM); if (val != null && mid != null) out.hi[i] = { val, mid }; }
+      if (kl > 0) { const val = at(kl, PL), mid = at(kl, PM); if (val != null && mid != null) out.lo[i] = { val, mid }; }
+    }
+  });
+  /* 보임 규칙: 해당 레벨 선이 이번 봉 범위에 닿을 것 + 안쪽 레벨보다 바깥일 것 */
+  const raw = levels.map((o) => ({ hi: o.hi.slice(), lo: o.lo.slice() }));   /* 원본처럼 안쪽 레벨은 '걸러지기 전 값'으로 비교 */
+  levels.forEach((o, li) => {
+    const prev = li ? raw[li - 1] : null;
+    o.hi = raw[li].hi.map((p, i) => (p && p.val > cs[i].low && (!prev || !prev.hi[i] || prev.hi[i].val < p.val)) ? p : null);
+    o.lo = raw[li].lo.map((p, i) => (p && p.val < cs[i].high && (!prev || !prev.lo[i] || prev.lo[i].val > p.val)) ? p : null);
+  });
+  return levels;
+}
+class NubiaLayer {
+  constructor() { this.lv = []; this.chart = null; this.series = null; this.req = null; }
+  attached(p) { this.chart = p.chart; this.series = p.series; this.req = p.requestUpdate; }
+  detached() {}
+  updateAllViews() {}
+  set(cs) { this.lv = nubiaVwap(cs, NUBIA_LENS); this.req && this.req(); }
+  paneViews() { const self = this; return [{ zOrder: () => "bottom", renderer: () => ({ draw: (t) => t.useMediaCoordinateSpace((s) => self.draw(s)) }) }]; }
+  draw({ context: c, mediaSize }) {
+    if (!this.chart || !this.series || !this.lv.length) return;
+    const ts = this.chart.timeScale(), Y = (p) => this.series.priceToCoordinate(p), W = mediaSize.width;
+    const sty = { hi: { line: "rgba(255,92,96,", fill: "rgba(16,112,134,", mid: "rgba(140,205,225," }, lo: { line: "rgba(76,214,84,", fill: "rgba(58,170,70,", mid: "rgba(150,230,150," } };
+    const fillA = [0.5, 0.44, 0.4, 0.36], lineW = [1.2, 1.8, 2.4, 3];
+    c.save(); c.lineJoin = "round";
+    for (let li = this.lv.length - 1; li >= 0; li--) {
+      ["hi", "lo"].forEach((side) => {
+        const arr = this.lv[li][side], st = sty[side];
+        let seg = [];
+        const flush = () => {
+          if (seg.length >= 2) {
+            c.beginPath(); seg.forEach((q, k) => (k ? c.lineTo(q.x, q.yv) : c.moveTo(q.x, q.yv)));
+            for (let k = seg.length - 1; k >= 0; k--) c.lineTo(seg[k].x, seg[k].ym);
+            c.closePath(); c.fillStyle = st.fill + fillA[li] + ")"; c.fill();
+            c.beginPath(); seg.forEach((q, k) => (k ? c.lineTo(q.x, q.ym) : c.moveTo(q.x, q.ym))); c.strokeStyle = st.mid + "0.45)"; c.lineWidth = 1; c.stroke();
+            c.beginPath(); seg.forEach((q, k) => (k ? c.lineTo(q.x, q.yv) : c.moveTo(q.x, q.yv))); c.strokeStyle = st.line + "0.95)"; c.lineWidth = lineW[li]; c.stroke();
+          }
+          seg = [];
+        };
+        for (let i = 0; i < arr.length; i++) {
+          const p = arr[i]; if (!p) { flush(); continue; }
+          const x = ts.logicalToCoordinate(i), yv = Y(p.val), ym = Y(p.mid);
+          if (x == null || yv == null || ym == null || x < -40 || x > W + 40) { if (x != null && x > W + 40) break; flush(); continue; }
+          seg.push({ x, yv, ym });
+        }
+        flush();
+      });
+    }
+    c.restore();
+  }
+}
+
 /* ───────── 차트 패턴 표시 (선·수직선·수평선 + 이름표). 이름표는 캔들을 절대 가리지 않는 빈 자리에만 놓음 ───────── */
 const PCOL = { up: "#ff5d6e", dn: "#4fb4ff", neu: "#b79cff" };
 class PatternLayer {
@@ -460,7 +531,9 @@ function build(el, data, opt) {
   main.setData(cs.map((c) => ({ time: c.time + KST, open: c.open, high: c.high, low: c.low, close: c.close })));
   const col = Object.assign({ kShade: "#3ddc97", sup: "#2ee6a6", res: "#ff9f43", night: "#5b6cff" }, opt.colors || {});
   const rgba = (h, al) => { const n = parseInt(String(h).slice(1), 16); return "rgba(" + (n >> 16 & 255) + "," + (n >> 8 & 255) + "," + (n & 255) + "," + al + ")"; };
-  const patMode = opt.mode !== "ict" && !!(root_.Patterns);
+  /* 레이어: opt.layers {pattern, vwap, ict} 가 있으면 그대로(겹쳐 표시 가능), 없으면 예전 opt.mode(pattern|ict) 방식 */
+  const LY = opt.layers || { pattern: opt.mode !== "ict", ict: opt.mode === "ict", vwap: false };
+  const patOn = !!LY.pattern && !!(root_.Patterns), patMode = !LY.ict;   /* patMode = ICT 숨김 */
   const quantPrep = root_.Quant ? root_.Quant.prepare(cs0_(data)) : null;
   const ctl = { chart, main, overlay: new Overlay(), band: new BandFill(), priceLines: [], kel: {}, subSeries: {}, opt, data, subs, patMode };
   main.attachPrimitive(ctl.band); main.attachPrimitive(ctl.overlay);
@@ -539,7 +612,8 @@ function build(el, data, opt) {
     return a;
   }
   const a = drawIct();
-  if (patMode) { ctl.pat = root_.Patterns.detect(cs); ctl.patLayer = new PatternLayer(); main.attachPrimitive(ctl.patLayer); ctl.patLayer.set(ctl.pat, winFrom, cs, Math.max(14, Math.round((cs.length - winFrom) * 0.09) - 2)); }
+  if (LY.vwap) { ctl.vw = new NubiaLayer(); main.attachPrimitive(ctl.vw); ctl.vw.set(cs); }
+  if (patOn) { ctl.pat = root_.Patterns.detect(cs); ctl.patLayer = new PatternLayer(); main.attachPrimitive(ctl.patLayer); ctl.patLayer.set(ctl.pat, winFrom, cs, Math.max(14, Math.round((cs.length - winFrom) * 0.09) - 2)); }
 
   /* 패널 제목(왼쪽 위) */
   function titles() {
@@ -552,7 +626,7 @@ function build(el, data, opt) {
   chart.timeScale().setVisibleLogicalRange({ from: winFrom, to: cs.length - 1 + Math.max(18, Math.round((cs.length - winFrom) * 0.09)) });   /* 오른쪽 여백 18봉: 최신 봉·가격 숫자가 겹치지 않게 */
   setTimeout(titles, 60); ctl.titles = titles;
   /* 라이브 갱신용 */
-  ctl.refreshAll = () => { drawKeltner(); const r = drawIct(); if (ctl.patLayer) { ctl.pat = root_.Patterns.detect(cs); ctl.patLayer.set(ctl.pat, winFrom, cs, Math.max(14, Math.round((cs.length - winFrom) * 0.09) - 2)); } return r; };
+  ctl.refreshAll = () => { drawKeltner(); if (ctl.vw) ctl.vw.set(cs); const r = drawIct(); if (ctl.patLayer) { ctl.pat = root_.Patterns.detect(cs); ctl.patLayer.set(ctl.pat, winFrom, cs, Math.max(14, Math.round((cs.length - winFrom) * 0.09) - 2)); } return r; };
   ctl.quant = quantPrep; ctl.summary = () => summarize(ctl, cs, data.daily);
   return ctl;
 }

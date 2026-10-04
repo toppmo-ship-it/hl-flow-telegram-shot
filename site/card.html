@@ -49,7 +49,7 @@ window.renderCard=function(d){
  document.getElementById("ttl").textContent=d.ttl||d.title;document.getElementById("per").textContent=d.period||"";document.getElementById("sub").textContent=d.sub||"";
  document.getElementById("px").innerHTML="<span id=\"ts\">"+(d.stamp||"")+"</span><small>Price</small>$"+d.price;
  const el=document.getElementById("chart");
- const ctl=ChartLib.build(el,{candles:d.candles,daily:d.daily||[]},{iv:d.iv,mode:d.mode||"pattern",windowBars:d.windowBars,colors:d.colors,barSpacing:8,kel:{on:true,wC:3,wB:3},ict:{sr:true,struct:true,fvg:true,ob:true,liq:true,pd:true}});
+ const ctl=ChartLib.build(el,{candles:d.candles,daily:d.daily||[]},{iv:d.iv,mode:d.mode||"pattern",layers:d.layers||undefined,windowBars:d.windowBars,colors:d.colors,barSpacing:8,kel:{on:true,wC:3,wB:3},ict:{sr:true,struct:true,fvg:true,ob:true,liq:true,pd:true}});
  document.getElementById("lg").innerHTML="";
  window.__ctl=ctl;ctl.titles();
  const sum=ctl.summary();
