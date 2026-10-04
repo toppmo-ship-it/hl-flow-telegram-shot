@@ -185,7 +185,7 @@ async function runExtras({ cfg0, q, dry, base }) {
   if (!wantW && !wantS && !cards.length) return;
   const st = loadState(), now = Date.now(), force = q.force === "1";
   const dueRank = (wantW || wantS) && (force || due(st.lastRank, +cfg0.rankEvery || 0));
-  const dueCards = cards.length && (force || due(st.lastCards, cfg0.cardEvery != null ? +cfg0.cardEvery : 60));
+  const dueCards = cards.length && (force || due(st.lastCards, cfg0.cardEvery != null ? +cfg0.cardEvery : 0));
   if (!dueRank && !dueCards) { log("추가 기능: 아직 보낼 주기가 아님"); return; }
   const info = loadSiteInfo(SITE), uni = await loadUniverse(log), fx = await usdKrw(log);
   log("추가 기능 시작 — HIP-3 " + uni.length + "종목, 환율 " + fx.toFixed(1));
