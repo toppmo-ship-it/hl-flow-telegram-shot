@@ -289,6 +289,9 @@ export async function buildCardData({ row, ticker, info, iv, days, fx, log }) {
   const cs0 = await hl({ type: "candleSnapshot", req: { coin: row.full, interval: iv, startTime: now - n * ms, endTime: now } }, log);
   if (!cs0 || cs0.length < 30) return null;
   const candles = cs0.map((c) => ({ time: Math.round(c.t / 1000), open: +c.o, high: +c.h, low: +c.l, close: +c.c, volume: +c.v * (+c.h + +c.l + +c.c) / 3 }));   /* 거래량 = 거래대금(USD) */
+  /* 일봉(켈트너 20/10/1.5·ICT용): 최근 120일 */
+  const dd = await hl({ type: "candleSnapshot", req: { coin: row.full, interval: "1d", startTime: now - 120 * 864e5, endTime: now } }, log).catch(() => null);
+  const daily = (dd || []).map((c) => ({ time: Math.round(c.t / 1000), open: +c.o, high: +c.h, low: +c.l, close: +c.c, volume: +c.v }));
   const last = candles[candles.length - 1], prev20 = candles.slice(-21, -1).map((c) => c.volume), avg = mean(prev20);
   const mult = avg > 0 ? last.volume / avg : null, body = (last.close / last.open - 1) * 100, rsi = rsi14(candles.map((c) => c.close));
   const turn24 = candles.filter((c) => c.time * 1000 > now - 864e5).reduce((s, c) => s + c.volume, 0);
@@ -301,7 +304,7 @@ export async function buildCardData({ row, ticker, info, iv, days, fx, log }) {
     dot + " 거래량: 평소의 " + (mult == null ? "—" : mult.toFixed(1)) + "배 (직전 20봉 평균 대비)\n" +
     (body >= 0 ? "🔺" : "🔽") + " 몸통: " + (body >= 0 ? "+" : "") + body.toFixed(2) + "%" + (rsi != null ? " (RSI " + Math.round(rsi) + ")" : "") + "\n" +
     "💰 현재가: " + fmtP(price) + "\n💵 24시간 거래대금: " + fmt(eok(turn24, fx)) + "억원 ($" + (turn24 / 1e6).toFixed(1) + "M)\n⏱ " + kstStamp(now).slice(-9) + " · " + ivKo + "봉 진행 중";
-  return { title: ticker + (name ? " (" + name + ")" : "") + " - " + iv.toUpperCase() + " (Vol) (HYPERLIQUID)", price: fmtP(price), candles, sr: levels(candles, price), swings: swings(candles), caption };
+  return { iv, daily, title: ticker + (name ? " (" + name + ")" : "") + " - " + iv.toUpperCase() + " (Vol) (HYPERLIQUID)", price: fmtP(price), candles, sr: levels(candles, price), swings: swings(candles), caption };
 }
 export function pickRow(uni, ticker, info) {
   const alias = info.alias[ticker] || ticker;
@@ -310,7 +313,16 @@ export function pickRow(uni, ticker, info) {
 /* 카드 이미지 렌더(site/card.html) */
 export async function renderCard(page, base, data) {
   await page.goto(base + "/card.html", { waitUntil: "domcontentloaded", timeout: 20000 });
-  await page.evaluate((d) => window.renderCard(d), data);
-  await sleep(500);
+  const sum = await page.evaluate((d) => window.renderCard(d), data);
+  await sleep(700);
+  if (sum) {
+    const L = [];
+    if (sum.kel) L.push("🟠 일봉 켈트너: 중심 " + sum.kel.mid.toPrecision(5) + " · 상단 " + sum.kel.up.toPrecision(5) + " · 하단 " + sum.kel.lo.toPrecision(5) + " → " + sum.kel.pos);
+    const t = sum.ict; L.push("🧭 ICT: " + t.trend + " · 최근 " + t.last + " · " + t.pd + " 구간 · FVG " + t.fvg + " · OB " + t.ob + (t.eqh || t.eql ? " · EQH " + t.eqh + "/EQL " + t.eql : ""));
+    if (t.flips.length) L.push("🔁 전환 레벨: " + t.flips.join(", "));
+    const o = []; if (sum.rsi != null) o.push("RSI " + sum.rsi); if (sum.st533) o.push("스토 5/3/3 " + sum.st533.k + "/" + sum.st533.d); if (sum.st2599) o.push("스토 25/9/9 " + sum.st2599.k + "/" + sum.st2599.d);
+    if (o.length) L.push("📊 " + o.join(" · "));
+    data.caption += "\n\n" + L.join("\n");
+  }
   return await page.screenshot({ type: "png" });
 }
