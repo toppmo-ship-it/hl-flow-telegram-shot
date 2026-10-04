@@ -22,7 +22,7 @@ const SBU = "https://atauxczcjtvcrjjlnapm.supabase.co";
 const SBK = process.env.SB_OFF ? "" : "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF0YXV4Y3pjanR2Y3JqamxuYXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0OTMxMzgsImV4cCI6MjA5MjA2OTEzOH0.jyB9SGyjdaHYRw8MpktX8dHtKOgA6rbGTJbdrycnXgA";
 const STORE_KEY = "flow_srv_raw_v2";   /* v2: 일봉에 거래량 포함 + 봉 간격별 원본 캔들(raw[iv]) */
 const CFG_KEY = "tg_shot_cfg";
-const DEF_CFG = { frame: "20D", iv: "15m", vol: ["v4", "v3"], kel: ["above", "mid"], lead: false, alt: false, sectors: null, idx: ["XYZ100", "KR200", "SP500"], cmd: ["BRENTOIL"], sw: 2, swi: 3, swc: 3 };
+const DEF_CFG = { frame: "20D", iv: "15m", vol: ["v4", "v3"], kel: ["above", "mid"], lead: false, alt: false, sectors: null, idx: ["XYZ100", "KR200", "SP500"], cmd: ["BRENTOIL"], sw: 2, swi: 3, swc: 3, cardIv: "4h", cardDays: 60 };
 /* 해상도 프리셋: 화면(CSS) 크기 × 배율 = 사진 픽셀. 폴드는 거의 정사각형, PC는 16:9 와이드 */
 const RES = {
   fold: { w: 1092, h: 984, dsf: 2, label: "폴드 2184×1968" },
@@ -217,7 +217,7 @@ async function runExtras({ cfg0, q, dry, base }) {
   }
   if (dueCards) {
     stage(88, "종목 카드 준비 중");
-    const iv = String(cfg0.cardIv || "1h").replace(/[^0-9a-z]/g, ""), days = Math.min(40, Math.max(3, +cfg0.cardDays || 20));
+    const iv = String(cfg0.cardIv || "1h").replace(/[^0-9a-z]/g, ""), days = Math.min(150, Math.max(3, +cfg0.cardDays || 60));
     const browser = await puppeteer.launch({ executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome", headless: true, args: ["--no-sandbox", "--hide-scrollbars", "--disable-dev-shm-usage"], defaultViewport: { width: 1200, height: 1100, deviceScaleFactor: 2 } });
     try {
       const page = await browser.newPage();

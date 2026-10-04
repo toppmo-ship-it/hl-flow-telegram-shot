@@ -15,7 +15,7 @@ const BUDGET = 900;
 let used = [];
 const weightOf = (b) => {
   if (b && b.type === "candleSnapshot" && b.req) {
-    const ivm = { "30m": 30, "1h": 60, "2h": 120, "4h": 240, "1d": 1440, "15m": 15 }[b.req.interval] || 60;
+    const ivm = { "30m": 30, "1h": 60, "2h": 120, "4h": 240, "8h": 480, "1d": 1440, "15m": 15 }[b.req.interval] || 60;
     return 20 + Math.ceil(Math.max(0, (b.req.endTime - b.req.startTime) / (ivm * 60000)) / 60);
   }
   return 20;
@@ -300,14 +300,14 @@ function swings(cs) {
   }
   return out.slice(-10);
 }
-const IVMS = { "15m": 900e3, "30m": 1800e3, "1h": 3600e3, "2h": 7200e3, "4h": 14400e3 };
+const IVMS = { "15m": 900e3, "30m": 1800e3, "1h": 3600e3, "2h": 7200e3, "4h": 14400e3, "8h": 28800e3 };
 /* 카드용 캔들 저장본(.cache/cardbars.json): 패턴 통계를 위해 최대 5000봉(약 240일)을 쌓아 두고 매번 마지막 3봉부터만 이어받음 */
 let CB = null, CBFILE = null, CBDIRTY = false;
 function cbLoad(cacheDir) { if (CB) return; CB = {}; CBFILE = cacheDir ? path.join(cacheDir, "cardbars.json") : null; try { if (CBFILE) CB = JSON.parse(fs.readFileSync(CBFILE, "utf8")); } catch (e) { CB = {}; } }
 export function flushCardCache(cacheDir) { if (!CB || !CBDIRTY || !CBFILE) return; try { fs.mkdirSync(cacheDir, { recursive: true }); fs.writeFileSync(CBFILE, JSON.stringify(CB)); } catch (e) {} CBDIRTY = false; }
 export async function buildCardData({ row, ticker, info, iv, days, fx, log, cacheDir, mode }) {
   const ms = IVMS[iv] || 3600e3, now = Date.now();
-  const lookN = Math.min(5000, Math.ceil(60 * 864e5 / ms));   /* 패턴이 윈도 앞에서 시작해도 잡히도록 표시 구간 앞쪽 여유 포함 */
+  const lookN = Math.min(5000, Math.ceil((days + 60) * 864e5 / ms));   /* 패턴이 윈도 앞에서 시작해도 잡히도록 표시 구간 앞쪽 여유 포함 */
   cbLoad(cacheDir);
   const key = row.full + "|" + iv, old = CB[key], have = old && old.length > 100 && old[0][0] <= now - lookN * ms + 36 * ms;
   const from = have ? old[old.length - 3][0] : now - lookN * ms;
@@ -326,13 +326,16 @@ export async function buildCardData({ row, ticker, info, iv, days, fx, log, cach
   const name = (info.ko[ticker] || "") ;
   const price = last.close;
   const fmtP = (v) => (v >= 1000 ? v.toFixed(1) : v >= 10 ? v.toFixed(2) : v >= 1 ? v.toFixed(3) : v.toPrecision(4));
-  const ivKo = { "15m": "15분", "30m": "30분", "1h": "1시간", "2h": "2시간", "4h": "4시간" }[iv] || iv;
+  const ivKo = { "15m": "15분", "30m": "30분", "1h": "1시간", "2h": "2시간", "4h": "4시간", "8h": "8시간" }[iv] || iv;
+  const perEn = { "15m": "15min", "30m": "30min", "1h": "1hour", "2h": "2hour", "4h": "4hour", "8h": "8hour" }[iv] || iv;
+  const sec = info.sectorOf[ticker] || info.sectorOf[row.short] || info.sectorOf[Object.keys(info.alias).find((k) => info.alias[k] === row.short)] || "";
+  const ttl = ticker + (name ? " · " + name : ""), subTxt = (sec ? sec + " · " : "") + (row.dex === "코인" ? "Hyperliquid 무기한 선물" : "Hyperliquid " + row.full + " 무기한");
   const dot = mult == null ? "⬜" : mult >= 3 ? "🟥" : mult >= 2 ? "🟧" : mult >= 1.5 ? "🟨" : "⬜";
   const caption = "📈 [" + (row.dex === "xyz" ? "HIP-3" : row.dex) + "] " + ticker + (name ? " (" + name + ")" : "") + " (" + iv.toUpperCase() + ")\n\n" +
     dot + " 거래량: 평소의 " + (mult == null ? "—" : mult.toFixed(1)) + "배 (직전 20봉 평균 대비)\n" +
     (body >= 0 ? "🔺" : "🔽") + " 몸통: " + (body >= 0 ? "+" : "") + body.toFixed(2) + "%" + (rsi != null ? " (RSI " + Math.round(rsi) + ")" : "") + "\n" +
     "💰 현재가: " + fmtP(price) + "\n💵 24시간 거래대금: " + fmt(eok(turn24, fx)) + "억원 ($" + (turn24 / 1e6).toFixed(1) + "M)\n⏱ " + kstStamp(now).slice(-9) + " · " + ivKo + "봉 진행 중";
-  return { iv, mode: mode || "pattern", windowBars, daily, title: ticker + (name ? " (" + name + ")" : "") + " - " + iv.toUpperCase() + " (Vol) (HYPERLIQUID)", price: fmtP(price), candles, sr: levels(candles, price), swings: swings(candles), caption };
+  return { iv, mode: mode || "pattern", windowBars, daily, ttl, sub: subTxt, period: days + "day-" + perEn, title: ticker + (name ? " (" + name + ")" : "") + " - " + iv.toUpperCase() + " (Vol) (HYPERLIQUID)", price: fmtP(price), candles, sr: levels(candles, price), swings: swings(candles), caption };
 }
 export function pickRow(uni, ticker, info) {
   const alias = info.alias[ticker] || ticker;

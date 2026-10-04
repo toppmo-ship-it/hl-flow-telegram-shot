@@ -9,6 +9,8 @@
 const root_ = typeof window !== "undefined" ? window : globalThis;
 const LW = window.LightweightCharts, KST = 9 * 3600, DAY = 86400;
 const COL = { up: "#ff4d5d", dn: "#4fc3ff", kMid: "#ff9f1a", kBand: "#ffd84d", kBand1: "#f0dc6e", rsi: "#c792ff", sk: "#4fc3ff", sd: "#ff9f43", vol: "#ffd84d" };
+/* 소수 인덱스도 안전하게: 정수 두 점 사이를 직접 보간 (logicalToCoordinate 는 소수에서 0을 돌려줄 때가 있음) */
+function lc(ts, i) { const f = Math.floor(i), a = ts.logicalToCoordinate(f); if (a == null) return null; if (f === i) return a; const b = ts.logicalToCoordinate(f + 1); return b == null ? a : a + (b - a) * (i - f); }
 const mean = (a) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0);
 
 /* ───────── 지표 계산 ───────── */
@@ -227,7 +229,7 @@ class NightBand {
     const ts = this.chart.timeScale(), n = parseInt(this.color.slice(1), 16), R = n >> 16 & 255, G = n >> 8 & 255, B = n & 255;
     c.save();
     this.bands.forEach((b) => {
-      const x1 = ts.logicalToCoordinate(b.a), x2 = ts.logicalToCoordinate(b.b); if (x1 == null || x2 == null) return;
+      const x1 = lc(ts, b.a), x2 = lc(ts, b.b); if (x1 == null || x2 == null) return;
       const xa = Math.max(0, x1), xb = Math.min(mediaSize.width, x2); if (xb <= xa) return;
       const g = c.createLinearGradient(0, 0, 0, mediaSize.height);
       g.addColorStop(0, "rgba(" + R + "," + G + "," + B + ",.15)"); g.addColorStop(1, "rgba(" + R + "," + G + "," + B + ",.05)");
@@ -291,7 +293,7 @@ class PatternLayer {
   draw({ context: c, mediaSize }) {
     if (!this.chart || !this.series || !this.res || !this.cs) return;
     const ts = this.chart.timeScale(), W = mediaSize.width, Hh = mediaSize.height, cs = this.cs, n = cs.length, xExt = n - 1 + this.ext;
-    const X = (i) => ts.logicalToCoordinate(i), Y = (p) => this.series.priceToCoordinate(p);
+    const X = (i) => lc(ts, i), Y = (p) => this.series.priceToCoordinate(p);
     const PT = root_.Patterns, FONT = '"Pretendard","Malgun Gothic","Nanum Gothic",sans-serif';
     const pats = this.res.pats.filter((p) => p.end >= this.from - 5);
     const live = (p) => p.state === "forming" || p.state === "confirmed";
@@ -309,7 +311,7 @@ class PatternLayer {
       for (let k = lo; k < bx.length && bx[k] <= x + w + pad; k++) if (y < bb[k] + pad && y + h > bt[k] - pad) return true; return false;
     };
     c.save(); c.lineJoin = "round"; c.lineCap = "round";
-    const tags = [], labelRects = [];
+    const tags = [], labelRects = [{ x: 0, y: 0, w: 520, h: 36 }];   /* 왼쪽 위 범례 글자 자리는 비워 둠 */
     const pill = (txt, x, y, col) => { c.font = "800 11px " + FONT; const w = c.measureText(txt).width + 12, h = 17; c.fillStyle = "rgba(8,13,24,.9)"; c.strokeStyle = rgba(col, 0.7); c.lineWidth = 1; c.beginPath(); c.roundRect ? c.roundRect(x, y, w, h, 6) : c.rect(x, y, w, h); c.fill(); c.stroke(); c.fillStyle = col; c.textAlign = "left"; c.textBaseline = "middle"; c.fillText(txt, x + 6, y + h / 2 + 0.5); labelRects.push({ x, y, w, h }); };
     const P = (i, v) => { const x = X(i), y = Y(v); return x == null || y == null ? null : [x, y]; };
     const seg = (a, b, col, w, dash) => { if (!a || !b) return; c.strokeStyle = col; c.lineWidth = w; c.setLineDash(dash || []); c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke(); c.setLineDash([]); };
@@ -324,13 +326,13 @@ class PatternLayer {
         const s0 = (L0[1][1] - L0[0][1]) / Math.max(1, L0[1][0] - L0[0][0]), s1 = (L1[1][1] - L1[0][1]) / Math.max(1, L1[1][0] - L1[0][0]);
         if (lv && Math.abs(s0 - s1) > 1e-9) { const xa = (L1[0][1] - L0[0][1] + s0 * L0[0][0] - s1 * L1[0][0]) / (s0 - s1); if (xa > p.end && xa < xExt) { apex = xa; xr = xa; } }
         const pa = P(L0[0][0], L0[0][1]), pb = P(xr, lineAt(L0[0], L0[1], xr)), pc2 = P(xr, lineAt(L1[0], L1[1], xr)), pd = P(L1[0][0], L1[0][1]);
-        if (pa && pb && pc2 && pd) { c.fillStyle = rgba(col, lv ? 0.09 : 0.045); c.beginPath(); c.moveTo(pa[0], pa[1]); c.lineTo(pb[0], pb[1]); c.lineTo(pc2[0], pc2[1]); c.lineTo(pd[0], pd[1]); c.closePath(); c.fill(); }
+        if (pa && pb && pc2 && pd) { c.fillStyle = rgba(col, lv ? 0.07 : 0.032); c.beginPath(); c.moveTo(pa[0], pa[1]); c.lineTo(pb[0], pb[1]); c.lineTo(pc2[0], pc2[1]); c.lineTo(pd[0], pd[1]); c.closePath(); c.fill(); }
         /* 실선(패턴 구간) + 점선(연장) */
         const e0 = P(p.end, lineAt(L0[0], L0[1], p.end)), e1 = P(p.end, lineAt(L1[0], L1[1], p.end));
         seg(pa, e0, rgba(col, 0.9 * a), lv ? 1.9 : 1.4); seg(pd, e1, rgba(col, 0.9 * a), lv ? 1.9 : 1.4);
         if (lv) {
           seg(e0, pb, rgba(col, 0.95), 1.9, [7, 5]); seg(e1, pc2, rgba(col, 0.95), 1.9, [7, 5]);
-          if (apex != null) { const t0 = P(apex, lineAt(L0[0], L0[1], apex)); if (t0) { c.strokeStyle = rgba(col, 0.5); c.lineWidth = 1.2; c.setLineDash([3, 5]); c.beginPath(); c.moveTo(t0[0], 6); c.lineTo(t0[0], Hh - 6); c.stroke(); c.setLineDash([]); } }
+          if (apex != null) { const t0 = P(apex, lineAt(L0[0], L0[1], apex)); if (t0) { c.strokeStyle = rgba(col, 0.3); c.lineWidth = 1.1; c.setLineDash([3, 5]); c.beginPath(); c.moveTo(t0[0], 6); c.lineTo(t0[0], Hh - 6); c.stroke(); c.setLineDash([]); } }
           /* 돌파선/손절선(또는 이탈선) 이름 */
           const up = dE >= 0 ? "돌파선" : "손절선", lo = dE > 0 ? "손절선" : "이탈선";
           if (pb) pill(dE === 0 ? "상단 돌파" : up, Math.min(W - 70, pb[0] - 66), pb[1] - 21, col);
@@ -371,16 +373,19 @@ class PatternLayer {
     tags.sort((a, b) => (b.lv - a.lv) || (b.end - a.end));
     const placed = labelRects.slice();
     const hit = (r) => placed.some((q) => r.x < q.x + q.w + 4 && r.x + r.w + 4 > q.x && r.y < q.y + q.h + 3 && r.y + r.h + 3 > q.y);
+    let pastSeen = 0;
     tags.forEach((t) => {
       const variants = [];
-      const L1 = [{ txt: t.name, f: "800 14px " + FONT, col: "#ffffff" }];
-      if (t.stTxt) L1.push({ txt: t.stTxt, f: "800 11.5px " + FONT, col: t.col, inline: true });
-      if (t.desc && (t.lv || true)) variants.push(L1.concat([{ txt: t.desc, f: "500 11.5px " + FONT, col: "#aebdd8" }]));
+      /* 지난 패턴이 많으면 최근 4개만 설명 포함, 나머지는 작은 이름표(이름만)로 — 화면이 지저분해지지 않게 */
+      const compact = !t.lv && (pastSeen++ >= 4);
+      const L1 = [{ txt: t.name, f: (compact ? "700 12px " : "800 14px ") + FONT, col: compact ? "#c9d5ec" : "#ffffff" }];
+      if (t.stTxt && !compact) L1.push({ txt: t.stTxt, f: "800 11.5px " + FONT, col: t.col, inline: true });
+      if (t.desc && !compact) variants.push(L1.concat([{ txt: t.desc, f: "500 11.5px " + FONT, col: "#aebdd8" }]));
       variants.push(L1);
       for (const L of variants) {
         c.font = L[0].f; const wName = c.measureText(L[0].txt).width; let wFirst = wName; if (L[1] && L[1].inline) { c.font = L[1].f; wFirst += 10 + c.measureText(L[1].txt).width; }
         let w = wFirst; const rest = L.filter((l, k) => k > 0 && !l.inline); rest.forEach((l) => { c.font = l.f; w = Math.max(w, c.measureText(l.txt).width); });
-        w += 24; const h = 27 + rest.length * 17;
+        w += compact ? 20 : 24; const h = (compact ? 22 : 27) + rest.length * 17;
         /* 후보를 가까운 순으로 */
         const want = t.below ? t.bot + 14 : t.top - 14 - h, cand = [];
         for (let dy = -Hh; dy <= Hh; dy += 8) for (let dx = -W * 0.6; dx <= W * 0.6; dx += 14) {
@@ -396,12 +401,13 @@ class PatternLayer {
         c.strokeStyle = rgba(t.col, t.lv ? 0.65 : 0.4); c.lineWidth = 1; c.stroke();
         c.fillStyle = t.col; c.beginPath(); c.moveTo(x + r, y); c.arcTo(x, y, x, y + h, r); c.arcTo(x, y + h, x + r, y + h, r); c.lineTo(x + 4, y + h); c.lineTo(x + 4, y); c.closePath(); c.fill();
         let yy = y + 7; c.textAlign = "left"; c.textBaseline = "top";
-        c.font = L[0].f; c.fillStyle = L[0].col; c.fillText(L[0].txt, x + 13, yy);
+        c.font = L[0].f; c.fillStyle = L[0].col; c.fillText(L[0].txt, x + (compact ? 11 : 13), yy - (compact ? 1 : 0));
         if (L[1] && L[1].inline) { c.font = L[1].f; c.fillStyle = L[1].col; c.fillText(L[1].txt, x + 13 + wName + 10, yy + 2); }
         yy += 20; rest.forEach((l) => { c.font = l.f; c.fillStyle = l.col; c.fillText(l.txt, x + 13, yy); yy += 17; });
         /* 연결선: 이름표 → 패턴 (캔들 위를 지나가지 않도록 가는 점선) */
-        const ax = Math.max(x + 8, Math.min(x + w - 8, t.cx)), ay = pos.y > t.bot ? y : (pos.y + h < t.top ? y + h : (y < t.top ? y + h : y)), ty = pos.y > t.bot ? t.bot : t.top;
-        if (Math.abs(ay - ty) > 14) { c.strokeStyle = rgba(t.col, 0.4); c.lineWidth = 1; c.setLineDash([2, 4]); c.beginPath(); c.moveTo(ax, ay); c.lineTo(ax, ty); c.stroke(); c.setLineDash([]); }
+        /* 연결선: 이름표 가장자리 → 패턴 한가운데 (연한 점선 + 끝에 작은 고리) */
+        { const mx = t.cx, my = (t.top + t.bot) / 2, ex = Math.max(x + 10, Math.min(x + w - 10, mx)), ey = (my > y + h) ? y + h : (my < y ? y : (y + h / 2));
+          if (Math.hypot(mx - ex, my - ey) > 16) { c.strokeStyle = rgba(t.col, 0.32); c.lineWidth = 1; c.setLineDash([2, 4]); c.beginPath(); c.moveTo(ex, ey); c.lineTo(mx, my); c.stroke(); c.setLineDash([]); c.strokeStyle = rgba(t.col, 0.55); c.beginPath(); c.arc(mx, my, 3, 0, 6.3); c.stroke(); } }
         break;
       }
     });
