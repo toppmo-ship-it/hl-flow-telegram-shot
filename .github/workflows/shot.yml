@@ -1,0 +1,56 @@
+name: telegram-chart
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"        # 5분마다 (GitHub 스케줄 특성상 실제로는 5~15분 간격으로 늦게 돌 수 있어요)
+  workflow_dispatch:
+    inputs:
+      dry:
+        description: "true = 텔레그램으로 보내지 않고 캡처만(시험용)"
+        default: "false"
+      overrides:
+        description: "이번 한 번만 덮어쓸 설정 (예: res=pc&vz=200)"
+        default: ""
+
+concurrency:
+  group: telegram-chart
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  shot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: 한글 글꼴 설치
+        run: |
+          mkdir -p ~/.fonts
+          cp fonts/*.ttf ~/.fonts/
+          fc-cache -f
+
+      - name: 캔들 저장본 이어받기
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: store-${{ github.run_id }}
+          restore-keys: |
+            store-
+
+      - name: 차트 캡처 → 텔레그램
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          SHOT_DRY: ${{ github.event.inputs.dry }}
+          SHOT_OVERRIDES: ${{ github.event.inputs.overrides }}
+        run: node shot.mjs

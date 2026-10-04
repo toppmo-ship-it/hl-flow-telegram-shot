@@ -1,0 +1,10 @@
+{
+  "name": "hl-flow-telegram-shot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "흐름차트를 헤드리스 크롬으로 캡처해 텔레그램으로 보내는 실행기(GitHub Actions)",
+  "dependencies": {
+    "puppeteer-core": "25.12.0"
+  }
+}
