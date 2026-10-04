@@ -161,15 +161,21 @@ export async function buildWeeklyTexts({ uni, info, fx, cacheDir, log }) {
   const rule = "\n\n📐 큰 흐름 = 지난주 평균 vs 그 전 2주 평균(겹치지 않음) · 작은 흐름 = 최근 2평일 vs 직전 5평일\n표시: ➖ ±10% 이내 · 🔺/🔽 ±10~50% · 🔺🔺/🔽🔽 ±50% 이상 (🔺=증가 빨강, 🔽=감소 파랑)";
   const lines = top25.map((x, i) => {
     const big = chg(x.last, x.prev), sm = chg(x.s2, x.s5);
-    return (i + 1) + ". " + coinLabel(x.r, info) + "\n    " + fmt(x.prev) + " → " + fmt(x.last) + " 억  큰흐름 " + pc(big) + " " + arrow(big) + "  |  작은흐름 " + pc(sm) + " " + arrow(sm);
+    const star = (p) => (p != null && p >= 150 ? "🚀" : "");
+    return (i + 1) + ". " + coinLabel(x.r, info) + "\n    큰흐름 " + pc(big) + " " + arrow(big) + star(big) + "   |   작은흐름 " + pc(sm) + " " + arrow(sm) + star(sm);
   });
-  const msg1 = head2 + concl + rule + "\n\n🏆 평일 거래대금 TOP 25 (하루 평균, 억원 · 전 2주 → 지난주)\n" + lines.join("\n");
+  const msg1 = head2 + concl + rule + "\n\n🏆 평일 거래대금 TOP 25 (순위=하루 평균 거래대금 기준 · 등락률만 표시 · 🚀=+150%↑)\n" + lines.join("\n");
 
   /* ── 분석 메시지 (규칙 기반: 수치·화살표만) ── */
   const MINV = 50;   /* 억원 미만 종목은 급증·급감 목록에서 제외(잡음) */
   const pool2 = rowsOut.filter((x) => x.avg3w >= MINV);
-  const lst = (arr, key, n, up) => arr.map((x) => ({ x, p: key(x) })).filter((o) => o.p != null).sort((a, b) => (up ? b.p - a.p : a.p - b.p)).slice(0, n)
-    .map((o) => coinLabel(o.x.r, info).replace(/ \(.*?\)/, "") + " " + pc(o.p)).join(", ");
+  /* 순위형 목록: 상위 n개 + (증가 쪽) +150% 이상은 개수와 상관없이 전부 🚀 로 추가 */
+  const medal = ["🥇", "🥈", "🥉"];
+  const lst = (arr, key, n, up) => {
+    const all = arr.map((x) => ({ x, p: key(x) })).filter((o) => o.p != null && isFinite(o.p)).sort((a, b) => (up ? b.p - a.p : a.p - b.p));
+    const extra = up ? all.filter((o, i) => i >= n && o.p >= 150).length : 0;
+    return all.slice(0, n + extra).map((o, i) => " " + (i < 3 ? medal[i] : (i + 1) + ".") + " " + coinLabel(o.x.r, info).replace(/ \(.*?\)/, "") + "  " + pc(o.p) + (o.p >= 150 ? " 🚀" : "")).join("\n");
+  };
   const big = (x) => chg(x.last, x.prev), sm = (x) => chg(x.s2, x.s5);
   const totS2 = sum("s2"), totS5 = sum("s5");
   const a3 = rowsOut.reduce((s, x) => s + x.avg3w, 0) / cover;
@@ -193,9 +199,9 @@ export async function buildWeeklyTexts({ uni, info, fx, cacheDir, log }) {
     .filter((o) => o.l + o.p > 100).sort((a, b) => b.l - a.l).slice(0, 10)
     .map((o) => " " + arrow(o.c) + " " + o.name + " " + pc(o.c) + " (" + fmt(o.p) + "→" + fmt(o.l) + "억/" + o.n + "종목)");
   const msg2 = "🔎 큰 흐름 (주 단위)\n지난주 평균 vs 전 2주 평균\n 전체 " + arrow(chg(totLast, totPrev)) + " " + pc(chg(totLast, totPrev)) + " (" + jo(totPrev) + " → " + jo(totLast) + ")\n" +
-    " 🔺 급증: " + lst(pool2, big, 5, true) + "\n 🔽 감소: " + lst(pool2, big, 5, false) +
+    "\n🔺 급증 순위 (증가율 TOP 5, +150%↑는 전부 🚀)\n" + lst(pool2, big, 5, true) + "\n\n🔽 감소 순위 (감소율 TOP 5)\n" + lst(pool2, big, 5, false) +
     "\n\n🔍 작은 흐름 (일 단위)\n최근 2평일 평균 vs 직전 5평일 평균\n 전체 " + arrow(chg(totS2, totS5)) + " " + pc(chg(totS2, totS5)) + " (" + jo(totS5) + " → " + jo(totS2) + ")\n" +
-    " 🔺 급증: " + lst(pool2, sm, 5, true) + "\n 🔽 감소: " + lst(pool2, sm, 5, false) +
+    "\n🔺 급증 순위 (증가율 TOP 5, +150%↑는 전부 🚀)\n" + lst(pool2, sm, 5, true) + "\n\n🔽 감소 순위 (감소율 TOP 5)\n" + lst(pool2, sm, 5, false) +
     "\n\n📆 기간별 전체 거래대금 (지난주 평균 기준)\n vs 직전 1주 " + arrow(chg(totLast, prevWk)) + " " + pc(chg(totLast, prevWk)) +
     "\n vs 전 2주 " + arrow(chg(totLast, totPrev)) + " " + pc(chg(totLast, totPrev)) +
     "\n vs 3주 평균 " + arrow(chg(totLast, a3)) + " " + pc(chg(totLast, a3)) +
@@ -205,13 +211,25 @@ export async function buildWeeklyTexts({ uni, info, fx, cacheDir, log }) {
 }
 
 /* ═════════ ② 거래량 급증 순위 (30분·1시간·2시간·4시간·24시간) ═════════ */
-export async function buildSurgeText({ uni, info, fx, log }) {
+export async function buildSurgeText({ uni, info, fx, log, cacheDir }) {
   const now = Date.now(), top = uni.slice(0, 30);
   const start = now - 8.5 * 864e5, bars = {};
+  /* 미리받기(증분): 30분봉 저장본을 .cache/surge30m.json 에 두고, 매번 마지막 3봉부터만 새로 받아 합침 (가중치 27 → 21, 전송량 1/100) */
+  const cf = cacheDir ? path.join(cacheDir, "surge30m.json") : null; let sc = {};
+  try { if (cf) sc = JSON.parse(fs.readFileSync(cf, "utf8")); } catch (e) {}
+  let inc = 0, full = 0;
   await pool(top, 3, async (r) => {
-    const cs = await hl({ type: "candleSnapshot", req: { coin: r.full, interval: "30m", startTime: start, endTime: now } }, log);
-    if (cs && cs.length) bars[r.full] = cs.map((c) => ({ t: c.t, o: +c.o, h: +c.h, l: +c.l, c: +c.c, n: +c.v * (+c.h + +c.l + +c.c) / 3 }));
+    const old = sc[r.full], have = old && old.length > 100 && old[0].t <= start + 36e5;
+    const from = have ? old[old.length - 3].t : start;
+    const cs = await hl({ type: "candleSnapshot", req: { coin: r.full, interval: "30m", startTime: from, endTime: now } }, log);
+    if (!cs || !cs.length) { if (have) bars[r.full] = old.filter((x) => x.t >= start); return; }
+    const add = cs.map((c) => ({ t: c.t, o: +c.o, h: +c.h, l: +c.l, c: +c.c, n: +c.v * (+c.h + +c.l + +c.c) / 3 }));
+    const m = new Map((have ? old : []).map((x) => [x.t, x])); add.forEach((x) => m.set(x.t, x));
+    bars[r.full] = [...m.values()].filter((x) => x.t >= start).sort((x, y) => x.t - y.t);
+    if (have) inc++; else full++;
   });
+  if (cf) { try { fs.mkdirSync(cacheDir, { recursive: true }); fs.writeFileSync(cf, JSON.stringify(bars)); } catch (e) {} }
+  log && log("급증 순위 데이터: 증분 " + inc + "종목 · 전체 " + full + "종목");
   const H = 1800e3, res = { "30분": [], "1시간": [], "2시간": [], "4시간": [], "24시간": [] };
   const spec = [["30분", 1], ["1시간", 2], ["2시간", 4], ["4시간", 8]];
   top.forEach((r) => {
@@ -308,7 +326,7 @@ export async function buildCardData({ row, ticker, info, iv, days, fx, log }) {
 }
 export function pickRow(uni, ticker, info) {
   const alias = info.alias[ticker] || ticker;
-  return uni.find((r) => r.short === alias && r.dex === "xyz") || uni.find((r) => r.short === alias) || (/^[A-Z0-9]{2,8}$/.test(ticker) ? { full: ticker, short: ticker, dex: "코인" } : null);
+  return uni.find((r) => r.short === alias && r.dex === "xyz") || uni.find((r) => r.short === alias && r.dayNtl > 1e5) || (/^[A-Z0-9]{2,8}$/.test(ticker) ? { full: ticker, short: ticker, dex: "코인" } : null);
 }
 /* 카드 이미지 렌더(site/card.html) */
 export async function renderCard(page, base, data) {

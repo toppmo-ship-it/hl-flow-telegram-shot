@@ -168,12 +168,12 @@ class Overlay {
         const xa = Math.max(0, Math.min(x1, x2 == null ? x1 : x2)), xb = x2 == null ? mediaSize.width : Math.max(x1, x2);
         c.fillStyle = it.fill; c.fillRect(xa, Math.min(y1, y2), xb - xa, Math.abs(y2 - y1));
         if (it.stroke) { c.strokeStyle = it.stroke; c.lineWidth = 1; c.strokeRect(xa + 0.5, Math.min(y1, y2) + 0.5, xb - xa - 1, Math.abs(y2 - y1) - 1); }
-        if (it.label) { c.fillStyle = it.text || "#fff"; c.textAlign = "left"; c.fillText(it.label, xa + 5, Math.min(y1, y2) + Math.min(11, Math.abs(y2 - y1) / 2 + 1)); }
+        if (it.label && xb - xa > 90) { c.fillStyle = it.text || "#fff"; c.textAlign = "right"; c.fillText(it.label, xb - 6, Math.min(y1, y2) + Math.min(11, Math.abs(y2 - y1) / 2 + 1)); }
       } else if (it.kind === "line" && layer === "line") {
         const y = Y(it.p); if (y == null || x1 == null) return;
         const xe = x2 == null ? mediaSize.width : x2;
         c.strokeStyle = it.color; c.lineWidth = it.w || 1.5; c.setLineDash(it.dash || [6, 5]); c.beginPath(); c.moveTo(x1, y); c.lineTo(xe, y); c.stroke(); c.setLineDash([]);
-        if (it.label) { c.fillStyle = it.color; c.textAlign = "center"; c.fillText(it.label, (x1 + xe) / 2, y + (it.below ? 12 : -9)); }
+        if (it.label && xe - x1 > 90) { c.fillStyle = it.color; c.textAlign = "center"; c.fillText(it.label, (x1 + xe) / 2, y + (it.below ? 12 : -9)); }
       } else if (it.kind === "tag" && layer === "line") {
         const y = Y(it.p); if (y == null || x1 == null) return;
         c.fillStyle = it.color; c.textAlign = "center"; c.fillText(it.label, x1, y + (it.below ? 14 : -10));
@@ -196,7 +196,7 @@ function ictItems(a, o) {
   if (o.struct) a.struct.forEach((s) => items.push({ kind: "line", t1: s.t1, t2: s.t2, p: s.price, color: s.kind === "CHoCH" ? "#ffb020" : "#9fb4d8", dash: [5, 4], w: s.kind === "CHoCH" ? 2 : 1.4, label: s.kind + (s.dir > 0 ? "↑" : "↓"), below: s.dir < 0 }));
   if (o.liq) {
     a.liq.forEach((l) => items.push({ kind: "line", t1: l.t1, t2: undefined, p: l.price, color: "#e8e8ff", dash: [2, 4], w: 1.2, label: l.type === "H" ? "EQH" : "EQL", below: l.type === "L" }));
-    a.sweeps.forEach((s) => items.push({ kind: "tag", t1: s.t, p: s.price, color: "#ffe36a", label: s.type === "BSL" ? "BSL 스윕▼" : "SSL 스윕▲", below: s.type === "SSL" }));
+    a.sweeps.forEach((s) => false && items.push({ kind: "tag", t1: s.t, p: s.price, color: "#ffe36a", label: s.type === "BSL" ? "BSL 스윕▼" : "SSL 스윕▲", below: s.type === "SSL" }));
   }
   void rgba; return items;
 }
@@ -214,13 +214,13 @@ function build(el, data, opt) {
     layout: { background: { type: "solid", color: "#0a0f19" }, textColor: "#9fb1cf", fontFamily: '"Pretendard","Malgun Gothic","Nanum Gothic",system-ui,sans-serif', fontSize: 14, panes: { separatorColor: "#34507f", separatorHoverColor: "#6f9bff", enableResize: false } },
     grid: { vertLines: { color: "#101a2b" }, horzLines: { color: "#101a2b" } },
     rightPriceScale: { borderColor: "#1c2a44", scaleMargins: { top: 0.07, bottom: 0.06 } },
-    timeScale: { borderColor: "#1c2a44", timeVisible: true, rightOffset: 7, barSpacing: opt.barSpacing || 8,
+    timeScale: { borderColor: "#1c2a44", timeVisible: true, rightOffset: 18, barSpacing: opt.barSpacing || 8,
       tickMarkFormatter: (t, type) => { const x = new Date(t * 1000), p = (n) => String(n).padStart(2, "0"), W = ["일", "월", "화", "수", "목", "금", "토"]; return type <= 2 ? (x.getUTCMonth() + 1) + "/" + x.getUTCDate() + "(" + W[x.getUTCDay()] + ")" : p(x.getUTCHours()) + ":" + p(x.getUTCMinutes()); } },
     localization: { timeFormatter: (t) => { const x = new Date(t * 1000), p = (n) => String(n).padStart(2, "0"); return (x.getUTCMonth() + 1) + "/" + x.getUTCDate() + " " + p(x.getUTCHours()) + ":" + p(x.getUTCMinutes()); } },
     crosshair: { mode: 0, vertLine: { visible: false }, horzLine: { visible: false } },
   });
   const cs = data.candles, last = cs[cs.length - 1], pf = last.close >= 100 ? 2 : (last.close >= 1 ? 4 : 6);
-  const main = chart.addSeries(LW.CandlestickSeries, { upColor: COL.up, downColor: COL.dn, borderUpColor: COL.up, borderDownColor: COL.dn, wickUpColor: COL.up, wickDownColor: COL.dn, priceLineColor: "#7fa6ff", priceLineStyle: 2, priceFormat: { type: "price", precision: pf, minMove: Math.pow(10, -pf) } }, 0);
+  const main = chart.addSeries(LW.CandlestickSeries, { upColor: COL.up, downColor: COL.dn, borderUpColor: COL.up, borderDownColor: COL.dn, wickUpColor: COL.up, wickDownColor: COL.dn, priceLineColor: "", priceLineStyle: 2, priceFormat: { type: "price", precision: pf, minMove: Math.pow(10, -pf) } }, 0);
   main.setData(cs.map((c) => ({ time: c.time + KST, open: c.open, high: c.high, low: c.low, close: c.close })));
   const ctl = { chart, main, overlay: new Overlay(), priceLines: [], kel: {}, subSeries: {}, opt, data, subs };
   main.attachPrimitive(ctl.overlay);
@@ -250,17 +250,17 @@ function build(el, data, opt) {
       const ml = chart.addSeries(LW.LineSeries, { color: COL.vol, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }, pane); ml.setData(ma);
       ctl.subSeries.vol = vs;
     } else if (id === "rsi") {
-      const r = rsiArr(closes, 14), s = chart.addSeries(LW.LineSeries, { color: COL.rsi, lineWidth: 2, priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false, priceFormat: { type: "custom", formatter: (v) => v.toFixed(0), minMove: 1 } }, pane);
+      const r = rsiArr(closes, 14), s = chart.addSeries(LW.LineSeries, { color: COL.rsi, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: { type: "custom", formatter: (v) => v.toFixed(0), minMove: 1 } }, pane);
       s.setData(cs.map((c, i) => (r[i] == null ? { time: T(c) } : { time: T(c), value: r[i] })));
       const ob = opt.rsiOB || 70, os = opt.rsiOS || 30;
-      s.createPriceLine({ price: ob, color: "rgba(255,77,93,.8)", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "과매수 " + ob });
-      s.createPriceLine({ price: os, color: "rgba(79,195,255,.8)", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "과매도 " + os });
+      s.createPriceLine({ price: ob, color: "rgba(255,77,93,.8)", lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: "" });
+      s.createPriceLine({ price: os, color: "rgba(79,195,255,.8)", lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: "" });
       s.createPriceLine({ price: 50, color: "rgba(150,165,190,.35)", lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: "" });
       ctl.subSeries.rsi = s; ctl.rsi = r;
     } else {
       const [n, a, b] = id === "st533" ? [5, 3, 3] : [25, 9, 9], st = stochArr(cs, n, a, b);
-      const sk = chart.addSeries(LW.LineSeries, { color: COL.sk, lineWidth: 2, priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false, priceFormat: { type: "custom", formatter: (v) => v.toFixed(0), minMove: 1 } }, pane);
-      const sd = chart.addSeries(LW.LineSeries, { color: COL.sd, lineWidth: 2, priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false, priceFormat: { type: "custom", formatter: (v) => v.toFixed(0), minMove: 1 } }, pane);
+      const sk = chart.addSeries(LW.LineSeries, { color: COL.sk, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: { type: "custom", formatter: (v) => v.toFixed(0), minMove: 1 } }, pane);
+      const sd = chart.addSeries(LW.LineSeries, { color: COL.sd, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: { type: "custom", formatter: (v) => v.toFixed(0), minMove: 1 } }, pane);
       sk.setData(cs.map((c, i) => (st.k[i] == null ? { time: T(c) } : { time: T(c), value: st.k[i] })));
       sd.setData(cs.map((c, i) => (st.d[i] == null ? { time: T(c) } : { time: T(c), value: st.d[i] })));
       sk.createPriceLine({ price: 80, color: "rgba(255,77,93,.75)", lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: "" });
@@ -278,14 +278,14 @@ function build(el, data, opt) {
     ctl.overlay.setItems(ictItems(a, I));
     if (I.sr !== false) a.sr.forEach((l) => {
       const flip = !!l.flip, color = flip ? (l.flip === "R→S" ? "#00e5c3" : "#ff5ee0") : (l.role === "R" ? "#ff8a6a" : "#5fd6a0");
-      ctl.priceLines.push(main.createPriceLine({ price: l.price, color, lineWidth: flip ? 2 : 1, lineStyle: flip ? 2 : 0, axisLabelVisible: true, title: flip ? (l.flip === "R→S" ? "지지 전환(R→S) " : "저항 전환(S→R) ") + l.price.toPrecision(5) : (l.role === "R" ? "R: " : "S: ") + l.price.toPrecision(5) }));
+      ctl.priceLines.push(main.createPriceLine({ price: l.price, color, lineWidth: flip ? 2 : 1, lineStyle: flip ? 2 : 0, axisLabelVisible: false, title: "" }));
     });
     const sw = []; /* 고점·저점 라벨(화살표 + 가격) */
     const k = 12;
     for (let i = k; i < cs.length - 1; i++) {
       let h = true, l = true; for (let j = Math.max(0, i - k); j <= Math.min(cs.length - 1, i + k); j++) { if (j === i) continue; if (cs[j].high > cs[i].high) h = false; if (cs[j].low < cs[i].low) l = false; }
-      if (h) sw.push({ time: T(cs[i]), position: "aboveBar", color: "#ffffff", shape: "arrowDown", text: cs[i].high.toPrecision(5) });
-      else if (l) sw.push({ time: T(cs[i]), position: "belowBar", color: "#ffffff", shape: "arrowUp", text: cs[i].low.toPrecision(5) });
+      if (h) sw.push({ time: T(cs[i]), position: "aboveBar", color: "#ffffff", shape: "arrowDown", text: "" });
+      else if (l) sw.push({ time: T(cs[i]), position: "belowBar", color: "#ffffff", shape: "arrowUp", text: "" });
     }
     if (ctl.mk) ctl.mk.setMarkers(sw.slice(-5)); else ctl.mk = LW.createSeriesMarkers(main, sw.slice(-5));
     return a;
@@ -300,7 +300,7 @@ function build(el, data, opt) {
     const lg = []; if (K.on !== false) lg.push("일봉 켈트너(20/10/1.5) — 중심선 주황 · 상하단 노랑" + (isDaily ? "" : " · 그날의 일봉 값(계단)"));
     const d = document.createElement("div"); d.className = "paneTitle"; d.textContent = lg.join(""); d.style.cssText = "position:absolute;left:10px;top:6px;z-index:6;font:700 13px 'Pretendard','Malgun Gothic','Nanum Gothic',sans-serif;color:#c9d6ee;background:rgba(10,15,25,.78);padding:2px 7px;border-radius:5px;pointer-events:none"; if (lg.length) el.appendChild(d);
   }
-  chart.timeScale().fitContent();
+  chart.timeScale().setVisibleLogicalRange({ from: -1, to: cs.length - 1 + Math.max(18, Math.round(cs.length * 0.09)) });   /* 오른쪽 여백 18봉: 최신 봉·가격 숫자가 겹치지 않게 */
   setTimeout(titles, 60); ctl.titles = titles;
   /* 라이브 갱신용 */
   ctl.refreshAll = () => { drawKeltner(); const r = drawIct(); return r; };

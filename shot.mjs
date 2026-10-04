@@ -192,7 +192,7 @@ async function runExtras({ cfg0, q, dry, base }) {
   if (dueRank) {
     const texts = [];
     if (wantW) { const r = await buildWeeklyTexts({ uni, info, fx, cacheDir: CACHE, log }); texts.push(...r.texts); if (r.note) log(r.note); }
-    if (wantS) texts.push(...await buildSurgeText({ uni, info, fx, log }));
+    if (wantS) texts.push(...await buildSurgeText({ uni, info, fx, log, cacheDir: CACHE }));
     for (const t of texts) { if (dry) console.log("\n──── 텔레그램 텍스트 ────\n" + t + "\n─────────────────────"); else await sendText(t); }
     log("순위 텍스트", texts.length + "건", dry ? "(dry — 출력만)" : "전송");
     st.lastRank = now;
