@@ -234,7 +234,7 @@ async function runExtras({ cfg0, q, dry, base }) {
   if (dueCards) {
     stage(88, "종목 카드 준비 중");
     const iv = String(cfg0.cardIv || "1h").replace(/[^0-9a-z]/g, ""), days = Math.min(150, Math.max(3, +cfg0.cardDays || 60));
-    const browser = await puppeteer.launch({ executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome", headless: true, args: ["--no-sandbox", "--hide-scrollbars", "--disable-dev-shm-usage"], defaultViewport: { width: 1200, height: 1100, deviceScaleFactor: 2 } });
+    const browser = await launchChrome({ executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome", headless: true, args: ["--no-sandbox", "--hide-scrollbars", "--disable-dev-shm-usage"], defaultViewport: { width: 1200, height: 1100, deviceScaleFactor: 2 } });
     try {
       const page = await browser.newPage();
       let n = 0, lastSent = 0;
@@ -258,8 +258,19 @@ async function runExtras({ cfg0, q, dry, base }) {
   saveState(st);
 }
 
+/* GitHub 러너가 느려 크롬이 30초 안에 안 뜨는 일이 있음(2026-10-06 05:46 실패 원인) → 대기 60초 + 최대 3번 재시도 */
+async function launchChrome(opts) {
+  let err;
+  for (let i = 1; i <= 3; i++) {
+    try { return await puppeteer.launch({ ...opts, timeout: 60000 }); }
+    catch (e) { err = e; log("크롬 시작 실패 " + i + "/3:", String((e && e.message) || e).slice(0, 120)); await new Promise((r) => setTimeout(r, 3000)); }
+  }
+  throw err;
+}
+
 async function main() {
-  const T0 = Date.now(), deadline = T0 + 150000;
+  const T0 = Date.now();
+  let deadline = T0 + 150000;
   const dry = process.env.SHOT_DRY === "1" || /^(1|true)$/i.test(process.env.SHOT_DRY || "");
   if (!dry && (!process.env.TG_BOT_TOKEN || !process.env.TG_CHAT_ID)) {   /* 아직 Secrets 미설정이면 실패(알림 메일)시키지 않고 조용히 건너뜀 */
     log("TG_BOT_TOKEN / TG_CHAT_ID 가 설정되지 않아 건너뜀 — 저장소 Settings → Secrets and variables → Actions 에 추가하세요");
@@ -294,12 +305,13 @@ async function main() {
   let browser = null;
   try {
     stage(14, "차트 화면 여는 중");
-    browser = await puppeteer.launch({
+    browser = await launchChrome({
       executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome",
       headless: true,
       args: ["--no-sandbox", "--hide-scrollbars", "--disable-dev-shm-usage"],
       defaultViewport: { width: VW, height: VH, deviceScaleFactor: dsf },
     });
+    deadline = Math.max(deadline, Date.now() + 100000);   /* 크롬 재시도로 시간을 썼어도 데이터 수집 시간은 확보 */
     const page = await browser.newPage();
     page.on("pageerror", (e) => log("페이지 오류:", String(e.message).slice(0, 160)));
     await page.goto(base + "/robots.txt", { waitUntil: "domcontentloaded", timeout: 20000 });
