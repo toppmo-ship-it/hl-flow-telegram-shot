@@ -141,8 +141,15 @@ async function sendPhoto(buf, caption) {
   form.append("chat_id", clean(process.env.TG_CHAT_ID));
   form.append("caption", caption);
   form.append("photo", new Blob([buf], { type: "image/png" }), "flow.png");
-  const r = await fetch("https://api.telegram.org/bot" + tgToken() + "/sendPhoto", { method: "POST", body: form });
-  const j = await r.json().catch(() => ({}));
+  let r = await fetch("https://api.telegram.org/bot" + tgToken() + "/sendPhoto", { method: "POST", body: form });
+  let j = await r.json().catch(() => ({}));
+  if (r.status === 429) {   /* 분당 발송 한도 — 알려준 시간만큼 기다렸다가 한 번 더 */
+    const wait = Math.min(60, +(j.parameters && j.parameters.retry_after) || 10);
+    console.log("텔레그램 429 — " + wait + "초 대기 후 재시도");
+    await new Promise((ok) => setTimeout(ok, (wait + 1) * 1000));
+    r = await fetch("https://api.telegram.org/bot" + tgToken() + "/sendPhoto", { method: "POST", body: form });
+    j = await r.json().catch(() => ({}));
+  }
   if (!r.ok || !j.ok) {
     const t = tgToken();   /* 값은 노출하지 않고 형식만 알려줌 */
     throw new Error("텔레그램 전송 실패 " + r.status + " " + (j.description || "") + " · 토큰 형식: 길이 " + t.length + ", 콜론 " + (t.includes(":") ? "있음" : "없음") + " · chat_id: " + (/^-?\d+$/.test(clean(process.env.TG_CHAT_ID)) ? "숫자형 OK" : "숫자 아님"));
@@ -197,7 +204,7 @@ async function sendText(text) {
 async function runExtras({ cfg0, q, dry, base }) {
   const flag = (qv, cv) => (qv != null ? qv === "1" : !!cv);
   const wantW = flag(q.rankw, cfg0.rankWeekly), wantS = flag(q.ranks, cfg0.rankSurge);
-  const cards = (q.cards != null ? String(q.cards).split(",") : (Array.isArray(cfg0.cards) ? cfg0.cards : [])).map((x) => x.replace(/[^0-9A-Za-z]/g, "")).filter(Boolean).slice(0, 12);
+  const cards = (q.cards != null ? String(q.cards).split(",") : (Array.isArray(cfg0.cards) ? cfg0.cards : [])).map((x) => x.replace(/[^0-9A-Za-z]/g, "")).filter(Boolean).slice(0, 30);   /* 텔레그램 그룹 분당 20건 제한은 아래 발송 간격·429 재시도로 지킴 */
   const wantP = flag(q.rankp, cfg0.rankPattern !== false);   /* 패턴 확률 순위(별도 메시지) — 기본 켬 */
   if (!wantW && !wantS && !wantP && !cards.length) return;
   const st = loadState(), now = Date.now(), force = q.force === "1";
@@ -230,7 +237,7 @@ async function runExtras({ cfg0, q, dry, base }) {
     const browser = await puppeteer.launch({ executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome", headless: true, args: ["--no-sandbox", "--hide-scrollbars", "--disable-dev-shm-usage"], defaultViewport: { width: 1200, height: 1100, deviceScaleFactor: 2 } });
     try {
       const page = await browser.newPage();
-      let n = 0;
+      let n = 0, lastSent = 0;
       for (const t of cards) {
         stage(88 + Math.round(10 * n / Math.max(1, cards.length)), "종목 카드 " + (n + 1) + "/" + cards.length + " 만드는 중 · " + t);
         const row = pickRow(uni, t, info);
@@ -241,7 +248,7 @@ async function runExtras({ cfg0, q, dry, base }) {
         d.layers = cfg0.layers ? { pattern: !!cfg0.layers.pattern, vwap: !!cfg0.layers.vwap, ict: !!cfg0.layers.ict } : (cfg0.mode === "ict" ? { pattern: false, vwap: false, ict: true } : { pattern: true, vwap: true, ict: false });   /* 기본: 차트패턴 + VWAP 지지·저항 (ICT 꺼짐) */
         const png = await renderCard(page, base, d);
         if (dry) { const f = path.join(ROOT, "out_card_" + t + ".png"); fs.writeFileSync(f, png); console.log("\n──── 카드 " + t + " ────\n" + d.caption); }
-        else await sendPhoto(png, d.caption);
+        else { await sendPhoto(png, d.caption); const gap = 3300 - (Date.now() - lastSent); if (gap > 0) await new Promise((ok) => setTimeout(ok, gap)); lastSent = Date.now(); }   /* 분당 18장 이하로 간격 유지 */
         n++;
       }
       log("종목 카드", n + "장", dry ? "(dry — 파일 저장)" : "전송");
