@@ -481,7 +481,9 @@ export async function renderCard(page, base, data) {
   { const k = kst(Date.now()); data.stamp = k.getUTCFullYear() + "-" + p2(k.getUTCMonth() + 1) + "-" + p2(k.getUTCDate()) + "(" + WDK[k.getUTCDay()] + ") " + p2(k.getUTCHours()) + ":" + p2(k.getUTCMinutes()) + ":" + p2(k.getUTCSeconds()); }
   const sum = await page.evaluate((d) => window.renderCard(d), data);
   await sleep(700);
-  if (sum) {
+  if (data.textOn === false) {   /* 글 끄기: 기본 정보 2줄(📈 종목 · 섹터 / 💰 가격 · 24h 거래대금)만 남김 */
+    data.caption = data.caption.split("\n").slice(0, 2).join("\n"); data.detail = null;
+  } else if (sum) {
     const L = [];
     if (sum.kel) L.push("🟠 일봉 켈트너 → " + sum.kel.pos + "\n   중심 " + sum.kel.mid.toPrecision(5) + " · 상단 " + sum.kel.up.toPrecision(5) + " · 하단 " + sum.kel.lo.toPrecision(5));
     if (sum.quant) {

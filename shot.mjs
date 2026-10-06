@@ -258,6 +258,7 @@ async function runExtras({ cfg0, q, dry, base }) {
         const d = await buildCardData({ row, ticker: t, info, iv, days, fx, log, cacheDir: CACHE, mode: cfg0.mode });
         if (!d) { log("카드 데이터 부족:", t); continue; }
         d.colors = cfg0.colors || null;
+        d.textOn = cfg0.cardText !== false;   /* 사진 아래 글 켜기/끄기 — 끄면 기본 정보 2줄(종목·가격·24h 거래대금)만 */
         d.scale = cfg0.cardScale === "price" ? "price" : "all";   /* 가격 스케일: 오토(지표 포함) / 가격만(캔들 중심) */
         d.layers = cfg0.layers ? { pattern: !!cfg0.layers.pattern, vwap: !!cfg0.layers.vwap, ict: !!cfg0.layers.ict } : (cfg0.mode === "ict" ? { pattern: false, vwap: false, ict: true } : { pattern: true, vwap: true, ict: false });   /* 기본: 차트패턴 + VWAP 지지·저항 (ICT 꺼짐) */
         const png = await renderCard(page, base, d);
