@@ -430,7 +430,7 @@ class PatternLayer {
         const s0 = (L0[1][1] - L0[0][1]) / Math.max(1, L0[1][0] - L0[0][0]), s1 = (L1[1][1] - L1[0][1]) / Math.max(1, L1[1][0] - L1[0][0]);
         if (lv && Math.abs(s0 - s1) > 1e-9) { const xa = (L1[0][1] - L0[0][1] + s0 * L0[0][0] - s1 * L1[0][0]) / (s0 - s1); if (xa > p.end && xa < xExt) { apex = xa; xr = xa; } }
         const pa = P(L0[0][0], L0[0][1]), pb = P(xr, lineAt(L0[0], L0[1], xr)), pc2 = P(xr, lineAt(L1[0], L1[1], xr)), pd = P(L1[0][0], L1[0][1]);
-        if (pa && pb && pc2 && pd) { c.fillStyle = rgba(col, lv ? 0.07 : 0.032); c.beginPath(); c.moveTo(pa[0], pa[1]); c.lineTo(pb[0], pb[1]); c.lineTo(pc2[0], pc2[1]); c.lineTo(pd[0], pd[1]); c.closePath(); c.fill(); }
+        if (pa && pb && pc2 && pd) { c.fillStyle = rgba(col, lv ? 0.17 : 0.07); c.beginPath(); c.moveTo(pa[0], pa[1]); c.lineTo(pb[0], pb[1]); c.lineTo(pc2[0], pc2[1]); c.lineTo(pd[0], pd[1]); c.closePath(); c.fill(); }
         /* 실선(패턴 구간) + 점선(연장) */
         const e0 = P(p.end, lineAt(L0[0], L0[1], p.end)), e1 = P(p.end, lineAt(L1[0], L1[1], p.end));
         seg(pa, e0, rgba(col, 0.9 * a), lv ? 1.9 : 1.4); seg(pd, e1, rgba(col, 0.9 * a), lv ? 1.9 : 1.4);
@@ -469,8 +469,12 @@ class PatternLayer {
       /* 이름표 후보 */
       const ys = (p.pts || []).concat(p.lines ? p.lines.flat() : []).map((q) => Y(q[1])).filter((y) => y != null), xs = (p.pts || []).map((q) => X(q[0])).filter((x) => x != null);
       if (!ys.length || !xs.length) return;
+      /* 진행 중 패턴 영역 강조: 면(lines)이 없는 패턴은 둘러싼 박스에 음영 + 점선 테두리 */
+      const bx0 = Math.min(...xs), bx1 = Math.max(...xs), by0 = Math.min(...ys), by1 = Math.max(...ys);
+      if (lv && !p.lines) { const pd2 = 8; c.fillStyle = rgba(col, 0.1); c.strokeStyle = rgba(col, 0.5); c.lineWidth = 1.2; c.setLineDash([5, 4]); c.beginPath(); c.roundRect ? c.roundRect(bx0 - pd2, by0 - pd2, bx1 - bx0 + pd2 * 2, by1 - by0 + pd2 * 2, 8) : c.rect(bx0 - pd2, by0 - pd2, bx1 - bx0 + pd2 * 2, by1 - by0 + pd2 * 2); c.fill(); c.stroke(); c.setLineDash([]); }
+      const anch = (p.pts || []).map((q) => P(q[0], q[1])).filter(Boolean).concat(p.lines ? p.lines.flat().map((q) => P(q[0], q[1])).filter(Boolean) : []);
       const dmap = (PT && PT.DESC[p.type]) || {}, desc = (live(p) && p.state === "confirmed" ? dmap.confirmed : dmap.forming) || "";
-      tags.push({ p, col, name: p.name, stTxt: p.state === "forming" ? "형성 중" : p.state === "confirmed" ? (p.dirReal > 0 ? "돌파 확정" : "이탈 확정") : null, desc, cx: (Math.min(...xs) + Math.max(...xs)) / 2, top: Math.min(...ys), bot: Math.max(...ys), below: dE > 0, lv, end: p.end, info: role && role.info });
+      tags.push({ p, col, name: p.name, stTxt: p.state === "forming" ? "형성 중" : p.state === "confirmed" ? (p.dirReal > 0 ? "돌파 확정" : "이탈 확정") : null, desc, cx: (bx0 + bx1) / 2, x0: bx0, x1: bx1, anch, top: by0, bot: by1, below: dE > 0, lv, end: p.end, info: role && role.info });
     });
 
     /* ── 이름표 배치: 캔들·지표선(켈트너/VWAP)·다른 이름표·가격선 라벨과 겹치지 않는 가장 가까운 빈 자리 ──
@@ -520,9 +524,23 @@ class PatternLayer {
       c.font = L[0].f; c.fillStyle = L[0].col; c.fillText(L[0].txt, x + (compact ? 11 : 13), yy - (compact ? 1 : 0));
       if (L[1] && L[1].inline) { c.font = L[1].f; c.fillStyle = L[1].col; c.fillText(L[1].txt, x + 13 + wName + 10, yy + 2); }
       yy += 20; rest.forEach((l) => { c.font = l.f; c.fillStyle = l.col; c.fillText(l.txt, x + 13, yy); yy += 17; });
-      /* 연결선: 이름표 가장자리 → 패턴 한가운데 (연한 점선 + 끝에 작은 고리) */
-      { const mx = t.cx, my = (t.top + t.bot) / 2, ex = Math.max(x + 10, Math.min(x + w - 10, mx)), ey = (my > y + h) ? y + h : (my < y ? y : (y + h / 2));
-        if (Math.hypot(mx - ex, my - ey) > 16) { c.strokeStyle = rgba(t.col, 0.32); c.lineWidth = 1; c.setLineDash([2, 4]); c.beginPath(); c.moveTo(ex, ey); c.lineTo(mx, my); c.stroke(); c.setLineDash([]); c.strokeStyle = rgba(t.col, 0.55); c.beginPath(); c.arc(mx, my, 3, 0, 6.3); c.stroke(); } }
+      /* 연결선: 카드의 모서리·변 중점 → 패턴 꼭짓점. 수직선은 구분하기 어려워서 비스듬한(사선) 쌍을 우선 고름 */
+      { const mx = t.cx, my = (t.top + t.bot) / 2, ends = (t.anch && t.anch.length ? t.anch : []).concat([[mx, my]]);
+        const starts = [[x, y], [x + w, y], [x, y + h], [x + w, y + h], [x + w / 2, y], [x + w / 2, y + h], [x, y + h / 2], [x + w, y + h / 2]];
+        let best = null;
+        starts.forEach((s0) => ends.forEach((e0) => {
+          const dx = Math.abs(e0[0] - s0[0]), dy = Math.abs(e0[1] - s0[1]), len = Math.hypot(dx, dy);
+          if (e0[0] > x - 1 && e0[0] < x + w + 1 && e0[1] > y - 1 && e0[1] < y + h + 1) return;   /* 카드 안쪽 점은 제외 */
+          const steep = dx < dy * 0.45;   /* 수직에 가까움(약 24° 이내) */
+          const cost = len + (steep ? 260 : 0) + (dx < 6 ? 400 : 0);
+          if (!best || cost < best.cost) best = { cost, s0, e0, len };
+        }));
+        if (best && best.len > 14) {
+          const [sx, sy] = best.s0, [ex, ey] = best.e0;
+          c.strokeStyle = rgba(t.col, t.lv ? 0.85 : 0.5); c.lineWidth = t.lv ? 1.7 : 1.2; c.setLineDash([6, 4]); c.beginPath(); c.moveTo(sx, sy); c.lineTo(ex, ey); c.stroke(); c.setLineDash([]);
+          c.fillStyle = rgba(t.col, t.lv ? 0.95 : 0.6); c.beginPath(); c.arc(sx, sy, 2.6, 0, 6.3); c.fill();   /* 카드 쪽 점 */
+          c.fillStyle = "#0a0f19"; c.beginPath(); c.arc(ex, ey, 4.6, 0, 6.3); c.fill(); c.strokeStyle = rgba(t.col, t.lv ? 1 : 0.7); c.lineWidth = 1.8; c.stroke();   /* 패턴 쪽 고리 */
+        } }
     });
     c.restore();
   }
@@ -695,7 +713,7 @@ function summarize(ctl, cs, daily) {
     pd: a.pd ? a.pd.zone : "—", flips: a.sr.filter((x) => x.flip).map((x) => x.flip + " " + x.price.toPrecision(5)), eqh: a.liq.filter((x) => x.type === "H").length, eql: a.liq.filter((x) => x.type === "L").length, sweeps: a.sweeps.map((s) => s.type) };
   if (ctl.pat) {
     const live = ctl.pat.pats.filter((p) => p.state === "forming" || p.state === "confirmed").filter((p) => !(root_.Patterns.META[p.type].info)).slice(-4);
-    out.patterns = { live: live.map((p) => ({ name: p.name, state: p.state, dirReal: p.dirReal, pct: p.targetPct })), span: ctl.pat.span, stats: Object.values(ctl.pat.stats).map((x) => ({ name: x.name, s: x.s, f: x.f })).filter((x) => x.s + x.f >= 3).sort((a, b) => (b.s + b.f) - (a.s + a.f)).slice(0, 5) };
+    out.patterns = { detail: (root_.Patterns.explain ? ctl.pat.pats.filter((p) => (p.state === "forming" || p.state === "confirmed") && !root_.Patterns.META[p.type].info).sort((a, b) => ((b.state === "confirmed") - (a.state === "confirmed")) || (b.end - a.end)).slice(0, 3).map((p) => root_.Patterns.explain(p, cs, ctl.pat.stats)).filter(Boolean) : []), live: live.map((p) => ({ name: p.name, state: p.state, dirReal: p.dirReal, pct: p.targetPct })), span: ctl.pat.span, stats: Object.values(ctl.pat.stats).map((x) => ({ name: x.name, s: x.s, f: x.f })).filter((x) => x.s + x.f >= 3).sort((a, b) => (b.s + b.f) - (a.s + a.f)).slice(0, 5) };
   }
   const lastRsi = ctl.rsi ? ctl.rsi[ctl.rsi.length - 1] : null; out.rsi = lastRsi == null ? null : Math.round(lastRsi);
   ["st533", "st2599"].forEach((id) => { const s = ctl[id]; if (s) out[id] = { k: Math.round(s.k[s.k.length - 1] || 0), d: Math.round(s.d[s.d.length - 1] || 0) }; });

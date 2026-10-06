@@ -201,6 +201,19 @@ async function sendText(text) {
     if (!r.ok || !j.ok) throw new Error("텍스트 전송 실패 " + r.status + " " + (j.description || ""));
   }
 }
+/* 카드 사진에 답장으로 붙는 패턴 상세 분석 글. 사진은 이미 갔으므로 실패해도 전체를 멈추지 않고 로그만 남김(429는 한 번 재시도) */
+async function sendDetail(text, replyTo) {
+  const body = { chat_id: clean(process.env.TG_CHAT_ID), text: String(text).slice(0, 4000), disable_web_page_preview: true };
+  if (replyTo) body.reply_to_message_id = replyTo;
+  for (let a = 0; a < 2; a++) {
+    const r = await fetch("https://api.telegram.org/bot" + tgToken() + "/sendMessage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok && j.ok) return j.result && j.result.message_id;
+    if (r.status === 429 && a === 0) { const wait = Math.min(60, +(j.parameters && j.parameters.retry_after) || 10); console.log("텔레그램 429 — " + wait + "초 대기 후 상세 분석 재시도"); await new Promise((ok) => setTimeout(ok, (wait + 1) * 1000)); continue; }
+    console.log("상세 분석 전송 실패 " + r.status + " " + (j.description || "")); return null;
+  }
+  return null;
+}
 async function runExtras({ cfg0, q, dry, base }) {
   const flag = (qv, cv) => (qv != null ? qv === "1" : !!cv);
   const wantW = flag(q.rankw, cfg0.rankWeekly), wantS = flag(q.ranks, cfg0.rankSurge);
@@ -248,8 +261,8 @@ async function runExtras({ cfg0, q, dry, base }) {
         d.scale = cfg0.cardScale === "price" ? "price" : "all";   /* 가격 스케일: 오토(지표 포함) / 가격만(캔들 중심) */
         d.layers = cfg0.layers ? { pattern: !!cfg0.layers.pattern, vwap: !!cfg0.layers.vwap, ict: !!cfg0.layers.ict } : (cfg0.mode === "ict" ? { pattern: false, vwap: false, ict: true } : { pattern: true, vwap: true, ict: false });   /* 기본: 차트패턴 + VWAP 지지·저항 (ICT 꺼짐) */
         const png = await renderCard(page, base, d);
-        if (dry) { const f = path.join(ROOT, "out_card_" + t + ".png"); fs.writeFileSync(f, png); console.log("\n──── 카드 " + t + " ────\n" + d.caption); }
-        else { await sendPhoto(png, d.caption); const gap = 3300 - (Date.now() - lastSent); if (gap > 0) await new Promise((ok) => setTimeout(ok, gap)); lastSent = Date.now(); }   /* 분당 18장 이하로 간격 유지 */
+        if (dry) { const f = path.join(ROOT, "out_card_" + t + ".png"); fs.writeFileSync(f, png); console.log("\n──── 카드 " + t + " ────\n" + d.caption + (d.detail ? "\n\n[상세 분석 메시지]\n" + d.detail : "")); }
+        else { const mid = await sendPhoto(png, d.caption); if (d.detail) { await new Promise((ok) => setTimeout(ok, 3300)); await sendDetail(d.detail, mid); lastSent = Date.now(); } const gap = 3300 - (Date.now() - lastSent); if (gap > 0) await new Promise((ok) => setTimeout(ok, gap)); lastSent = Date.now(); }   /* 분당 18장 이하로 간격 유지 */
         n++;
       }
       log("종목 카드", n + "장", dry ? "(dry — 파일 저장)" : "전송");

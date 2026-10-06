@@ -241,8 +241,9 @@ export async function buildSurgeText({ uni, info, fx, log, cacheDir }) {
       const W = k * H, endStart = Math.floor((lastDone + H) / W) * W - W;   /* 마지막 완료 W봉 시작 */
       const grp = (s) => { let v = 0, o = null, c = null; for (let i = 0; i < k; i++) { const x = byT.get(s + i * H); if (!x) return null; v += x.n; if (o == null) o = x.o; c = x.c; } return { v, o, c }; };
       const cur = grp(endStart); if (!cur) return;
-      const prevs = []; for (let j = 1; j <= 20; j++) { const g = grp(endStart - j * W); if (g) prevs.push(g.v); }
-      if (prevs.length < 12) return;
+      const wkOf = (t) => { const g = new Date(t).getUTCDay(); return g === 0 || g === 6; }, curWk = wkOf(endStart);
+      const prevs = []; for (let j = 1, got = 0; j <= 60 && got < 20; j++) { const st = endStart - j * W; if (wkOf(st) !== curWk) continue; const g = grp(st); if (g) { prevs.push(g.v); got++; } }   /* 주말 봉은 평일 비교에서 제외 */
+      if (prevs.length < (curWk ? 6 : 12)) return;
       const MINV = { "30분": 1.5e5, "1시간": 3e5, "2시간": 6e5, "4시간": 1e6 }[nm];   /* 너무 작은 거래대금(USD)은 급증 순위에서 제외 */
       const av = mean(prevs); if (av <= 0 || cur.v < MINV) return;
       res[nm].push({ r, ratio: cur.v / av, vol: cur.v, px: (cur.c / cur.o - 1) * 100 });
@@ -251,8 +252,9 @@ export async function buildSurgeText({ uni, info, fx, log, cacheDir }) {
     const lastIdx = lastDone;
     const sumRange = (endT, cnt) => { let v = 0, o = null, c = null; for (let i = cnt - 1; i >= 0; i--) { const x = byT.get(endT - i * H); if (!x) return null; v += x.n; if (o == null) o = x.o; c = x.c; } return { v, o, c }; };
     const cur = sumRange(lastIdx, 48); if (!cur) return;
-    const prevs = []; for (let j = 1; j <= 7; j++) { const g = sumRange(lastIdx - j * 48 * H, 48); if (g) prevs.push(g.v); }
-    if (prevs.length < 4) return;
+    const wkOf2 = (t) => { const g = new Date(t).getUTCDay(); return g === 0 || g === 6; }, curWk2 = wkOf2(lastIdx - 12 * 3600e3);
+    const prevs = []; for (let j = 1, got = 0; j <= 14 && got < 7; j++) { const e0 = lastIdx - j * 48 * H; if (wkOf2(e0 - 12 * 3600e3) !== curWk2) continue; const g = sumRange(e0, 48); if (g) { prevs.push(g.v); got++; } }
+    if (prevs.length < (curWk2 ? 2 : 4)) return;
     const av = mean(prevs); if (av > 0 && cur.v >= 3e6) res["24시간"].push({ r, ratio: cur.v / av, vol: cur.v, px: (cur.c / cur.o - 1) * 100 });
   });
   const dot = (x) => (x >= 3 ? "🟥" : x >= 2 ? "🟧" : x >= 1.5 ? "🟨" : "⬜");
@@ -326,10 +328,12 @@ export async function buildCardData({ row, ticker, info, iv, days, fx, log, cach
   /* 일봉(켈트너 20/10/1.5·ICT용): 최근 120일 */
   const dd = await getRows(row.full, "1d", 220, cacheDir, log).catch(() => null);
   const daily = (dd || []).map((c) => ({ time: Math.round(c[0] / 1000), open: c[1], high: c[2], low: c[3], close: c[4], volume: c[5] }));
-  const last = candles[candles.length - 1], prev20 = candles.slice(-21, -1).map((c) => c.volume), avg = mean(prev20);
-  const mult = avg > 0 ? last.volume / avg : null, body = (last.close / last.open - 1) * 100, rsi = rsi14(candles.map((c) => c.close));
+  const last = candles[candles.length - 1], isWkd = (ms) => { const g = new Date(ms).getUTCDay(); return g === 0 || g === 6; }, lastWk = isWkd(last.time * 1000);
+  const prev20 = candles.slice(0, -1).filter((c) => isWkd(c.time * 1000) === lastWk).slice(-20).map((c) => c.volume), avg = mean(prev20);   /* 주말 거래량이 평일 평균을 왜곡하지 않게 같은 종류끼리만 비교 */
+  const frac = Math.min(1, Math.max(0, (now - last.time * 1000) / ms));   /* 진행 중인 봉이 얼마나 지났는지 — 봉 초반에 ×0.0 처럼 나오지 않게 경과 시간만큼 보정 */
+  const mult = avg > 0 && prev20.length >= 8 && frac >= 0.08 ? last.volume / (avg * frac) : null, body = (last.close / last.open - 1) * 100, rsi = rsi14(candles.map((c) => c.close));
   const turn24 = candles.filter((c) => c.time * 1000 > now - 864e5).reduce((s, c) => s + c.volume, 0);
-  const name = (info.ko[ticker] || "") ;
+  const kmap = info.koFull || info.ko, name0 = kmap[ticker] || kmap[row.short] || kmap[Object.keys(info.alias).find((k) => info.alias[k] === row.short)] || "", name = name0 && name0 !== ticker && name0 !== row.short ? name0 : "";
   const price = last.close;
   const fmtP = (v) => (v >= 1000 ? v.toFixed(1) : v >= 10 ? v.toFixed(2) : v >= 1 ? v.toFixed(3) : v.toPrecision(4));
   const ivKo = { "15m": "15분", "30m": "30분", "1h": "1시간", "2h": "2시간", "4h": "4시간", "8h": "8시간" }[iv] || iv;
@@ -337,11 +341,13 @@ export async function buildCardData({ row, ticker, info, iv, days, fx, log, cach
   const sec = info.sectorOf[ticker] || info.sectorOf[row.short] || info.sectorOf[Object.keys(info.alias).find((k) => info.alias[k] === row.short)] || "";
   const ttl = ticker + (name ? " · " + name : ""), subTxt = (sec ? sec + " · " : "") + (row.dex === "코인" ? "Hyperliquid 무기한 선물" : "Hyperliquid " + row.full + " 무기한");
   const dot = mult == null ? "⬜" : mult >= 3 ? "🟥" : mult >= 2 ? "🟧" : mult >= 1.5 ? "🟨" : "⬜";
-  const caption = "📈 [" + (row.dex === "xyz" ? "HIP-3" : row.dex) + "] " + ticker + (name ? " (" + name + ")" : "") + " (" + iv.toUpperCase() + ")\n\n" +
-    dot + " 거래량: 평소의 " + (mult == null ? "—" : mult.toFixed(1)) + "배 (직전 20봉 평균 대비)\n" +
-    (body >= 0 ? "🔺" : "🔽") + " 몸통: " + (body >= 0 ? "+" : "") + body.toFixed(2) + "%" + (rsi != null ? " (RSI " + Math.round(rsi) + ")" : "") + "\n" +
-    "💰 현재가: " + fmtP(price) + "\n💵 24시간 거래대금: " + fmt(eok(turn24, fx)) + "억원 ($" + (turn24 / 1e6).toFixed(1) + "M)\n⏱ " + kstStamp(now).slice(-9) + " · " + ivKo + "봉 진행 중";
-  return { iv, mode: mode || "pattern", windowBars, daily, ttl, sub: subTxt, period: days + "day-" + perEn, title: ticker + (name ? " (" + name + ")" : "") + " - " + iv.toUpperCase() + " (Vol) (HYPERLIQUID)", price: fmtP(price), candles, sr: levels(candles, price), swings: swings(candles), caption };
+  const secS = sec.replace(/\s*\(.*?\)/g, "").trim();
+  const caption = "📈 " + ticker + (name ? " (" + name + ")" : "") + (secS ? " · " + secS : "") + "\n" +
+    "💰 " + fmtP(price) + " · 24h 거래대금 " + fmt(eok(turn24, fx)) + "억원 ($" + (turn24 / 1e6).toFixed(1) + "M)\n\n" +
+    (body >= 0 ? "🔺" : "🔽") + " " + ivKo + "봉 몸통 " + (body >= 0 ? "+" : "") + body.toFixed(2) + "%" + (rsi != null ? " · RSI " + Math.round(rsi) : "") + "\n" +
+    dot + " 거래량 평소의 ×" + (mult == null ? "—" : mult.toFixed(1)) + (mult == null ? " (봉 집계 초반)" : lastWk ? " (주말 평균 대비 · 경과시간 보정)" : " (직전 20봉 평균 대비 · 경과시간 보정)") + "\n" +
+    "⏱ " + kstStamp(now).slice(-9) + " · 진행 중";
+  return { iv, mode: mode || "pattern", windowBars, daily, tk: ticker, nm: name, ivKo, ttl, sub: subTxt, period: days + "day-" + perEn, title: ticker + (name ? " (" + name + ")" : "") + " - " + iv.toUpperCase() + " (Vol) (HYPERLIQUID)", price: fmtP(price), candles, sr: levels(candles, price), swings: swings(candles), caption };
 }
 
 /* ═════════ ④ 패턴 확률 순위 (연구 결과 pattern_rank.json 기반 · 별도 메시지) ═════════
@@ -420,16 +426,21 @@ export async function renderCard(page, base, data) {
   await sleep(700);
   if (sum) {
     const L = [];
-    if (sum.kel) L.push("🟠 일봉 켈트너: 중심 " + sum.kel.mid.toPrecision(5) + " · 상단 " + sum.kel.up.toPrecision(5) + " · 하단 " + sum.kel.lo.toPrecision(5) + " → " + sum.kel.pos);
-    if (sum.quant) { const q = sum.quant, nm = { vol: "거래량", rsi: "RSI", macd: "MACD", w14: "%R14", w48: "%R48", vwap: "VWAP" }; L.push("🧮 지표 점수 " + q.score + "/6 (" + Object.keys(nm).map((k) => (q.pts[k] ? "▲" : "▼") + nm[k]).join(" ") + ")" + (q.lab ? " · 구조 " + q.lab : "")); }
+    if (sum.kel) L.push("🟠 일봉 켈트너 → " + sum.kel.pos + "\n   중심 " + sum.kel.mid.toPrecision(5) + " · 상단 " + sum.kel.up.toPrecision(5) + " · 하단 " + sum.kel.lo.toPrecision(5));
+    if (sum.quant) {
+      const q = sum.quant, nm = { vol: "거래량", rsi: "RSI", macd: "MACD", w14: "%R14", w48: "%R48", vwap: "VWAP" }, ks = Object.keys(nm);
+      const ok = ks.filter((k) => q.pts[k]).map((k) => nm[k]), no = ks.filter((k) => !q.pts[k]).map((k) => nm[k]);
+      const labMap = { "HH/HL": "상승 구조(HH/HL)", "LH/LL": "하락 구조(LH/LL)", "HH/LL": "확장(HH/LL)", "LH/HL": "수렴(LH/HL)" };
+      L.push("🧮 지표 점수 " + q.score + "/6" + (q.lab ? " · " + (labMap[q.lab] || q.lab) : "") + (ok.length ? "\n   ✅ " + ok.join(" · ") : "") + (no.length ? "\n   ❌ " + no.join(" · ") : ""));
+    }
     if (sum.patterns) {
-      const pt = sum.patterns, nm = (p) => p.name + (p.state === "confirmed" ? "(" + (p.dirReal > 0 ? "돌파" : "이탈") + " 확정)" : "(형성 중)");
-      L.push("🧩 패턴: " + (pt.live.length ? pt.live.map(nm).join(" · ") : "현재 진행 중인 패턴 없음"));
+      const dt = sum.patterns.detail || [];
+      L.push(dt.length ? dt.map((d) => "🧩 " + d.short).join("\n") : "🧩 진행 중인 패턴 없음");
+      if (dt.length) data.detail = "🔎 " + data.tk + (data.nm ? " (" + data.nm + ")" : "") + " 패턴 분석 · " + data.ivKo + "봉\n" + dt.map((d) => d.text).join("\n\n─────────────\n\n");
     }
     const t = sum.ict; if (t) L.push("🧭 ICT: " + t.trend + " · 최근 " + t.last + " · " + t.pd + " 구간 · FVG " + t.fvg + " · OB " + t.ob + (t.eqh || t.eql ? " · EQH " + t.eqh + "/EQL " + t.eql : ""));
     if (t && t.flips.length) L.push("🔁 전환 레벨: " + t.flips.join(", "));
-    const o = []; if (sum.rsi != null) o.push("RSI " + sum.rsi); if (sum.st533) o.push("스토 5/3/3 " + sum.st533.k + "/" + sum.st533.d); if (sum.st2599) o.push("스토 25/9/9 " + sum.st2599.k + "/" + sum.st2599.d);
-    if (o.length) L.push("📊 " + o.join(" · "));
+    if (sum.rsi != null && !sum.quant) L.push("📊 RSI " + sum.rsi);
     data.caption += "\n\n" + L.join("\n");
     if (data.caption.length > 1000) data.caption = data.caption.slice(0, 997) + "…";
   }

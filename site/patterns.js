@@ -262,6 +262,119 @@ function detect(cs, opt) {
   return { pats, stats, span: Math.round(span) };
 }
 
-const api = { detect, zigzag, atrArr, META, DESC };
+/* ───────── 패턴 해설: 지금 패턴의 어느 단계인지 · 핵심 가격 · 읽는 법 (텔레그램 카드 분석 글용, 계산은 가볍고 DOM 불필요) ───────── */
+const STEPS = {
+  doubleBottom: ["저점①", "반등(넥라인)", "저점②", "넥라인 돌파", "목표 도달"],
+  doubleTop: ["고점①", "눌림(넥라인)", "고점②", "넥라인 이탈", "목표 도달"],
+  headShoulders: ["왼쪽 어깨", "머리", "오른쪽 어깨", "넥라인 이탈", "목표 도달"],
+  invHeadShoulders: ["왼쪽 어깨", "머리", "오른쪽 어깨", "넥라인 돌파", "목표 도달"],
+  cupHandle: ["컵 왼쪽 림", "컵 바닥", "컵 오른쪽 림", "손잡이 눌림", "고점 돌파", "목표 도달"],
+  bullFlag: ["깃대(급등)", "깃발(눌림)", "상단 돌파", "목표 도달"],
+  bearFlag: ["깃대(급락)", "깃발(반등)", "하단 이탈", "목표 도달"],
+  tri: ["고·저점 형성", "수렴·횡보 진행", "돌파·이탈", "목표 도달"],
+};
+/* what = 패턴이 뭔지 · read = 확정·목표·무효 읽는 법 */
+const LEARN = {
+  doubleBottom: { what: "같은 가격대에서 저점을 두 번 만들고 반등하는 'W'자 바닥. 하락 힘이 같은 자리에서 두 번 막혔다는 뜻이라 추세가 위로 바뀔 가능성을 봅니다.", read: "두 저점 사이 고점(넥라인)을 종가로 뚫으면 확정, 목표는 '바닥~넥라인 높이'만큼 위. 두 저점 아래로 다시 내려가면 무효." },
+  doubleTop: { what: "같은 가격대에서 고점을 두 번 찍고 밀리는 'M'자 천장. 매수세가 같은 자리에서 두 번 막혀 상승이 끝나고 하락으로 바뀔 가능성을 봅니다.", read: "두 고점 사이 저점(넥라인)을 종가로 깨면 확정, 목표는 '천장~넥라인 높이'만큼 아래. 두 고점 위로 다시 올라가면 무효." },
+  headShoulders: { what: "가운데 봉우리(머리)가 양옆(어깨)보다 높은 3봉우리 천장. 고점을 더 못 높이고 꺾이는 대표적인 하락 전환 신호입니다.", read: "두 어깨 저점을 잇는 넥라인을 종가로 깨면 확정, 목표는 '머리~넥라인 높이'만큼 아래. 머리 고점을 다시 넘으면 무효." },
+  invHeadShoulders: { what: "가운데 저점(머리)이 양옆(어깨)보다 낮은 3저점 바닥. 더 못 내리고 반등하는 대표적인 상승 전환 신호입니다.", read: "두 어깨 고점을 잇는 넥라인을 종가로 뚫으면 확정, 목표는 '머리~넥라인 높이'만큼 위. 머리 저점을 다시 깨면 무효." },
+  cupHandle: { what: "둥근 U자 컵으로 바닥을 다진 뒤 오른쪽 림 근처에서 얕게 눌리는 구간(손잡이)이 오는 상승 지속 패턴. 눌림에서 매물이 소화됐다는 뜻입니다.", read: "손잡이 고점(림)을 종가로 넘으면 확정, 목표는 '컵 깊이'만큼 위. 손잡이 저점을 깨면 무효." },
+  bullFlag: { what: "급등(깃대) 뒤 좁은 폭으로 내려오는 눌림(깃발)이 나오는 상승 지속 패턴. 급등 뒤 숨 고르기로 봅니다.", read: "깃발 상단선을 종가로 넘으면 확정, 목표는 '깃대 길이'만큼 위. 깃발 하단을 이탈하면 무효." },
+  bearFlag: { what: "급락(깃대) 뒤 좁은 폭으로 올라오는 반등(깃발)이 나오는 하락 지속 패턴. 급락 뒤 잠깐 되튀는 구간으로 봅니다.", read: "깃발 하단선을 종가로 깨면 확정, 목표는 '깃대 길이'만큼 아래. 깃발 상단을 돌파하면 무효." },
+  ascTriangle: { what: "고점은 수평(저항)이고 저점은 계속 높아지는 삼각형. 매수세가 같은 저항을 계속 두드려 위로 터질 가능성이 높습니다.", read: "수평 저항선을 종가로 넘으면 확정, 목표는 '삼각형 가장 넓은 폭'만큼 위. 상승 저점선을 깨면 무효." },
+  descTriangle: { what: "저점은 수평(지지)이고 고점은 계속 낮아지는 삼각형. 매도세가 같은 지지를 계속 두드려 아래로 깨질 가능성이 높습니다.", read: "수평 지지선을 종가로 깨면 확정, 목표는 '삼각형 가장 넓은 폭'만큼 아래. 하락 고점선을 넘으면 무효." },
+  symTriangle: { what: "고점은 낮아지고 저점은 높아지며 꼭짓점으로 좁혀지는 삼각형. 에너지가 압축되는 중이고 방향은 터지는 쪽을 따라갑니다.", read: "상단선 돌파면 상승, 하단선 이탈이면 하락으로 확정. 목표는 '가장 넓은 폭'만큼. 꼭짓점에 가까워질수록 곧 터지고, 꼭짓점을 지나치면 힘이 약해집니다." },
+  box: { what: "고점과 저점이 수평으로 반복되는 박스권. 에너지를 모으는 횡보라 벗어나는 방향이 다음 추세가 됩니다.", read: "박스 상단 돌파면 상승, 하단 이탈이면 하락. 목표는 '박스 높이'만큼. 가짜 돌파를 거르려고 종가 기준으로 확인합니다." },
+  risingWedge: { what: "오르긴 하지만 고점·저점의 상승폭이 줄며 좁아지는 쐐기. 오를수록 힘이 빠지는 모양이라 하락 전환 신호로 봅니다.", read: "하단선을 종가로 이탈하면 확정, 목표는 '쐐기 가장 넓은 폭'만큼 아래. 상단선을 위로 돌파하면 무효에 가깝습니다." },
+  fallingWedge: { what: "내리긴 하지만 고점·저점의 하락폭이 줄며 좁아지는 쐐기. 내릴수록 힘이 빠지는 모양이라 상승 전환 신호로 봅니다.", read: "상단선을 종가로 돌파하면 확정, 목표는 '쐐기 가장 넓은 폭'만큼 위. 하단선을 아래로 이탈하면 무효에 가깝습니다." },
+  upChannel: { what: "평행하게 오르는 추세 채널. 하단은 지지, 상단은 저항으로 작동합니다.", read: "하단 부근은 매수 관점, 상단 부근은 차익 주의. 하단 이탈은 추세 약화, 상단 돌파는 가속 신호(참고용 — 확정·목표는 계산하지 않음)." },
+  downChannel: { what: "평행하게 내리는 추세 채널. 상단은 저항, 하단은 지지로 작동합니다.", read: "상단 부근은 매도·관망 관점, 하단 부근은 반등 주의. 상단 돌파는 추세 약화, 하단 이탈은 가속 신호(참고용 — 확정·목표는 계산하지 않음)." },
+};
+const fPx = (v) => (v >= 1000 ? v.toFixed(1) : v >= 10 ? v.toFixed(2) : v >= 1 ? v.toFixed(3) : v.toPrecision(4));
+const fPc = (x) => (x >= 0 ? "+" : "") + x.toFixed(1) + "%";
+/* 패턴 하나를 글로 풀어줌. 반환: { short, text } — short=한 줄 요약(사진 설명용), text=상세 분석(별도 메시지용) */
+function explain(p, cs, stats) {
+  const M = META[p.type]; if (!M) return null;
+  const n = cs.length, i = n - 1, px = cs[i].close, H = p.height || 0, Ln = p._lines || {}, lrn = LEARN[p.type] || {};
+  const at = (a, b, x) => (b[0] === a[0] ? a[1] : a[1] + (b[1] - a[1]) * (x - a[0]) / (b[0] - a[0]));
+  const upL = Ln.up ? Ln.up(i) : (p.lines ? at(p.lines[0][0], p.lines[0][1], i) : null);
+  const loL = Ln.lo ? Ln.lo(i) : (p.lines ? at(p.lines[1][0], p.lines[1][1], i) : null);
+  const conf = p.state === "confirmed", dir = conf ? p.dirReal : p.dir;
+  const dirTxt = dir > 0 ? "상승 신호" : dir < 0 ? "하락 신호" : "방향 미정(돌파 방향을 따라감)";
+  const info = !!M.info, isTri = M.fam === "tri" && !info;
+  const steps = info ? null : (STEPS[p.type] || STEPS.tri);
+  const bi = steps ? steps.length - 2 : 0, ti = steps ? steps.length - 1 : 0;
+  const L = [], vs = (v) => fPc((v / px - 1) * 100);
+  let now = 0, stateTxt = "";
+  const sty = []; const nowTag = [];
+  if (info) { stateTxt = "진행 중(참고용)"; }
+  else if (conf) { now = ti; stateTxt = (dir > 0 ? "돌파" : "이탈") + " 확정"; }
+  else { now = isTri ? 1 : bi; stateTxt = isTri ? "수렴 진행 중" : "패턴 완성 · " + (dir > 0 ? "돌파" : dir < 0 ? "이탈" : "돌파/이탈") + " 대기"; }
+  /* 지나온 단계 */
+  let stepLine = null, prog = null;
+  if (steps) {
+    if (conf) { const tg = p.target, en = p.entry; prog = Math.max(-999, Math.min(999, (px - en) * dir / Math.max(1e-12, Math.abs(tg - en)) * 100)); }
+    stepLine = steps.map((s, k) => (k < now ? "✓" + s : k === now ? "▶" + (conf ? "목표 진행 " + (prog >= 0 ? Math.min(100, Math.round(prog)) + "%" : "(되돌림 중)") : s + (isTri ? "" : " 대기")) : "·" + s)).join(" → ");
+  }
+  /* 핵심 가격 */
+  const key = [];
+  if (!info) {
+    if (conf) {
+      const en = p.entry, tg = p.target, inv = p.stop != null ? p.stop : en - dir * 0.6 * H;
+      key.push((dir > 0 ? "돌파" : "이탈") + " 종가 " + fPx(en) + " · 목표 " + fPx(tg) + " (" + vs(tg) + ") · 무효선 " + fPx(inv) + " (" + vs(inv) + ")");
+    } else if (dir > 0) {
+      const lv = upL, inv = p.stop != null ? p.stop : loL;
+      if (lv != null) key.push("돌파선 " + fPx(lv) + " (" + vs(lv) + ")" + (inv != null ? " · 무효선 " + fPx(inv) + " (" + vs(inv) + ")" : "") + " · 예상 목표 " + fPx(lv + H) + " (" + vs(lv + H) + ")");
+    } else if (dir < 0) {
+      const lv = loL, inv = p.stop != null ? p.stop : upL;
+      if (lv != null) key.push("이탈선 " + fPx(lv) + " (" + vs(lv) + ")" + (inv != null ? " · 무효선 " + fPx(inv) + " (" + vs(inv) + ")" : "") + " · 예상 목표 " + fPx(lv - H) + " (" + vs(lv - H) + ")");
+    } else if (upL != null && loL != null) {
+      key.push("상단선 " + fPx(upL) + " (" + vs(upL) + ") → 돌파 시 목표 " + fPx(upL + H) + " (" + vs(upL + H) + ")");
+      key.push("하단선 " + fPx(loL) + " (" + vs(loL) + ") → 이탈 시 목표 " + fPx(loL - H) + " (" + vs(loL - H) + ")");
+    }
+  } else if (upL != null && loL != null) key.push("채널 상단 " + fPx(upL) + " (" + vs(upL) + ") · 하단 " + fPx(loL) + " (" + vs(loL) + ")");
+  /* 지금 상황 */
+  const sit = [];
+  const width = Math.max(10, p.end - p.start), W = Math.max(12, Math.min(60, Math.round(width * 0.8)));
+  if (!info && !conf) {
+    const lvl = dir > 0 ? upL : dir < 0 ? loL : null;
+    if (lvl != null) {
+      const d = (lvl / px - 1) * 100, beyond = dir > 0 ? px > lvl : px < lvl;
+      sit.push(beyond ? "현재가 " + fPx(px) + "가 " + (dir > 0 ? "돌파선 위" : "이탈선 아래") + "(" + fPc((px / lvl - 1) * 100) + ") — 종가 기준으로 확정되는지 확인하는 단계" : "현재가 " + fPx(px) + " → " + (dir > 0 ? "돌파선" : "이탈선") + "까지 " + fPc(d) + (Math.abs(d) <= 0.7 ? " (임박)" : ""));
+    } else if (upL != null && loL != null) {
+      sit.push("현재가 " + fPx(px) + " · 상단선까지 " + fPc((upL / px - 1) * 100) + " / 하단선까지 " + fPc((loL / px - 1) * 100));
+    }
+    const el = i - p.end;
+    if (p.lines && p.type !== "bullFlag" && p.type !== "bearFlag") {   /* 삼각형·쐐기·박스: 꼭짓점까지 */
+      const a0 = p.lines[0], a1 = p.lines[1], s0 = (a0[1][1] - a0[0][1]) / Math.max(1, a0[1][0] - a0[0][0]), s1 = (a1[1][1] - a1[0][1]) / Math.max(1, a1[1][0] - a1[0][0]);
+      if (Math.abs(s0 - s1) > 1e-9) { const xa = (a1[0][1] - a0[0][1] + s0 * a0[0][0] - s1 * a1[0][0]) / (s0 - s1); if (xa > p.start) { const pr = (i - p.start) / (xa - p.start) * 100; sit.push(xa > i ? "수렴 " + Math.round(Math.min(100, pr)) + "% 진행 · 꼭짓점까지 약 " + Math.round(xa - i) + "봉" + (pr >= 85 ? " (곧 방향이 정해질 구간)" : "") : "꼭짓점을 이미 지났음 — 힘이 약해지는 구간"); } }
+    }
+    if (p.pole && p.flagStart != null) {   /* 깃발: 깃대 대비 되돌림 */
+      const p0 = p.pole[0], p1 = p.pole[1], pole = Math.abs(p1[1] - p0[1]); let ex = p1[1];
+      for (let j = p.flagStart; j <= i; j++) ex = p.type === "bullFlag" ? Math.min(ex, cs[j].low) : Math.max(ex, cs[j].high);
+      if (pole > 0) { const rt = Math.abs(p1[1] - ex) / pole * 100; sit.push("깃대 " + fPx(Math.min(p0[1], p1[1])) + "→" + fPx(Math.max(p0[1], p1[1])) + " 중 " + Math.round(rt) + "% 되돌림" + (rt <= 50 ? " (50% 이내면 건강한 깃발)" : " (50% 넘으면 깃발이 약해짐)")); }
+    }
+    if (p.type === "doubleBottom" || p.type === "doubleTop") { const a = p.pts[0][1], b = p.pts[2][1]; sit.push("두 " + (p.type === "doubleBottom" ? "저점" : "고점") + " 차이 " + (Math.abs(a - b) / a * 100).toFixed(2) + "% (작을수록 정석)"); }
+    sit.push("패턴 완성 후 " + Math.max(0, el) + "봉 경과 · 돌파 확인 유효 " + W + "봉 중 " + Math.max(0, W - el) + "봉 남음");
+  } else if (conf) {
+    const k = i - p.confirmI, en = p.entry, hz = p.confirmI + Math.max(30, Math.min(150, width * 2));
+    sit.push((dir > 0 ? "돌파" : "이탈") + " " + k + "봉 경과 · 현재 " + fPx(px) + " (확정가 대비 " + fPc((px / en - 1) * 100) + ")");
+    sit.push(prog >= 100 ? "목표가 도달 — 이후는 추세가 이어지는지 확인" : prog >= 0 ? "목표까지 " + Math.round(prog) + "% 진행 (남은 거리 " + vs(p.target) + ")" : "확정가 아래로 되돌림 중 — 무효선 이탈 여부 주의");
+    sit.push("성공·실패 판정까지 약 " + Math.max(0, hz - i) + "봉");
+  } else if (info) sit.push("현재가 " + fPx(px));
+  /* 과거 기록 */
+  const st = stats && stats[p.type], hist = st && st.s + st.f >= 2 ? "이 차트 과거 같은 패턴: 성공 " + st.s + " · 실패 " + st.f + " (" + Math.round(st.s / (st.s + st.f) * 100) + "%)" : null;
+  const short = p.name + " · " + stateTxt + (conf ? " (목표까지 " + vs(p.target) + ")" : "");
+  const T = ["🧩 " + p.name + " · " + dirTxt + " · " + stateTxt];
+  if (stepLine) T.push("📍 위치  " + stepLine);
+  if (key.length) T.push("📐 핵심 가격\n" + key.map((x) => "   " + x).join("\n"));
+  if (sit.length) T.push("🔎 지금 상황\n" + sit.map((x) => "   • " + x).join("\n"));
+  if (lrn.what) T.push("📖 패턴 공부\n   • " + lrn.what + "\n   • " + lrn.read);
+  if (hist) T.push("📈 " + hist);
+  return { short, text: T.join("\n") };
+}
+
+const api = { detect, zigzag, atrArr, explain, META, DESC };
 if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Patterns = api;
 })(typeof window !== "undefined" ? window : globalThis);
