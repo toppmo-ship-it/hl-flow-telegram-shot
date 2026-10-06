@@ -355,7 +355,7 @@ class NubiaLayer {
 /* ───────── 차트 패턴 표시 (선·수직선·수평선 + 이름표). 이름표는 캔들을 절대 가리지 않는 빈 자리에만 놓음 ───────── */
 const PCOL = { up: "#ff5d6e", dn: "#4fb4ff", neu: "#b79cff" };
 class PatternLayer {
-  constructor() { this.res = null; this.from = 0; this.cs = null; this.ext = 30; this.chart = null; this.series = null; this.req = null; }
+  constructor() { this.res = null; this.from = 0; this.cs = null; this.ext = 30; this.chart = null; this.series = null; this.req = null; this.obs = null; }
   attached(p) { this.chart = p.chart; this.series = p.series; this.req = p.requestUpdate; }
   detached() {}
   updateAllViews() {}
@@ -372,18 +372,51 @@ class PatternLayer {
     const colOf = (p) => (dirOf(p) > 0 ? PCOL.up : dirOf(p) < 0 ? PCOL.dn : PCOL.neu);
     const rgba = (h, al) => { const n2 = parseInt(h.slice(1), 16); return "rgba(" + (n2 >> 16 & 255) + "," + (n2 >> 8 & 255) + "," + (n2 & 255) + "," + al + ")"; };
     const lineAt = (a, b, x) => (b[0] === a[0] ? a[1] : a[1] + (b[1] - a[1]) * (x - a[0]) / (b[0] - a[0]));
-    /* ── 캔들 위치(회피 대상) ── */
-    const bx = [], bt = [], bb = []; let sp = 6;
+    /* ── 가리면 안 되는 것(캔들 · 켈트너/VWAP 선)을 5px 격자 점유표에 기록 → 라벨은 빈 칸에만 놓음 ──
+       occC = 캔들만, occL = 캔들 + 지표선. 합계표(적분이미지)로 사각형 검사는 O(1) */
+    let sp = 6;
     { const x1 = X(n - 1), x0 = X(Math.max(0, n - 2)); if (x1 != null && x0 != null) sp = Math.max(1, Math.abs(x1 - x0)); }
-    const pad = Math.max(3, sp * 0.5 + 2.5);
-    for (let i = Math.max(0, this.from - 3); i < n; i++) { const x = X(i); if (x == null || x < -20 || x > W + 20) continue; const yh = Y(cs[i].high), yl = Y(cs[i].low); if (yh == null || yl == null) continue; bx.push(x); bt.push(Math.min(yh, yl)); bb.push(Math.max(yh, yl)); }
-    const hitCandle = (x, y, w, h) => {
-      let lo = 0, hi = bx.length; while (lo < hi) { const m = (lo + hi) >> 1; if (bx[m] < x - pad) lo = m + 1; else hi = m; }
-      for (let k = lo; k < bx.length && bx[k] <= x + w + pad; k++) if (y < bb[k] + pad && y + h > bt[k] - pad) return true; return false;
-    };
+    const pad = Math.max(3, sp * 0.5 + 2.5), CELL = 5, gw = Math.ceil(W / CELL) + 2, gh = Math.ceil(Hh / CELL) + 2, occC = new Uint8Array(gw * gh), occL = new Uint8Array(gw * gh);
+    const mark = (occ, x0, y0, x1, y1) => { const a = Math.max(0, Math.floor(x0 / CELL)), b = Math.min(gw - 1, Math.floor(x1 / CELL)), c0 = Math.max(0, Math.floor(y0 / CELL)), d = Math.min(gh - 1, Math.floor(y1 / CELL)); for (let yy = c0; yy <= d; yy++) for (let xx = a; xx <= b; xx++) occ[yy * gw + xx] = 1; };
+    for (let i = Math.max(0, this.from - 3); i < n; i++) { const x = X(i); if (x == null || x < -20 || x > W + 20) continue; const yh = Y(cs[i].high), yl = Y(cs[i].low); if (yh == null || yl == null) continue; mark(occC, x - pad, Math.min(yh, yl) - pad, x + pad, Math.max(yh, yl) + pad); }
+    occL.set(occC);
+    { const yl = Y(cs[n - 1].close); if (yl != null) mark(occL, 0, yl - 3, W, yl + 3); }   /* 현재가 점선도 가리지 않음 */
+    (this.obs ? this.obs() : []).forEach((ln) => {   /* 켈트너·VWAP 선: 계단선은 가로 후 세로, 일반선은 직선으로 따라가며 표시 */
+      let px = null, py = null;
+      for (const q of ln.pts) {
+        const x = X(q[0]), y0 = Y(q[1]); if (x == null || y0 == null) { px = null; continue; }
+        if (x > W + 30) break;
+        const y = Math.max(-20, Math.min(Hh + 20, y0));
+        if (px != null && x >= -30) {
+          if (ln.step) { for (let xx = Math.max(px, -5); xx <= x; xx += 4) mark(occL, xx - 2, py - 2.5, xx + 2, py + 2.5); for (let yy = Math.min(py, y); yy <= Math.max(py, y); yy += 4) mark(occL, x - 2.5, yy - 2, x + 2.5, yy + 2); }
+          else { const stp = Math.max(1, Math.ceil(Math.max(Math.abs(x - px), Math.abs(y - py)) / 4)); for (let k = 0; k <= stp; k++) { const xx = px + (x - px) * k / stp, yy = py + (y - py) * k / stp; mark(occL, xx - 2.5, yy - 2.5, xx + 2.5, yy + 2.5); } }
+        }
+        px = x; py = y;
+      }
+    });
+    const sw = gw + 1, mkSat = (occ) => { const sat = new Int32Array(sw * (gh + 1)); for (let yy = 0; yy < gh; yy++) { let row = 0; for (let xx = 0; xx < gw; xx++) { row += occ[yy * gw + xx]; sat[(yy + 1) * sw + xx + 1] = sat[yy * sw + xx + 1] + row; } } return sat; };
+    const satC = mkSat(occC), satL = mkSat(occL);
+    /* strict=true: 캔들+지표선 모두 피함 · false: 캔들만 피함 */
+    const blockedRect = (x, y, w, h, strict) => { const sat = strict ? satL : satC, a = Math.max(0, Math.floor((x - 1) / CELL)), b = Math.min(gw - 1, Math.floor((x + w + 1) / CELL)), c0 = Math.max(0, Math.floor((y - 1) / CELL)), d = Math.min(gh - 1, Math.floor((y + h + 1) / CELL)); return sat[(d + 1) * sw + b + 1] - sat[c0 * sw + b + 1] - sat[(d + 1) * sw + a] + sat[c0 * sw + a] > 0; };
     c.save(); c.lineJoin = "round"; c.lineCap = "round";
     const tags = [], labelRects = [{ x: 0, y: 0, w: 520, h: 36 }];   /* 왼쪽 위 범례 글자 자리는 비워 둠 */
-    const pill = (txt, x, y, col) => { c.font = "800 11px " + FONT; const w = c.measureText(txt).width + 12, h = 17; c.fillStyle = "rgba(8,13,24,.9)"; c.strokeStyle = rgba(col, 0.7); c.lineWidth = 1; c.beginPath(); c.roundRect ? c.roundRect(x, y, w, h, 6) : c.rect(x, y, w, h); c.fill(); c.stroke(); c.fillStyle = col; c.textAlign = "left"; c.textBaseline = "middle"; c.fillText(txt, x + 6, y + h / 2 + 0.5); labelRects.push({ x, y, w, h }); };
+    const rectHit = (r, list) => list.some((q) => r.x < q.x + q.w + 3 && r.x + r.w + 3 > q.x && r.y < q.y + q.h + 2 && r.y + r.h + 2 > q.y);
+    /* 돌파선·손절선·이탈선 이름표: 선 끝(ax, ay) 근처에서 캔들·지표선을 피한 빈 자리를 찾음. 오른쪽 여백(최신 봉 뒤)을 가장 먼저 씀.
+       up=true 면 선 위쪽, false 면 아래쪽을 선호. 1차 캔들+지표선 회피 → 2차 캔들만 회피 → 마지막엔 선 끝에 그대로 */
+    const pill = (txt, ax, ay, col, up) => {
+      c.font = "800 11px " + FONT; const w = Math.ceil(c.measureText(txt).width + 12), h = 17;
+      const bx0 = Math.min(W - w - 3, ax + 6), by0 = ay - h / 2, cand = [];
+      for (let dx = -360; dx <= 0; dx += 5) for (let dy = -64; dy <= 64; dy += 3) {
+        const x = bx0 + dx, y = by0 + dy; if (x < 2 || x + w > W - 2 || y < 2 || y + h > Hh - 2) continue;
+        cand.push({ x, y, cost: Math.abs(dx) + Math.abs(dy) * 1.6 + ((up ? dy > 0 : dy < 0) ? 14 : 0) });
+      }
+      cand.sort((p, q) => p.cost - q.cost);
+      let pos = null;
+      for (const strict of [true, false]) { for (const q of cand) { const r = { x: q.x, y: q.y, w, h }; if (!blockedRect(r.x, r.y, w, h, strict) && !rectHit(r, labelRects)) { pos = r; break; } } if (pos) break; }
+      if (!pos) pos = { x: Math.max(2, Math.min(W - w - 2, bx0)), y: Math.max(2, Math.min(Hh - h - 2, by0 + (up ? -h - 3 : h + 3))), w, h };
+      const { x, y } = pos;
+      c.fillStyle = "rgba(8,13,24,.9)"; c.strokeStyle = rgba(col, 0.7); c.lineWidth = 1; c.beginPath(); c.roundRect ? c.roundRect(x, y, w, h, 6) : c.rect(x, y, w, h); c.fill(); c.stroke(); c.fillStyle = col; c.textAlign = "left"; c.textBaseline = "middle"; c.fillText(txt, x + 6, y + h / 2 + 0.5); labelRects.push(pos);
+    };
     const P = (i, v) => { const x = X(i), y = Y(v); return x == null || y == null ? null : [x, y]; };
     const seg = (a, b, col, w, dash) => { if (!a || !b) return; c.strokeStyle = col; c.lineWidth = w; c.setLineDash(dash || []); c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke(); c.setLineDash([]); };
 
@@ -406,8 +439,8 @@ class PatternLayer {
           if (apex != null) { const t0 = P(apex, lineAt(L0[0], L0[1], apex)); if (t0) { c.strokeStyle = rgba(col, 0.3); c.lineWidth = 1.1; c.setLineDash([3, 5]); c.beginPath(); c.moveTo(t0[0], 6); c.lineTo(t0[0], Hh - 6); c.stroke(); c.setLineDash([]); } }
           /* 돌파선/손절선(또는 이탈선) 이름 */
           const up = dE >= 0 ? "돌파선" : "손절선", lo = dE > 0 ? "손절선" : "이탈선";
-          if (pb) pill(dE === 0 ? "상단 돌파" : up, Math.min(W - 70, pb[0] - 66), pb[1] - 21, col);
-          if (pc2) pill(dE === 0 ? "하단 이탈" : lo, Math.min(W - 70, pc2[0] - 66), pc2[1] + 4, col);
+          if (pb) pill(dE === 0 ? "상단 돌파" : up, pb[0], pb[1], col, true);
+          if (pc2) pill(dE === 0 ? "하단 이탈" : lo, pc2[0], pc2[1], col, false);
         }
       }
       /* 컵 곡선 */
@@ -425,10 +458,10 @@ class PatternLayer {
         seg(n0, nEnd, rgba(col, 0.85 * a), 1.5, [6, 5]);
         if (lv && n1) {
           seg(nEnd, n1, rgba(col, 0.95), 1.7, [3, 4]);
-          pill(dE >= 0 ? "돌파선" : "이탈선", Math.min(W - 70, n1[0] - 66), n1[1] - (dE >= 0 ? 21 : -4), col);
+          pill(dE >= 0 ? "돌파선" : "이탈선", n1[0], n1[1], col, dE >= 0);
           /* 수직선: 각 꼭짓점 ↔ 넥라인 */
           (p.pts || []).forEach((q, k) => { const isKey = (p.type === "doubleBottom" || p.type === "doubleTop") ? k !== 1 : (p.type === "headShoulders" || p.type === "invHeadShoulders") ? k % 2 === 0 : false; if (!isKey) return; const z = P(q[0], q[1]), nl = P(q[0], lineAt(p.neck[0], p.neck[1], q[0])); if (z && nl) seg(z, nl, rgba(col, 0.45), 1.2, [2, 4]); });
-          if (p.stop != null) { const s0p = P(p.pts[0][0], p.stop), s1p = P(xExt, p.stop); if (s0p && s1p) { seg(s0p, s1p, "rgba(160,174,200,.6)", 1.3, [5, 5]); pill("손절선", Math.min(W - 70, s1p[0] - 66), s1p[1] + (dE >= 0 ? 4 : -21), "#a9b6d0"); } }
+          if (p.stop != null) { const s0p = P(p.pts[0][0], p.stop), s1p = P(xExt, p.stop); if (s0p && s1p) { seg(s0p, s1p, "rgba(160,174,200,.6)", 1.3, [5, 5]); pill("손절선", s1p[0], s1p[1], "#a9b6d0", dE < 0); } }
         }
       }
       /* 돌파 지점 표시(작게) */
@@ -440,47 +473,56 @@ class PatternLayer {
       tags.push({ p, col, name: p.name, stTxt: p.state === "forming" ? "형성 중" : p.state === "confirmed" ? (p.dirReal > 0 ? "돌파 확정" : "이탈 확정") : null, desc, cx: (Math.min(...xs) + Math.max(...xs)) / 2, top: Math.min(...ys), bot: Math.max(...ys), below: dE > 0, lv, end: p.end, info: role && role.info });
     });
 
-    /* ── 이름표 배치: 캔들·다른 이름표·가격선 라벨과 겹치지 않는 가장 가까운 빈 자리 ── */
+    /* ── 이름표 배치: 캔들·지표선(켈트너/VWAP)·다른 이름표·가격선 라벨과 겹치지 않는 가장 가까운 빈 자리 ──
+       우선순위: ① 캔들+지표선 모두 피하는 자리(설명 포함 → 이름+상태 → 이름만) ② 그래도 없으면 캔들만 피하는 자리. 진행 중(live) 패턴만 설명 카드, 지난 패턴은 작은 이름표(최근 8개) */
     tags.sort((a, b) => (b.lv - a.lv) || (b.end - a.end));
     const placed = labelRects.slice();
     const hit = (r) => placed.some((q) => r.x < q.x + q.w + 4 && r.x + r.w + 4 > q.x && r.y < q.y + q.h + 3 && r.y + r.h + 3 > q.y);
     let pastSeen = 0;
+    const measure = (L, compact) => {
+      c.font = L[0].f; const wName = c.measureText(L[0].txt).width; let wFirst = wName; if (L[1] && L[1].inline) { c.font = L[1].f; wFirst += 10 + c.measureText(L[1].txt).width; }
+      let w = wFirst; const rest = L.filter((l, k) => k > 0 && !l.inline); rest.forEach((l) => { c.font = l.f; w = Math.max(w, c.measureText(l.txt).width); });
+      return { w: w + (compact ? 20 : 24), h: (compact ? 22 : 27) + rest.length * 17, wName, rest };
+    };
     tags.forEach((t) => {
+      if (!t.lv && pastSeen++ >= 8) return;
+      const full = [{ txt: t.name, f: "800 14px " + FONT, col: "#ffffff" }];
+      if (t.stTxt) full.push({ txt: t.stTxt, f: "800 11.5px " + FONT, col: t.col, inline: true });
       const variants = [];
-      /* 지난 패턴이 많으면 최근 4개만 설명 포함, 나머지는 작은 이름표(이름만)로 — 화면이 지저분해지지 않게 */
-      const compact = !t.lv && (pastSeen++ >= 4);
-      const L1 = [{ txt: t.name, f: (compact ? "700 12px " : "800 14px ") + FONT, col: compact ? "#c9d5ec" : "#ffffff" }];
-      if (t.stTxt && !compact) L1.push({ txt: t.stTxt, f: "800 11.5px " + FONT, col: t.col, inline: true });
-      if (t.desc && !compact) variants.push(L1.concat([{ txt: t.desc, f: "500 11.5px " + FONT, col: "#aebdd8" }]));
-      variants.push(L1);
-      for (const L of variants) {
-        c.font = L[0].f; const wName = c.measureText(L[0].txt).width; let wFirst = wName; if (L[1] && L[1].inline) { c.font = L[1].f; wFirst += 10 + c.measureText(L[1].txt).width; }
-        let w = wFirst; const rest = L.filter((l, k) => k > 0 && !l.inline); rest.forEach((l) => { c.font = l.f; w = Math.max(w, c.measureText(l.txt).width); });
-        w += compact ? 20 : 24; const h = (compact ? 22 : 27) + rest.length * 17;
-        /* 후보를 가까운 순으로 */
-        const want = t.below ? t.bot + 14 : t.top - 14 - h, cand = [];
-        for (let dy = -Hh; dy <= Hh; dy += 8) for (let dx = -W * 0.6; dx <= W * 0.6; dx += 14) {
-          const x = t.cx - w / 2 + dx, y = want + dy; if (x < 4 || x + w > W - 4 || y < 4 || y + h > Hh - 4) continue;
-          const inside = y < t.bot + 4 && y + h > t.top - 4 && x < t.cx + 1e6; cand.push({ x, y, cost: Math.abs(dx) * 0.8 + Math.abs(dy) + (inside ? 160 : 0) });
+      if (t.lv && t.desc) variants.push({ L: full.concat([{ txt: t.desc, f: "500 11.5px " + FONT, col: "#aebdd8" }]), compact: false });
+      if (t.lv) variants.push({ L: full, compact: false });
+      variants.push({ L: [{ txt: t.name, f: "700 12px " + FONT, col: "#c9d5ec" }], compact: true });
+      variants.forEach((v) => { v.m = measure(v.L, v.compact); });
+      const cache = {};
+      const spot = (m, strict) => {
+        const key = Math.round(m.w) + "|" + m.h; let cand = cache[key];
+        if (!cand) {   /* 패턴 가까운 순 후보 */
+          const want = t.below ? t.bot + 14 : t.top - 14 - m.h; cand = [];
+          for (let dy = -Hh; dy <= Hh; dy += 8) for (let dx = -W * 0.6; dx <= W * 0.6; dx += 14) {
+            const x = t.cx - m.w / 2 + dx, y = want + dy; if (x < 4 || x + m.w > W - 4 || y < 4 || y + m.h > Hh - 4) continue;
+            const inside = y < t.bot + 4 && y + m.h > t.top - 4; cand.push({ x, y, cost: Math.abs(dx) * 0.8 + Math.abs(dy) + (inside ? 160 : 0) });
+          }
+          cand.sort((a, b) => a.cost - b.cost); cache[key] = cand;
         }
-        cand.sort((a, b) => a.cost - b.cost);
-        let pos = null; for (const q of cand) { const r = { x: q.x, y: q.y, w, h }; if (!hitCandle(r.x, r.y, r.w, r.h) && !hit(r)) { pos = r; break; } }
-        if (!pos) continue;
-        placed.push(pos);
-        const { x, y } = pos, r = 9;
-        c.fillStyle = "rgba(8,13,24,.93)"; c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); c.fill();
-        c.strokeStyle = rgba(t.col, t.lv ? 0.65 : 0.4); c.lineWidth = 1; c.stroke();
-        c.fillStyle = t.col; c.beginPath(); c.moveTo(x + r, y); c.arcTo(x, y, x, y + h, r); c.arcTo(x, y + h, x + r, y + h, r); c.lineTo(x + 4, y + h); c.lineTo(x + 4, y); c.closePath(); c.fill();
-        let yy = y + 7; c.textAlign = "left"; c.textBaseline = "top";
-        c.font = L[0].f; c.fillStyle = L[0].col; c.fillText(L[0].txt, x + (compact ? 11 : 13), yy - (compact ? 1 : 0));
-        if (L[1] && L[1].inline) { c.font = L[1].f; c.fillStyle = L[1].col; c.fillText(L[1].txt, x + 13 + wName + 10, yy + 2); }
-        yy += 20; rest.forEach((l) => { c.font = l.f; c.fillStyle = l.col; c.fillText(l.txt, x + 13, yy); yy += 17; });
-        /* 연결선: 이름표 → 패턴 (캔들 위를 지나가지 않도록 가는 점선) */
-        /* 연결선: 이름표 가장자리 → 패턴 한가운데 (연한 점선 + 끝에 작은 고리) */
-        { const mx = t.cx, my = (t.top + t.bot) / 2, ex = Math.max(x + 10, Math.min(x + w - 10, mx)), ey = (my > y + h) ? y + h : (my < y ? y : (y + h / 2));
-          if (Math.hypot(mx - ex, my - ey) > 16) { c.strokeStyle = rgba(t.col, 0.32); c.lineWidth = 1; c.setLineDash([2, 4]); c.beginPath(); c.moveTo(ex, ey); c.lineTo(mx, my); c.stroke(); c.setLineDash([]); c.strokeStyle = rgba(t.col, 0.55); c.beginPath(); c.arc(mx, my, 3, 0, 6.3); c.stroke(); } }
-        break;
-      }
+        for (const q of cand) { const r = { x: q.x, y: q.y, w: m.w, h: m.h }; if (!blockedRect(r.x, r.y, r.w, r.h, strict) && !hit(r)) return r; }
+        return null;
+      };
+      let pos = null, pick = null;
+      for (const strict of [true, false]) { for (const v of variants) { const r = spot(v.m, strict); if (r) { pos = r; pick = v; break; } } if (pos) break; }
+      if (!pos) return;
+      const { L, compact, m } = pick, { w, h, wName, rest } = m;
+      placed.push(pos);
+      const { x, y } = pos, r = 9;
+      c.fillStyle = "rgba(8,13,24,.9)"; c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); c.fill();
+      c.strokeStyle = rgba(t.col, t.lv ? 0.65 : 0.4); c.lineWidth = 1; c.stroke();
+      c.fillStyle = t.col; c.beginPath(); c.moveTo(x + r, y); c.arcTo(x, y, x, y + h, r); c.arcTo(x, y + h, x + r, y + h, r); c.lineTo(x + 4, y + h); c.lineTo(x + 4, y); c.closePath(); c.fill();
+      let yy = y + 7; c.textAlign = "left"; c.textBaseline = "top";
+      c.font = L[0].f; c.fillStyle = L[0].col; c.fillText(L[0].txt, x + (compact ? 11 : 13), yy - (compact ? 1 : 0));
+      if (L[1] && L[1].inline) { c.font = L[1].f; c.fillStyle = L[1].col; c.fillText(L[1].txt, x + 13 + wName + 10, yy + 2); }
+      yy += 20; rest.forEach((l) => { c.font = l.f; c.fillStyle = l.col; c.fillText(l.txt, x + 13, yy); yy += 17; });
+      /* 연결선: 이름표 가장자리 → 패턴 한가운데 (연한 점선 + 끝에 작은 고리) */
+      { const mx = t.cx, my = (t.top + t.bot) / 2, ex = Math.max(x + 10, Math.min(x + w - 10, mx)), ey = (my > y + h) ? y + h : (my < y ? y : (y + h / 2));
+        if (Math.hypot(mx - ex, my - ey) > 16) { c.strokeStyle = rgba(t.col, 0.32); c.lineWidth = 1; c.setLineDash([2, 4]); c.beginPath(); c.moveTo(ex, ey); c.lineTo(mx, my); c.stroke(); c.setLineDash([]); c.strokeStyle = rgba(t.col, 0.55); c.beginPath(); c.arc(mx, my, 3, 0, 6.3); c.stroke(); } }
     });
     c.restore();
   }
@@ -542,19 +584,23 @@ function build(el, data, opt) {
   const lw = (lvl) => [1, 1.4, 2, 2.8, 3.6][Math.min(5, Math.max(1, lvl || 2)) - 1];
 
   /* 일봉 켈트너: 일봉 차트면 그대로 선, 분·시간봉이면 그날의 일봉 값을 계단 수평선으로 */
-  const K = opt.kel || {}, isDaily = opt.iv === "1d";
+  const K = opt.kel || {}, isDaily = opt.iv === "1d", priceOnly = opt.scale === "price";
   function drawKeltner() {
     ["mid", "up", "lo", "up1", "lo1"].forEach((k) => { if (ctl.kel[k]) { try { chart.removeSeries(ctl.kel[k]); } catch (e) {} ctl.kel[k] = null; } });
-    if (K.on === false || !data.daily || data.daily.length < 12) { ctl.dk = null; ctl.band.set([], false, "rgba(0,0,0,0)"); return; }
+    if (K.on === false || !data.daily || data.daily.length < 12) { ctl.dk = null; ctl.obsLines = []; ctl.band.set([], false, "rgba(0,0,0,0)"); return; }
     const dk = dailyKeltner(data.daily); ctl.dk = dk;
     const sk = stepKeltner(cs, data.daily, dk);
     const st = isDaily ? { mid: [], up: [], lo: [], up1: [], lo1: [] } : sk;
     if (isDaily) data.daily.forEach((d, i) => { const v = dk[i]; if (!v) return; st.mid.push({ time: d.time + KST, value: v.mid }); st.up.push({ time: d.time + KST, value: v.up }); st.lo.push({ time: d.time + KST, value: v.lo }); st.up1.push({ time: d.time + KST, value: v.up1 }); st.lo1.push({ time: d.time + KST, value: v.lo1 }); });
     ctl.band.set(sk.rows, !isDaily, rgba(col.kShade, 0.13));
-    const mk = (pts, color, w, lv) => { const s = chart.addSeries(LW.LineSeries, { color, lineWidth: lw(w), lineType: isDaily ? 0 : 1, priceLineVisible: false, lastValueVisible: lv !== false, crosshairMarkerVisible: false, priceFormat: { type: "price", precision: pf, minMove: Math.pow(10, -pf) } }, 0); s.setData(pts); return s; };
+    /* 스케일 모드 '가격만': 켈트너 선이 눈금 범위에 영향을 주지 않음(null) → 캔들 기준으로 눈금이 맞춰지고 선은 범위 밖이면 잘림 */
+    const mk = (pts, color, w, lv) => { const s = chart.addSeries(LW.LineSeries, Object.assign({ color, lineWidth: lw(w), lineType: isDaily ? 0 : 1, priceLineVisible: false, lastValueVisible: lv !== false, crosshairMarkerVisible: false, priceFormat: { type: "price", precision: pf, minMove: Math.pow(10, -pf) } }, priceOnly ? { autoscaleInfoProvider: () => null } : {}), 0); s.setData(pts); return s; };
     const w1 = Math.max(1, (K.wB || 3) - 1);   /* 1.0 선은 1.5 선보다 한 단계 얇게 · 중심선은 1.5 설정과 같은 굵기 */
     ctl.kel.mid = mk(st.mid, COL.kMid, K.wC); ctl.kel.up = mk(st.up, COL.kBand, K.wB); ctl.kel.lo = mk(st.lo, COL.kBand, K.wB);
     ctl.kel.up1 = mk(st.up1, COL.kBand1, w1, false); ctl.kel.lo1 = mk(st.lo1, COL.kBand1, w1, false);
+    /* 패턴 이름표가 피해야 할 선(캔들 번호 i, 값 v) — 계단선(분·시간봉)은 가로→세로로 따라감 */
+    const ixOf = new Map(); cs.forEach((c, i) => ixOf.set(c.time + KST, i));
+    ctl.obsLines = ["mid", "up", "lo", "up1", "lo1"].map((k) => ({ step: !isDaily, pts: (st[k] || []).map((p) => { const i = ixOf.get(p.time); return i == null ? null : [i, p.value]; }).filter(Boolean) }));
   }
   drawKeltner();
 
@@ -613,7 +659,12 @@ function build(el, data, opt) {
   }
   const a = drawIct();
   if (LY.vwap) { ctl.vw = new NubiaLayer(); main.attachPrimitive(ctl.vw); ctl.vw.set(cs); }
-  if (patOn) { ctl.pat = root_.Patterns.detect(cs); ctl.patLayer = new PatternLayer(); main.attachPrimitive(ctl.patLayer); ctl.patLayer.set(ctl.pat, winFrom, cs, Math.max(14, Math.round((cs.length - winFrom) * 0.09) - 2)); }
+  if (patOn) { ctl.pat = root_.Patterns.detect(cs); ctl.patLayer = new PatternLayer(); main.attachPrimitive(ctl.patLayer);
+    ctl.patLayer.obs = () => {   /* 이름표 회피 대상 지표선: 켈트너 5선 + VWAP 지지·저항선(끊긴 구간은 따로) */
+      const o = (ctl.obsLines || []).slice();
+      if (ctl.vw) ctl.vw.lv.forEach((lvl) => ["hi", "lo"].forEach((side) => { let cur = []; (lvl[side] || []).forEach((p, i) => { if (p) cur.push([i, p.val]); else if (cur.length) { o.push({ step: false, pts: cur }); cur = []; } }); if (cur.length) o.push({ step: false, pts: cur }); }));
+      return o;
+    }; ctl.patLayer.set(ctl.pat, winFrom, cs, Math.max(14, Math.round((cs.length - winFrom) * 0.09) - 2)); }
 
   /* 패널 제목(왼쪽 위) */
   function titles() {
