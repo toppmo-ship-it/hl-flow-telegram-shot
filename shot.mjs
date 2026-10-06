@@ -262,7 +262,7 @@ async function runExtras({ cfg0, q, dry, base }) {
         d.layers = cfg0.layers ? { pattern: !!cfg0.layers.pattern, vwap: !!cfg0.layers.vwap, ict: !!cfg0.layers.ict } : (cfg0.mode === "ict" ? { pattern: false, vwap: false, ict: true } : { pattern: true, vwap: true, ict: false });   /* 기본: 차트패턴 + VWAP 지지·저항 (ICT 꺼짐) */
         const png = await renderCard(page, base, d);
         if (dry) { const f = path.join(ROOT, "out_card_" + t + ".png"); fs.writeFileSync(f, png); console.log("\n──── 카드 " + t + " ────\n" + d.caption + (d.detail ? "\n\n[상세 분석 메시지]\n" + d.detail : "")); }
-        else { const mid = await sendPhoto(png, d.caption); if (d.detail) { await new Promise((ok) => setTimeout(ok, 3300)); await sendDetail(d.detail, mid); lastSent = Date.now(); } const gap = 3300 - (Date.now() - lastSent); if (gap > 0) await new Promise((ok) => setTimeout(ok, gap)); lastSent = Date.now(); }   /* 분당 18장 이하로 간격 유지 */
+        else { const mid = await sendPhoto(png, d.caption); if (d.detail && cfg0.cardDetail === true) { await new Promise((ok) => setTimeout(ok, 3300)); await sendDetail(d.detail, mid); lastSent = Date.now(); }   /* 패턴 상세 분석 메시지는 기본 꺼짐 — 설정(tg_shot_cfg)에 cardDetail:true 를 넣으면 다시 나옴 */ const gap = 3300 - (Date.now() - lastSent); if (gap > 0) await new Promise((ok) => setTimeout(ok, gap)); lastSent = Date.now(); }   /* 분당 18장 이하로 간격 유지 */
         n++;
       }
       log("종목 카드", n + "장", dry ? "(dry — 파일 저장)" : "전송");
