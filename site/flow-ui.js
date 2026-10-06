@@ -516,7 +516,8 @@ function applyFont(){
 }
 function buildWidths(){
  const p=$("wPop");
- const rows=[["stock","종목선",1,8,"#9db2d6"],["index","지수선",1,10,"#a5fde5"],["commodity","원자재선",1,10,"#ffd54a"],["line","켈상단·상대강도",1.5,12,"#f5c542"]];
+ if(!(F.ui.w.mid>0))F.ui.w.mid=F.ui.w.line;   /* 켈 중심선 굵기: 처음엔 켈상단·하단선과 같게 */
+ const rows=[["stock","종목선",1,8,"#9db2d6"],["index","지수선",1,10,"#a5fde5"],["commodity","원자재선",1,10,"#ffd54a"],["line","켈상단·하단·상대강도",1.5,12,"#f5c542"],["mid","켈 중심선",1.5,12,"#4dd9ff"]];
  p.innerHTML="<h4>선 굵기 <span style='font-weight:500;color:var(--mute);font-size:.7rem'>각각 따로 조절 · 자동저장</span></h4>"+rows.map(([k,l,mn,mx,c])=>'<div class="row"><span>'+l+'</span><input type="range" data-k="'+k+'" min="'+mn+'" max="'+mx+'" step="0.2" value="'+F.ui.w[k]+'"><b id="wv_'+k+'">'+(+F.ui.w[k]).toFixed(1)+'</b></div><div class="prev" id="wp_'+k+'" style="background:'+c+';height:'+F.ui.w[k]+'px"></div>').join("");
  p.querySelectorAll("input").forEach(inp=>inp.oninput=()=>{const k=inp.dataset.k,v=+inp.value;F.ui.w[k]=v;$("wv_"+k).textContent=v.toFixed(1);$("wp_"+k).style.height=v+"px";F.restyle();F.saveUI();});
 }
@@ -674,7 +675,7 @@ const IND={
   let h='<div class="isec">기준선 — 어떤 선의 이동평균을 그릴지</div><div class="ir"><span class="nm">계산 대상</span>'+iSel("ma.src",SRC)+iChk("ma.early","봉이 모자라도 첫 값부터 계산(근사)")+'</div>';
   h+='<div class="isec">EMA 7개 — 기간 · 색 · 굵기 · 모양</div>';
   I.lines.forEach((l,i)=>{const b="ma.lines."+i;
-   h+='<div class="ir">'+iChk(b+".on")+'<span class="nm">EMA<small>'+l.len+'</small></span><label>기간'+iNum(b+".len",1,2000,1)+'</label>'+iCol(b+".color",l.color)+'<label>굵기'+iNum(b+".w",0.5,14,0.2)+'</label>'+iSty(b+".style")
+   h+='<div class="ir">'+iChk(b+".on")+'<span class="nm">EMA<small>'+l.len+'</small></span><label>기간'+iNum(b+".len",1,2000,1)+'</label>'+iCol(b+".color",l.color)+'<label>굵기'+iNum(b+".w",0.5,14,0.2)+'</label>'+iSty(b+".style")+'<label title="낮출수록 연해져요(장기선을 단기선과 구분)">진하기'+iRange(b+".a",0.2,1,0.05)+'</label>'
     +'<label title="굵은 선 가운데에 가는 선을 한 겹 더 그립니다">이중선<input type="checkbox" data-p="'+b+'.core" data-t="core" data-i="'+i+'"'+(l.core?" checked":"")+'></label>'+iCol(b+".core",l.core||"#ffffff")+'</div>';});
   h+='<div class="note">현재 프레임 <b>'+nb+'봉</b>. EMA 기간이 봉 수보다 길면 값이 충분히 쌓이기 전이라 <b>근사값</b>입니다(TradingView는 그 구간을 비워 둠). 정확한 값만 보려면 위의 「첫 값부터 계산」을 끄세요. 상단 차트의 선 굵기·색은 여기서, 캔들 표시는 상단 「표시」 버튼에서 바꿉니다.</div>';
   return h;}},
@@ -691,13 +692,14 @@ const IND={
   h+='<div class="isec">%R 선 — 어느 선에 몇 기간을 적용할지</div>';
   W.lines.forEach((l,i)=>{const b="wr.lines."+i;
    h+='<div class="ir">'+iChk(b+".on")+'<span class="nm">%R<small>'+l.len+'</small></span>'+iSel(b+".src",SRC)+'<label>기간'+iNum(b+".len",2,500,1)+'</label>'+iCol(b+".color",l.color)+'<label>굵기'+iNum(b+".w",0.5,14,0.2)+'</label>'+iSty(b+".style")+'</div>';});
+  h+='<div class="isec">부드럽게 이어붙이기</div><div class="ir"><span class="nm">선 다듬기</span><label>평활 기간(1=끔)'+iNum("wr.smooth",1,30,1)+'</label>'+iChk("wr.curve","곡선으로 이어붙이기")+'</div>';
   h+='<div class="isec">과매수 · 과매도 구간</div>';
   h+='<div class="ir">'+iChk("wr.zones","음영 표시")+'<span class="nm"></span><label>과매수 기준'+iNum("wr.ob",-99,0,1)+'</label><label>과매도 기준'+iNum("wr.os",-100,-1,1)+'</label>'+iChk("wr.mid","중간선")+'</div>';
   h+='<div class="ir"><span class="nm">음영 색</span><label>과매수(위)'+iCol("wr.obColor",W.obColor)+'</label><label>과매도(아래)'+iCol("wr.osColor",W.osColor)+'</label><label>진하기'+iRange("wr.zoneA",0.04,0.5,0.02)+'</label></div>';
   h+='<div class="note">%R = −100 × (최근 N봉 최고 − 현재) ÷ (최고 − 최저). 여기서는 <b>종목 가격이 아니라 상대강도선·켈상단선 자체</b>(가중평균 %p)에 적용합니다. −20 위 = 과매수, −80 아래 = 과매도(둘 다 위 칸에서 바꿀 수 있어요).</div>';
   return h;}}
 };
-const DATA_P=/(\.len$|\.src$|\.early$|\.core$|hist\.|@show\.wr$)/;
+const DATA_P=/(\.len$|\.src$|\.early$|\.core$|hist\.|@show\.wr$|wr\.smooth$)/;
 let indKind=null,indPos=null,aQ=false,aFull=false;
 function applyIndQ(full){
  F.saveUI();aFull=aFull||full;if(aQ)return;aQ=true;
@@ -849,7 +851,7 @@ function applyShot(){
  const q=new URLSearchParams(location.search);
  Object.assign(F.ui,{frame:q.get("frame")||"20D",iv:q.get("iv")||"4h",mode:"kel",candleMode:"line",font:+q.get("font")||6,sideHide:true,solo:null,checks:{},tool:"cursor"});
  F.ui.w.line=+q.get("lw")||4.2;
- Object.assign(F.ui.show,{ku:true,mid:true,low:true,rs:true,stocks:true,pills:true,cross:true,crossBottom:true,gap:true,wr:true,sessions:true,weekend:true,h24:true,ma:false,clip:false});   /* clip:false = '이상치 제외' 끔 → 모든 선이 눈금 안에(잘리지 않음) */
+ Object.assign(F.ui.show,{ku:true,mid:true,low:true,rs:true,stocks:true,pills:true,cross:true,crossBottom:true,gap:true,wr:true,sessions:true,weekend:true,h24:true,ma:q.get("ma")!=="0",clip:false});   /* EMA(장기선 주황·굵게 / 단기선 가늘게)도 같이 그림 — 끄려면 주소에 &ma=0 */   /* clip:false = '이상치 제외' 끔 → 모든 선이 눈금 안에(잘리지 않음) */
  const I=F.ui.ind;
  I.fx.shade={on:true,color:"#f5c542",a:0.17};
  I.fx.led.ku={fx:"glow",color:"#ffd84d",speed:5,power:8};I.fx.led.low={fx:"glow",color:"#ffd84d",speed:5,power:8};I.fx.led.rs={fx:"glow",color:"#7fe9ff",speed:5,power:9};

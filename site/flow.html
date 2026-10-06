@@ -150,6 +150,8 @@ input[type=checkbox]:indeterminate::after{content:"";width:.5rem;height:2px;back
 #chartBar{flex:0 0 auto;display:flex;align-items:center;gap:.6rem;min-height:2.6rem;padding:.3rem .8rem;background:var(--panel);border-bottom:1px solid var(--line)}
 #chartBar .grow{flex:1}
 #chartTools{display:flex;gap:.35rem;flex-wrap:wrap;justify-content:flex-end}
+/* 안드로이드 크롬 태블릿(갤탭): 100vh 는 주소창·제스처바를 뺀 보이는 높이가 아니라 아래가 잘림 → 100dvh 지원 시 교체(선구안 사이트와 같은 방식) */
+@supports (height:100dvh){body,#app{height:100dvh}#chartWrap:fullscreen,#chartWrap:-webkit-full-screen{height:100dvh}}
 #chartWrap{flex:1;min-width:0;display:flex}
 #chartWrap:fullscreen,#chartWrap:-webkit-full-screen{background:var(--bg);width:100vw;height:100vh}
 .ctBtn{display:inline-flex;align-items:center;gap:.35rem;height:2rem;padding:0 .65rem;border-radius:.6rem;background:rgba(13,18,28,.94);border:1px solid var(--line2);color:var(--dim);font-size:.74rem;font-weight:800;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.45)}

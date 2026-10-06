@@ -12,13 +12,13 @@ F.KST=KST;
 
 /* ── 종목 정보: 고정색(TM 스크리너와 동일) / 섹터 / 트레이딩뷰 심볼 ── */
 F.COLORS={BTC:"#f7931a",ETH:"#a78bfa",ZEC:"#ffe600",SMSN:"#3b82f6",SKHYNIX:"#ff4d4d",NVDA:"#76d900",TSLA:"#ff5c8a",HYPE:"#2be8c8",MU:"#a5fdab",SNDK:"#bf59cf",META:"#a5f1fd",PLTR:"#e5fda5",AMD:"#fda5eb",INTC:"#80cf59",GME:"#00ff44",HOOD:"#fdc8a5",MSTR:"#6ce5bd",COIN:"#7859cf",SOL:"#b938fa",DRAM:"#cf5998",KIOXIA:"#00aaff",ARM:"#bfcf59",MRVL:"#a5bdfd",QCOM:"#b4f47b",TSM:"#ff4400",SMH:"#7bc4f4",SOXL:"#a46ce5",STRC:"#59cf90",KNTQUSDC:"#59bfcf",PURRDAT:"#ecf47b",CRCL:"#cf5969",XYZ100:"#a5fde5",SP500:"#59cf61",GOOGL:"#7bf4ec",AAPL:"#5c5cff",MRNA:"#e56cdd",CRWD:"#5969cf",NET:"#fda5b1",MAGS:"#f1a5fd",AMAT:"#00ff99",IREN:"#33ff00",RKLB:"#fdf1a5",BB:"#d4a5fd",SNXX:"#e5a46c",PONS:"#b9fa38",XLM:"#f4937b",SUI:"#5cff7c",DOGE:"#a5fdc8",XRP:"#7ce56c",BNB:"#fda5ce",ADA:"#fa38c6",LINK:"#bdfda5",AVAX:"#f47bc4",SKHY:"#cfa859",
- KR200:"#ff9f43",JP225:"#ff6b9d",CL:"#c68b4d",BRENTOIL:"#ff2b2b",GOLD:"#ffd54a",SILVER:"#cfd8e3",NATGAS:"#4fc3f7",COPPER:"#f08a5d",PLATINUM:"#b7c3d0",PALLADIUM:"#8fa6c9"};
+"10Y":"#e879f9",KR200:"#ff9f43",JP225:"#ff6b9d",CL:"#c68b4d",BRENTOIL:"#ff2b2b",GOLD:"#ffd54a",SILVER:"#cfd8e3",NATGAS:"#4fc3f7",COPPER:"#f08a5d",PLATINUM:"#b7c3d0",PALLADIUM:"#8fa6c9"};
 /* ── 종목 구성 ──
    기본 그룹 = 사용자의 TradingView 관심종목 '🅰️하이퍼 찐탱전종목들'(2026-09-24 기준 17섹션·109종목) 그대로.
    + '기존 알트코인'(예전에 쓰던 종목) + '내가 추가한 종목'(HL 전체 426개 중 검색해서 추가, 설정에 저장·동기화) */
 F.WATCH_NAME="🅰️하이퍼 찐탱전종목들";
 const WATCH=[
- ["📊 지수","SP500,XYZ100,JP225,KR200"],
+ ["📊 지수","SP500,XYZ100,JP225,KR200,10Y"],
  ["🏛 빅테크","META,MSFT,SOFTBANK,AAPL,NFLX,AMZN,GOOGL"],
  ["🚀 AI칩 대장 (GPU·CPU·설계)","NVDA,ARM,AMD,INTC"],
  ["🧠 메모리 대장주","MU,SMSN,SKHY,SNDK,SKHYNIX"],
@@ -40,10 +40,10 @@ F.EXTRA_OLD=["SOL","XRP","DOGE","BNB","ADA","LINK","AVAX","SUI","XLM","PONS"];
 F.extra=[];                               /* 사용자가 추가한 종목(짧은 이름) — F.ui.extra 와 동기화 */
 F.TVSYM={KNTQ:"HYPERLIQUID:KNTQUSDC"};    /* 관심종목에서 접미사가 다른 예외 */
 /* 굵기를 종류별로 따로 조절: stock(일반 종목) / index(지수) / commodity(원자재) */
-F.INDEX_SET=new Set(["XYZ100","SP500","KR200","JP225"]);
+F.INDEX_SET=new Set(["XYZ100","SP500","KR200","JP225","10Y"]);   /* 10Y = 미국 10년물 국채 금리(HL para:10Y) — 굵기·선택은 지수와 같은 취급 */
 F.COMMODITY_SET=new Set(["CL","BRENTOIL","GOLD","SILVER","NATGAS","COPPER","PLATINUM","PALLADIUM"]);
 F.kindOf=t=>F.INDEX_SET.has(t)?"index":(F.COMMODITY_SET.has(t)?"commodity":"stock");
-F.NAME_KO={KR200:"코스피200",JP225:"닛케이225",XYZ100:"나스닥100",SP500:"S&P500",CL:"WTI원유",BRENTOIL:"브렌트유",GOLD:"금",SILVER:"은",NATGAS:"천연가스",COPPER:"구리",PLATINUM:"백금",PALLADIUM:"팔라듐",SMSN:"삼성전자",SKHYNIX:"SK하이닉스",SKHY:"하이닉스ADR",HYUNDAI:"현대차",SOFTBANK:"소프트뱅크",KIOXIA:"키오시아"};
+F.NAME_KO={"10Y":"미국10년물금리",KR200:"코스피200",JP225:"닛케이225",XYZ100:"나스닥100",SP500:"S&P500",CL:"WTI원유",BRENTOIL:"브렌트유",GOLD:"금",SILVER:"은",NATGAS:"천연가스",COPPER:"구리",PLATINUM:"백금",PALLADIUM:"팔라듐",SMSN:"삼성전자",SKHYNIX:"SK하이닉스",SKHY:"하이닉스ADR",HYUNDAI:"현대차",SOFTBANK:"소프트뱅크",KIOXIA:"키오시아"};
 F.PSEUDO=[{id:"__KU",name:"켈트너 상단",color:"#f5c542"},{id:"__MID",name:"켈트너 중심선",color:"#4dd9ff"},{id:"__LOW",name:"켈트너 하단",color:"#f5c542"},{id:"__RS",name:"상대강도(가중평균)",color:"#ffffff"}];
 F.ALIAS={SKHYNIX:"SKHX"};
 F.COLORS.KNTQ=F.COLORS.KNTQUSDC||"#59bfcf";
@@ -95,7 +95,7 @@ F.rebuildTickers=()=>{
 F.rebuildTickers();
 F.setExtra=list=>{F.extra=Array.from(new Set(list||[]));F.rebuildTickers();};
 /* 트레이딩뷰: 사용자의 관심종목이 쓰는 하이퍼리퀴드 심볼 형식(HIP3XYZ:XXXUSDC.P / HYPERLIQUID:XXXUSDC.P)으로 새 창에서 연다 */
-F.TV={SMSN:"KRX:005930",SKHYNIX:"KRX:000660",SKHY:"KRX:000660",KIOXIA:"TSE:285A",XYZ100:"NASDAQ:NDX",SP500:"SP:SPX",KR200:"KRX:KOSPI200",JP225:"TVC:NI225",CL:"NYMEX:CL1!",BRENTOIL:"ICEEUR:BRN1!",GOLD:"COMEX:GC1!",SILVER:"COMEX:SI1!",NATGAS:"NYMEX:NG1!",COPPER:"COMEX:HG1!",PLATINUM:"NYMEX:PL1!",PALLADIUM:"NYMEX:PA1!"};
+F.TV={"10Y":"TVC:US10Y",SMSN:"KRX:005930",SKHYNIX:"KRX:000660",SKHY:"KRX:000660",KIOXIA:"TSE:285A",XYZ100:"NASDAQ:NDX",SP500:"SP:SPX",KR200:"KRX:KOSPI200",JP225:"TVC:NI225",CL:"NYMEX:CL1!",BRENTOIL:"ICEEUR:BRN1!",GOLD:"COMEX:GC1!",SILVER:"COMEX:SI1!",NATGAS:"NYMEX:NG1!",COPPER:"COMEX:HG1!",PLATINUM:"NYMEX:PL1!",PALLADIUM:"NYMEX:PA1!"};
 F.tvSymbol=t=>{
  if(F.TVSYM[t])return F.TVSYM[t];
  const dx=F.dexOf?F.dexOf(t):null;

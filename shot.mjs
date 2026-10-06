@@ -26,6 +26,8 @@ const DEF_CFG = { frame: "20D", iv: "15m", vol: ["v4", "v3"], kel: ["above", "mi
 /* 해상도 프리셋: 화면(CSS) 크기 × 배율 = 사진 픽셀. 폴드는 거의 정사각형, PC는 16:9 와이드 */
 const RES = {
   fold: { w: 1092, h: 984, dsf: 2, label: "폴드 2184×1968" },
+  fwide: { w: 1092, h: 921, dsf: 2, fixed: true, label: "폴드 펼침 가로 2184×1842" },   /* 폴드SE 펼친 화면을 가로로 돌렸을 때 꽉 차게(비율 1.186) */
+  fcover: { w: 900, h: 1996, dsf: 1.2, fixed: true, label: "폴드 접힘 세로 1080×2395" },   /* 폴드SE 접은(커버) 화면 세로에 꽉 차게(비율 9:20) */
   wide: { w: 1920, h: 1200, dsf: 5 / 3, fixed: true, label: "16:10 갤탭·PC 3200×2000" },   /* 갤럭시탭·16:10 모니터에 좌우 꽉 차게 */
   pc: { w: 1600, h: 900, dsf: 1.6, fixed: true, label: "PC 16:9 2560×1440" },
   pcxl: { w: 1920, h: 1080, dsf: 5 / 3, fixed: true, label: "PC 16:9 3200×1800" },
@@ -259,7 +261,7 @@ async function runExtras({ cfg0, q, dry, base }) {
         const d = await buildCardData({ row, ticker: t, info, iv, days, fx, log, cacheDir: CACHE, mode: cfg0.mode });
         if (!d) { log("카드 데이터 부족:", t); continue; }
         d.colors = cfg0.colors || null;
-        d.vp = cfg0.cardRes === "wide" ? { w: 1600, h: 1000 } : { w: 1200, h: 1100 };   /* 카드 사진 해상도: wide = 16:10 갤탭·PC 꽉 찬 화면(3200×2000), 기본 fold = 폴드 펼친 화면(2400×2200) */
+        d.vp = ({ wide: { w: 1600, h: 1000 }, fwide: { w: 1092, h: 921 }, fcover: { w: 540, h: 1197 } })[cfg0.cardRes] || { w: 1200, h: 1100 };   /* 카드 사진 해상도: wide = 16:10 갤탭·PC 꽉 찬 화면(3200×2000), 기본 fold = 폴드 펼친 화면(2400×2200) */
         d.textOn = cfg0.cardText !== false;   /* 사진 아래 글 켜기/끄기 — 끄면 기본 정보 2줄(종목·가격·24h 거래대금)만 */
         d.scale = cfg0.cardScale === "price" ? "price" : "all";   /* 가격 스케일: 오토(지표 포함) / 가격만(캔들 중심) */
         d.layers = cfg0.layers ? { pattern: !!cfg0.layers.pattern, vwap: !!cfg0.layers.vwap, ict: !!cfg0.layers.ict } : (cfg0.mode === "ict" ? { pattern: false, vwap: false, ict: true } : { pattern: true, vwap: true, ict: false });   /* 기본: 차트패턴 + VWAP 지지·저항 (ICT 꺼짐) */
