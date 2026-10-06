@@ -6,3 +6,4 @@ foreach ($f in "flow.html","flow-data.js","flow-chart.js","flow-ui.js") { Copy-I
 Copy-Item "$src\vendor\lightweight-charts.js" "$dst\vendor\lightweight-charts.js" -Force
 Copy-Item "$src\api\flow-fetch.js" "$dst\api\flow-fetch.js" -Force
 Write-Host "site/ 동기화 완료"
+node (Join-Path $PSScriptRoot "extract-names.mjs") "$src\index.html" (Join-Path $dst "names-ko.json")

@@ -62,6 +62,8 @@ export function loadSiteInfo(siteDir) {
     const e = /F\.EXTRA_OLD=(\[[^\]]*\])/.exec(src);
     if (e) info.extra = new Function("return " + e[1])();
   } catch (e) {}
+  info.koFull = Object.assign({}, info.ko);
+  try { Object.assign(info.koFull, JSON.parse(fs.readFileSync(path.join(siteDir, "names-ko.json"), "utf8"))); } catch (e) {}   /* 사이트 메인의 전체 한글 이름(var KO) */
   const sectorOf = {};
   info.watch.forEach(([nm, items]) => { const name = nm.replace(/^\S+\s+/, ""); items.split(",").forEach((t) => { if (t && !sectorOf[t]) sectorOf[t] = name; }); });
   info.sectorOf = sectorOf;
@@ -84,6 +86,7 @@ const chg = (a, b) => (b > 0 ? (a / b - 1) * 100 : null);
 const mean = (a) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0);
 
 /* ── 유니버스(HIP-3 전 종목) + 24h 거래대금 ── */
+let DUP = new Set();
 export async function loadUniverse(log) {
   const dexs = await hl({ type: "perpDexs" }, log);
   const names = (dexs || []).filter((d) => d && d.name).map((d) => d.name);
@@ -93,6 +96,8 @@ export async function loadUniverse(log) {
     if (!r) return;
     r[0].universe.forEach((u, i) => { const c = r[1][i] || {}; rows.push({ dex: dx, full: u.name, short: u.name.includes(":") ? u.name.split(":")[1] : u.name, dayNtl: +c.dayNtlVlm || 0, px: +c.markPx || +c.midPx || 0 }); });
   });
+  const cnt = {}; rows.forEach((r) => { cnt[r.short] = (cnt[r.short] || 0) + 1; });
+  DUP = new Set(Object.keys(cnt).filter((k) => cnt[k] > 1));   /* 여러 거래소에 같은 티커가 있는 경우(예: SNDK) — 이름표에서 구분용으로만 거래소를 붙임 */
   return rows.sort((a, b) => b.dayNtl - a.dayNtl);
 }
 export async function usdKrw(log) {
@@ -100,9 +105,10 @@ export async function usdKrw(log) {
   return 1350;
 }
 const coinLabel = (row, info) => {
-  const ko = info.ko[row.short] || info.ko[Object.keys(info.alias).find((k) => info.alias[k] === row.short)];
+  const kmap = info.koFull || info.ko, ko = kmap[row.short] || kmap[Object.keys(info.alias).find((k) => info.alias[k] === row.short)];
   const flag = row.short === "SKHX" || row.short === "SMSN" ? " 🇰🇷" : "";
-  return (row.dex === "xyz" ? "xyz:" : row.dex + ":") + row.short + (ko && ko !== row.short ? " (" + ko + ")" : "") + flag;
+  /* 거래소명(xyz: 등)은 표시하지 않음 → '티커 (종목설명)'. 같은 티커가 다른 거래소에도 있을 때만 xyz 외 쪽에 ·거래소 를 붙여 구분 */
+  return row.short + (row.dex !== "xyz" && DUP.has(row.short) ? "·" + row.dex : "") + (ko && ko !== row.short ? " (" + ko + ")" : "") + flag;
 };
 
 /* ═════════ ① 평일 거래대금 순위 + 큰/작은 흐름 분석 ═════════ */
@@ -153,42 +159,38 @@ export async function buildWeeklyTexts({ uni, info, fx, cacheDir, log }) {
   const days = rank[0].days, firstD = md(days[0]), lastD = md(days[days.length - 1]);
   const w5Days = days.slice(-5);
   const todayName = WDK[kst(now).getUTCDay()];
-  const header = "📊 HIP-3 평일 하루 평균 거래대금\n\n🕐 조회: " + kstStamp(now) + " | ✅ Hyperliquid 공식 API 일봉 | 💱 1달러 = " + fmt(fx * 10) / 10 + "원\n📅 기간: 최근 평일 " + days.length + "일(" + firstD + "~" + lastD + ", UTC 날짜 기준)";
-  const head2 = header.replace(/\| 💱 1달러 = [^\n]*/, "| 💱 1달러 = " + fx.toFixed(1) + "원");
-  const concl = "\n\n💰 결론: 평일 하루 평균 약 " + jo(tot3w) +
-    "\n🟦 평일 " + Math.round(days.length / 5) + "주 평균: " + jo(tot3w) +
-    "\n🟦 지난주 평일 평균(" + md(w5Days[0]) + "~" + md(w5Days[4]) + "): " + jo(totLast) + " " + arrow(chg(totLast, totPrev)) + " " + pc(chg(totLast, totPrev)) + " (전 2주 대비)" +
-    "\n⬜ 주말 평균: " + jo(weekendAvg) +
-    "\n⬜ 오늘 " + todayName + "요일(24시간): " + jo(todayTot) +
-    "\n\n👉 평일 거래대금은 주말의 약 " + (weekendAvg > 0 ? (tot3w / weekendAvg).toFixed(1) : "—") + "배, 상위 25종목이 전체의 " + (top25Sum / tot3w * 100).toFixed(1) + "%를 차지합니다.";
-  const rule = "\n\n📐 큰 흐름 = 지난주 평균 vs 그 전 2주 평균(겹치지 않음) · 작은 흐름 = 최근 2평일 vs 직전 5평일\n표시: ➖ ±10% 이내 · 🔺/🔽 ±10~50% · 🔺🔺/🔽🔽 ±50% 이상 (🔺=증가 빨강, 🔽=감소 파랑)";
-  const lines = top25.map((x, i) => {
-    const big = chg(x.last, x.prev), sm = chg(x.s2, x.s5);
-    const star = (p) => (p != null && p >= 150 ? "🚀" : "");
-    return (i + 1) + ". " + coinLabel(x.r, info) + "\n    큰흐름 " + pc(big) + " " + arrow(big) + star(big) + "   |   작은흐름 " + pc(sm) + " " + arrow(sm) + star(sm);
-  });
-  const msg1 = head2 + concl + rule + "\n\n🏆 평일 거래대금 TOP 25 (순위=하루 평균 거래대금 기준 · 등락률만 표시 · 🚀=+150%↑)\n" + lines.join("\n");
+  /* ── 표시용 보조: 섹터 이름(괄호 설명 제거) · 억/조 표기 ── */
+  const secOf = (r) => info.sectorOf[r.short] || info.sectorOf[Object.keys(info.alias).find((k) => info.alias[k] === r.short)] || "기타";
+  const secShort = (s) => s.replace(/\s*\(.*?\)/g, "").trim();
+  const eokTxt = (e) => (e >= 10000 ? (e / 10000).toFixed(1) + "조" : fmt(e) + "억");
+  const ratio = weekendAvg > 0 ? (tot3w / weekendAvg).toFixed(1) : "—";
+  const dn = kst(now), stampShort = (dn.getUTCMonth() + 1) + "/" + dn.getUTCDate() + "(" + WDK[dn.getUTCDay()] + ") " + p2(dn.getUTCHours()) + ":" + p2(dn.getUTCMinutes());
 
-  /* ── 분석 메시지 (규칙 기반: 수치·화살표만) ── */
+  /* ── 메시지 1: 평일 거래대금 TOP 25 (종목 · 섹터 · 하루 평균 · 1주 증감) ── */
+  const star = (p) => (p != null && p >= 150 ? " 🚀" : "");
+  const lines = top25.map((x, i) => {
+    const d = chg(x.last, x.prev);
+    return (i + 1) + ". " + coinLabel(x.r, info) + "\n    " + secShort(secOf(x.r)) + " · " + eokTxt(x.avg3w) + " · " + arrow(d) + pc(d) + star(d);
+  });
+  const msg1 = "📊 HIP-3 평일 거래대금 · " + stampShort +
+    "\n\n💰 하루 평균 " + jo(tot3w) +
+    "\n지난주 " + jo(totLast) + " " + arrow(chg(totLast, totPrev)) + pc(chg(totLast, totPrev)) +
+    "\n주말 " + jo(weekendAvg) + " · 오늘(24h) " + jo(todayTot) +
+    "\n평일이 주말의 " + ratio + "배 · 상위 25종목이 " + (top25Sum / tot3w * 100).toFixed(0) + "%" +
+    "\n\n🏆 TOP 25  (하루 평균 · 1주 증감)\n" + lines.join("\n");
+
+  /* ── 메시지 2: 급증·감소 TOP 5 + 전체·섹터 흐름 ── */
   const MINV = 50;   /* 억원 미만 종목은 급증·급감 목록에서 제외(잡음) */
   const pool2 = rowsOut.filter((x) => x.avg3w >= MINV);
-  /* 순위형 목록: 상위 n개 + (증가 쪽) +150% 이상은 개수와 상관없이 전부 🚀 로 추가 */
   const medal = ["🥇", "🥈", "🥉"];
-  const lst = (arr, key, n, up) => {
-    const all = arr.map((x) => ({ x, p: key(x) })).filter((o) => o.p != null && isFinite(o.p)).sort((a, b) => (up ? b.p - a.p : a.p - b.p));
-    const extra = up ? all.filter((o, i) => i >= n && o.p >= 150).length : 0;
-    return all.slice(0, n + extra).map((o, i) => " " + (i < 3 ? medal[i] : (i + 1) + ".") + " " + coinLabel(o.x.r, info).replace(/ \(.*?\)/, "") + "  " + pc(o.p) + (o.p >= 150 ? " 🚀" : "")).join("\n");
+  /* 상위 n개 + (증가 쪽) +150% 이상은 개수와 상관없이 전부 🚀 로 추가 */
+  const lst = (up) => {
+    const all = pool2.map((x) => ({ x, p: chg(x.last, x.prev) })).filter((o) => o.p != null && isFinite(o.p)).sort((a, b) => (up ? b.p - a.p : a.p - b.p));
+    const extra = up ? all.filter((o, i) => i >= 5 && o.p >= 150).length : 0;
+    return all.slice(0, 5 + extra).map((o, i) => (i < 3 ? medal[i] : (i + 1) + ".") + " " + coinLabel(o.x.r, info) + "  " + pc(o.p) + star(o.p) + "\n    " + secShort(secOf(o.x.r)) + " · " + eokTxt(o.x.prev) + " → " + eokTxt(o.x.last)).join("\n");
   };
-  const big = (x) => chg(x.last, x.prev), sm = (x) => chg(x.s2, x.s5);
-  const totS2 = sum("s2"), totS5 = sum("s5");
   const a3 = rowsOut.reduce((s, x) => s + x.avg3w, 0) / cover;
-  const per = [
-    ["지난주(5평일) vs 직전 5평일", chg(totLast, rowsOut.reduce((s, x) => s + mean(days.slice(-10, -5).map((d, i) => 0)), 0) || null)],
-  ];
-  /* 기간별: 지난주 평균을 (직전 1주 / 전 2주 / 평일 전체 평균) 과 각각 비교 */
-  const prev1 = rowsOut.reduce((s, x) => s + x.prevWeek1, 0);
-  void per; void prev1;
-  /* 직전 1주 평균은 일봉에서 다시 계산 */
+  /* 직전 1주 평균(일봉에서 다시 계산) */
   let prevWk = 0;
   top.forEach((r) => {
     const cs = cache.data[r.full]; if (!cs) return;
@@ -197,19 +199,15 @@ export async function buildWeeklyTexts({ uni, info, fx, cacheDir, log }) {
   });
   prevWk /= cover;
   const sec = {};
-  rowsOut.forEach((x) => { const s = info.sectorOf[x.r.short] || info.sectorOf[Object.keys(info.alias).find((k) => info.alias[k] === x.r.short)] || "기타"; (sec[s] = sec[s] || []).push(x); });
+  rowsOut.forEach((x) => { const s = secShort(secOf(x.r)); (sec[s] = sec[s] || []).push(x); });
   const secLines = Object.entries(sec).map(([name, arr]) => { const l = arr.reduce((s, x) => s + x.last, 0), p = arr.reduce((s, x) => s + x.prev, 0); return { name, l, p, c: chg(l, p), n: arr.length }; })
     .filter((o) => o.l + o.p > 100).sort((a, b) => b.l - a.l).slice(0, 10)
-    .map((o) => " " + arrow(o.c) + " " + o.name + " " + pc(o.c) + " (" + fmt(o.p) + "→" + fmt(o.l) + "억/" + o.n + "종목)");
-  const msg2 = "🔎 큰 흐름 (주 단위)\n지난주 평균 vs 전 2주 평균\n 전체 " + arrow(chg(totLast, totPrev)) + " " + pc(chg(totLast, totPrev)) + " (" + jo(totPrev) + " → " + jo(totLast) + ")\n" +
-    "\n🔺 급증 순위 (증가율 TOP 5, +150%↑는 전부 🚀)\n" + lst(pool2, big, 5, true) + "\n\n🔽 감소 순위 (감소율 TOP 5)\n" + lst(pool2, big, 5, false) +
-    "\n\n🔍 작은 흐름 (일 단위)\n최근 2평일 평균 vs 직전 5평일 평균\n 전체 " + arrow(chg(totS2, totS5)) + " " + pc(chg(totS2, totS5)) + " (" + jo(totS5) + " → " + jo(totS2) + ")\n" +
-    "\n🔺 급증 순위 (증가율 TOP 5, +150%↑는 전부 🚀)\n" + lst(pool2, sm, 5, true) + "\n\n🔽 감소 순위 (감소율 TOP 5)\n" + lst(pool2, sm, 5, false) +
-    "\n\n📆 기간별 전체 거래대금 (지난주 평균 기준)\n vs 직전 1주 " + arrow(chg(totLast, prevWk)) + " " + pc(chg(totLast, prevWk)) +
-    "\n vs 전 2주 " + arrow(chg(totLast, totPrev)) + " " + pc(chg(totLast, totPrev)) +
-    "\n vs 3주 평균 " + arrow(chg(totLast, a3)) + " " + pc(chg(totLast, a3)) +
-    "\n\n🧭 섹터별 이동 (지난주 vs 전 2주, 관심종목 섹터 기준)\n" + secLines.join("\n") +
-    "\n\n⚠️ 일봉 거래량 × (고+저+종)/3 로 추정한 값이라 실제 체결대금과 몇 % 오차가 있을 수 있어요. 순위·흐름 판단에는 영향이 작습니다.";
+    .map((o) => arrow(o.c) + " " + o.name + "  " + eokTxt(o.l) + " · " + pc(o.c) + " · " + o.n + "종목");
+  const msg2 = "🔥 거래대금 급증 TOP 5  (지난주 vs 전 2주)\n" + lst(true) +
+    "\n\n🧊 감소 TOP 5\n" + lst(false) +
+    "\n\n📈 전체 " + jo(totPrev) + " → " + jo(totLast) + " " + arrow(chg(totLast, totPrev)) + pc(chg(totLast, totPrev)) +
+    "\n직전 1주 " + arrow(chg(totLast, prevWk)) + pc(chg(totLast, prevWk)) + " · 3주 평균 " + arrow(chg(totLast, a3)) + pc(chg(totLast, a3)) +
+    "\n\n🧭 섹터별  (지난주 거래대금 · 증감)\n" + secLines.join("\n");
   return { texts: [msg1, msg2] };
 }
 
