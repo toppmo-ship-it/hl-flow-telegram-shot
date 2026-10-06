@@ -229,7 +229,7 @@ async function runExtras({ cfg0, q, dry, base }) {
   log("추가 기능 시작 — HIP-3 " + uni.length + "종목, 환율 " + fx.toFixed(1));
   if (dueP) {
     stage(73, "패턴 확률 순위 계산 중 (종목 스캔)");
-    const tx = await buildPatternRankText({ uni, info, log, cacheDir: CACHE, tf0: String(cfg0.cardIv || "4h"), scanN: 30 });
+    const tx = await buildPatternRankText({ uni, info, log, cacheDir: CACHE, tf0: String(cfg0.cardIv || "4h"), scanN: 50 });
     for (const t of tx) { if (dry) console.log("\n──── 패턴 확률 순위 ────\n" + t + "\n─────────────────────"); else await sendText(t); }
     log("패턴 확률 순위", tx.length + "건", dry ? "(dry — 출력만)" : "전송");
     st.lastPat = now; flushCardCache(CACHE);

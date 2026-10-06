@@ -8,6 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import "./site/patterns.js";
 import "./site/quant.js";
+import { confluence, volBurst, sessOf, isWeekend } from "./patfeat.mjs";
 
 const HL = "https://api.hyperliquid.xyz/info";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -350,70 +351,126 @@ export async function buildCardData({ row, ticker, info, iv, days, fx, log, cach
   return { iv, mode: mode || "pattern", windowBars, daily, tk: ticker, nm: name, ivKo, ttl, sub: subTxt, period: days + "day-" + perEn, title: ticker + (name ? " (" + name + ")" : "") + " - " + iv.toUpperCase() + " (Vol) (HYPERLIQUID)", price: fmtP(price), candles, sr: levels(candles, price), swings: swings(candles), caption };
 }
 
-/* ═════════ ④ 패턴 확률 순위 (연구 결과 pattern_rank.json 기반 · 별도 메시지) ═════════
-   롱: 순위 1~3위 패턴 × 현재 그 패턴이 진행 중인 종목 최대 5개 / 숏: 1위 패턴 × 최대 5개
-   조건: 일봉 켈트너 구간(롱 상단 위·중심~상단 / 숏 하단) + 6점 지표 점수 최소값을 연구 결과대로 적용 */
-const ZN = { A: "상단 위", B: "중심~상단", AB: "상단 위·중심~상단", C: "하단~중심", D: "하단 아래", CD: "하단 아래·하단~중심" };
-const MEDAL = ["🥇", "🥈", "🥉"];
+/* ═════════ ④ 패턴 셋업 리포트 (연구 결과 pattern_rank.json v3 기반 · 별도 메시지) ═════════
+   셋업 = 패턴 × 조건(켈트너 구간·지지/저항 중복·거래량 급증·시간대). 연구에서 앞 60%로 고르고 뒤 40%로 검증한 순위를 쓰고,
+   지금 그 셋업 조건에 맞는 종목(형성 중 / 최근 10봉 안에 돌파·이탈 확정)을 연구와 똑같은 정의로 찾아 보여 줌 */
+const GRP_TYPES = { 쌍바닥: ["doubleBottom"], 쌍천장: ["doubleTop"], 헤드앤숄더: ["headShoulders"], 역헤드앤숄더: ["invHeadShoulders"], 컵위드핸들: ["cupHandle"], 상승깃발: ["bullFlag"], 하락깃발: ["bearFlag"], 삼각수렴: ["ascTriangle", "symTriangle", "descTriangle"], 쐐기: ["fallingWedge", "risingWedge"], 박스권: ["box"] };
+const GRP_NOTE = {
+  쌍바닥: { L: "같은 가격대에서 저점을 두 번 지지 → 넥라인 돌파로 확정" }, 쌍천장: { S: "같은 가격대에서 고점을 두 번 저항 → 넥라인 이탈로 확정" },
+  헤드앤숄더: { S: "머리가 가장 높은 3봉우리 → 넥라인 이탈로 확정" }, 역헤드앤숄더: { L: "머리가 가장 낮은 3저점 → 넥라인 돌파로 확정" },
+  컵위드핸들: { L: "둥근 바닥 뒤 얕은 눌림(손잡이) → 고점 돌파로 확정" }, 상승깃발: { L: "급등 뒤 좁은 눌림(깃발) → 깃발 상단 돌파로 확정" }, 하락깃발: { S: "급락 뒤 좁은 반등(깃발) → 깃발 하단 이탈로 확정" },
+  삼각수렴: { L: "고점·저점이 좁혀지는 삼각형 → 상단선 돌파로 확정", S: "고점·저점이 좁혀지는 삼각형 → 하단선 이탈로 확정" },
+  쐐기: { L: "하락폭이 줄며 좁아지는 쐐기 → 상단선 돌파로 확정", S: "상승폭이 줄며 좁아지는 쐐기 → 하단선 이탈로 확정" }, 박스권: { L: "고점·저점이 수평 반복 → 박스 상단 돌파로 확정", S: "고점·저점이 수평 반복 → 박스 하단 이탈로 확정" },
+};
+const MEDAL = ["🥇", "🥈", "🥉", "4️⃣"];
+const ZN = { A: "켈트너 상단 위", B: "켈트너 중심~상단", C: "켈트너 하단~중심", D: "켈트너 하단 아래" };
 export async function buildPatternRankText({ uni, info, log, cacheDir, tf0, scanN }) {
   const file = path.join(path.dirname(fileURLToPath(import.meta.url)), "pattern_rank.json");
   let R; try { R = JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { return []; }
-  const PT = globalThis.Patterns, QT = globalThis.Quant; if (!PT || !QT) return [];
-  const tf = (R.L[tf0] && R.L[tf0].length) ? tf0 : ((R.L["4h"] && R.L["4h"].length) ? "4h" : "ALL");
-  const lrows = (R.L[tf] || []).slice(0, 3), srows = (R.S[tf] || []).slice(0, 1);
-  if (!lrows.length && !srows.length) return [];
+  const PT = globalThis.Patterns, QT = globalThis.Quant; if (!PT || !QT || !R.setups) return [];
+  const has = (k) => R.setups[k] && ((R.setups[k].L || []).length || (R.setups[k].S || []).length);
+  const tf = (tf0 === "4h" || tf0 === "8h") && has("4h") ? "4h" : has("1h") ? "1h" : has("4h") ? "4h" : null;
+  if (!tf) return [];
+  const rowsL = (R.setups[tf].L || []).slice(0, 4), rowsS = (R.setups[tf].S || []).slice(0, 3);
   const seen = new Set(), scan = [];
-  for (const r of uni) { if (seen.has(r.short) || r.dayNtl < 1e6) continue; seen.add(r.short); scan.push(r); if (scan.length >= (scanN || 30)) break; }
-  const ivUse = tf === "ALL" ? "4h" : tf, ms = IVMS[ivUse] || 14400e3, lookN = Math.min(5000, Math.ceil(110 * 864e5 / ms));
+  for (const r of uni) { if (seen.has(r.short) || r.dayNtl < 1e6) continue; seen.add(r.short); scan.push(r); if (scan.length >= (scanN || 50)) break; }
+  const ms = IVMS[tf] || 3600e3, lookN = Math.min(5000, Math.ceil(110 * 864e5 / ms));
   const live = [];
   await pool(scan, 3, async (r) => {
     try {
-      const rows = await getRows(r.full, ivUse, lookN, cacheDir, log), drows = await getRows(r.full, "1d", 220, cacheDir, log);
+      const rows = await getRows(r.full, tf, lookN, cacheDir, log), drows = await getRows(r.full, "1d", 220, cacheDir, log);
       if (!rows || rows.length < 120 || !drows || drows.length < 30) return;
       const cs = rows.map((c) => ({ time: Math.round(c[0] / 1000), open: c[1], high: c[2], low: c[3], close: c[4], volume: c[5] * (c[2] + c[3] + c[4]) / 3 }));
       const daily = drows.map((c) => ({ time: Math.round(c[0] / 1000), open: c[1], high: c[2], low: c[3], close: c[4], volume: c[5] }));
-      const n = cs.length, f = QT.prepare(cs).at(n - 1), z = QT.makeZoner(daily)(cs[n - 1].time, cs[n - 1].close); if (!f || !z) return;
-      const res = PT.detect(cs);
-      res.pats.forEach((p) => {
+      const n = cs.length, pq = QT.prepare(cs), f = pq.at(n - 1), zoner = QT.makeZoner(daily), z = zoner(cs[n - 1].time, cs[n - 1].close); if (!f || !z) return;
+      PT.detect(cs).pats.forEach((p) => {
         if (PT.META[p.type].info) return;
         const fresh = p.state === "forming" || (p.state === "confirmed" && p.confirmI >= n - 1 - 10);
-        if (fresh) live.push({ r, p, f, z, n });
+        if (!fresh || (p.state === "confirmed" && isWeekend(cs[p.confirmI].time))) return;   /* 주말에 확정된 건 연구 대상에서 제외했으므로 표시도 제외 */
+        live.push({ r, p, f, z, n, cs, pq, zoner });
       });
     } catch (e) { log && log("패턴 스캔 실패", r.short, String((e && e.message) || e)); }
   });
-  const label = (r) => { const ko = info.ko[r.short] || ""; return r.short + (ko && ko !== r.short ? " " + ko : ""); };
-  const pick = (row) => {
-    const side = row.side, out = [], seenT = new Set();
-    live.forEach(({ r, p, f, z }) => {
-      if (p.type !== row.type) return;
+  const nameOf = (r) => { const km = info.koFull || info.ko, ko = km[r.short] || ""; return r.short + (ko && ko !== r.short ? " (" + ko + ")" : ""); };
+  const p1 = (x) => (x == null ? "—" : Math.round(x * 100) + "%"), pp = (x) => { const r = Math.round(x * 100); return r === 0 ? "±0%p" : (r > 0 ? "+" : "") + r + "%p"; };
+  const fx2 = (v) => (v >= 1000 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v >= 1 ? v.toFixed(2) : v.toPrecision(3));
+  const sgn = (x) => (x >= 0 ? "+" : "") + x.toFixed(1) + "%";
+  /* 한 셋업에 대해 지금 맞는 종목 */
+  const matches = (row) => {
+    const side = row.side, types = GRP_TYPES[row.grp] || [], out = [], got = new Set();
+    live.forEach(({ r, p, f, z, n, cs, pq, zoner }) => {
+      if (!types.includes(p.type)) return;
       const dirNow = p.state === "confirmed" ? p.dirReal : (p.dir || 0);
       if (side === "L" ? dirNow < 0 : dirNow > 0) return;
-      const zOK = side === "L" ? (row.zone === "AB" ? z.z === "A" || z.z === "B" : z.z === row.zone) : (row.zone === "CD" ? z.z === "C" || z.z === "D" : z.z === row.zone);
-      const sc = side === "L" ? f.score : 6 - f.score; if (!zOK || sc < row.minScore) return;
-      if (seenT.has(r.short)) return; seenT.add(r.short);
-      out.push({ r, sc, lab: f.lab, st: p.state === "confirmed" ? (p.dirReal > 0 ? "돌파 확정" : "이탈 확정") : "형성 중", zn: ZN[z.z] });
+      const d = side === "L" ? 1 : -1, conf = p.state === "confirmed";
+      const cf = confluence(cs, p, d, pq, zoner, 0.5), vb = conf ? volBurst(cs, p.confirmI) : null, ss = conf ? sessOf(cs[p.confirmI].time) : null;
+      const zOK = side === "L" ? (z.z === "A" || z.z === "B") : (z.z === "C" || z.z === "D");
+      const test = { z: () => zOK, c2: () => cf.conf >= 2, sr: () => cf.srC, vw: () => cf.vwapC, ke: () => cf.keltC, vb: () => (conf ? vb != null && vb >= 1.5 : null), us: () => (conf ? ss === "US" : null) };
+      const res = row.conds.map((c) => test[c]());
+      if (res.some((x) => x === false)) return;   /* 확정된 조건이 하나라도 어긋나면 제외 */
+      if (got.has(r.short)) return; got.add(r.short);
+      const pend = row.conds.filter((c, i) => res[i] === null), px = cs[n - 1].close;
+      const lvl = side === "L" ? (p._lines && p._lines.up ? p._lines.up(n - 1) : null) : (p._lines && p._lines.lo ? p._lines.lo(n - 1) : null);
+      const dist = !conf && lvl != null ? (lvl / px - 1) * 100 : null, age = conf ? n - 1 - p.confirmI : null, toTgt = conf && p.target != null ? (p.target / px - 1) * 100 : null;
+      if (!conf && dist != null && Math.abs(dist) > 6) return;   /* 돌파선·이탈선까지 6% 넘게 남았으면 숨김 */
+      out.push({ r, sc: side === "L" ? f.score : 6 - f.score, lab: f.lab, conf, dist, age, toTgt, cf, pend, vb, zn: ZN[z.z], imminent: dist != null && Math.abs(dist) <= 0.8 });
     });
-    return out.sort((a, b) => b.sc - a.sc || (a.st === "형성 중") - (b.st === "형성 중")).slice(0, 5);
+    return out.sort((a, b) => (b.imminent - a.imminent) || ((a.conf ? 0 : 1) - (b.conf ? 0 : 1)) || (a.conf && b.conf ? a.age - b.age : Math.abs(a.dist == null ? 99 : a.dist) - Math.abs(b.dist == null ? 99 : b.dist)) || (b.sc - a.sc)).slice(0, 4);
   };
-  const block = (rows, head) => {
-    const L = [head];
-    rows.forEach((row, i) => {
-      const got = pick(row), wr = Math.round(row.win * 100), te = row.teWin != null ? Math.round(row.teWin * 100) : null;
-      L.push("\n" + MEDAL[i] + " " + (i + 1) + "위  " + row.name + "  ·  과거 성공률 " + wr + "% (n=" + row.n + (te != null ? " · 검증 " + te + "%" : "") + ")");
-      L.push("   조건: 켈트너 " + ZN[row.zone] + " · 지표 " + (row.minScore ? row.minScore + "점↑" : "점수 무관"));
-      if (!got.length) L.push("   — 지금 조건에 맞는 종목 없음");
-      got.forEach((g, k) => L.push("   " + (k + 1) + ". " + label(g.r) + "  " + g.sc + "/6점" + (g.lab ? " · " + g.lab : "") + " · " + g.zn + " · " + g.st));
-    });
+  const PENDTXT = { vb: (sd) => (sd === "L" ? "돌파봉" : "이탈봉") + " 거래량 1.5배↑", us: (sd) => "미국장 시간대 " + (sd === "L" ? "돌파" : "이탈") };
+  const block = (rows, side) => rows.map((row, i) => {
+    const got = matches(row), cond = row.condText && row.condText.length ? row.condText.join(" · ") : "패턴 단독 (추가 조건 없음)";
+    const title = row.grp + (row.condText && row.condText.length ? " + " + shortCond(row, side) : "");
+    const L = [MEDAL[i] + " " + (i + 1) + "위 · " + title];
+    L.push("   📈 성공률 " + p1(row.win) + "  (n=" + row.n + " · 기준선 대비 " + pp(row.lift) + ")");
+    L.push("   🔬 검증 구간 " + p1(row.teWin) + " (n=" + row.teN + ") · 선정 구간 " + p1(row.trWin) + " (n=" + row.trN + ")");
+    L.push("   🧩 " + ((GRP_NOTE[row.grp] || {})[side] || ""));
+    L.push("   🎯 조건: " + cond);
+    if (!got.length) L.push("   — 지금 조건에 맞는 종목 없음");
+    else { L.push("   ▶ 지금 해당 종목 " + got.length + "개"); got.forEach((g, k) => {
+      const st = g.conf ? ((side === "L" ? "돌파" : "이탈") + " 확정 " + g.age + "봉 전" + (g.toTgt != null ? " · 목표까지 " + sgn(g.toTgt) : "")) : "형성 중 · " + (side === "L" ? "돌파선" : "이탈선") + "까지 " + (g.dist == null ? "—" : sgn(g.dist)) + (g.imminent ? " 🔥임박" : "");
+      const sup = g.cf.conf ? "  " + (side === "L" ? "🛡 지지" : "🛡 저항") + " " + g.cf.conf + "중첩(" + [g.cf.srC ? (side === "L" ? "지지대" : "저항대") : null, g.cf.vwapC ? "VWAP" : null, g.cf.keltC ? "켈트너 " + g.cf.keltAt : null].filter(Boolean).join("·") + ")" : "";
+      L.push("     " + (k + 1) + ". " + nameOf(g.r) + " · " + g.sc + "/6점" + (g.lab ? " · " + g.lab : ""));
+      L.push("        " + st + sup + (g.pend.length ? "\n        ⏳ 확인 대기: " + g.pend.map((c) => PENDTXT[c] ? PENDTXT[c](side) : c).join(" · ") : ""));
+    }); }
     return L.join("\n");
-  };
-  const bl = R.baseline || {}, pm = R.perm || {}, r1 = (x) => (x == null ? "—" : (Math.round(x * 1000) / 10) + "%");
-  const head = "🏆 패턴 성공률 순위 · " + kstStamp(Date.now()) + "\n기준 " + (tf === "ALL" ? "전체" : tf) + "봉 · 연구: 평일 거래대금 상위 " + (R.universe || []).length + "종목 · 이벤트 " + R.events + "건 · 앞 60%로 선정 → 뒤 40%로 검증\n비교 기준(전체 패턴 평균 성공률): 롱 " + r1(bl.L) + " · 숏 " + r1(bl.S) + " — 이보다 높아야 의미 있어요\n지표 점수 = 거래량·RSI·MACD(10/25/8)·%R14·%R48·앵커드VWAP 중 방향이 맞는 개수(6점 만점, 종목 정렬용)";
-  const parts = [head];
-  if (lrows.length) parts.push(block(lrows, "🔺 롱 — 일봉 켈트너 상단 위 · 중심~상단 구간"));
-  if (srows.length) parts.push(block(srows, "🔻 숏 — 일봉 켈트너 하단 구간"));
-  parts.push("⚠️ 연구 결과의 한계: 롱 패턴끼리의 차이는 우연과 구별되지 않았고(순열검정 p=" + (pm.L != null ? pm.L.toFixed(2) : "—") + "), 숏은 쌍천장·하단~중심 구간만 약한 우위(p=" + (pm.S != null ? pm.S.toFixed(2) : "—") + ")였어요. 지표 점수와 확률 모델은 검증 구간에서 예측력이 없었어요. 참고용 통계이며 수익을 보장하지 않아요. (성공 = 돌파 후 패턴 높이의 60% 도달, 실패 = 반대로 60% 이동)");
-  return [parts.join("\n\n")];
+  }).join("\n\n");
+  const shortCond = (row, side) => row.conds.map((c) => ({ z: side === "L" ? "켈트너 상단권" : "켈트너 하단권", c2: side === "L" ? "지지 중복" : "저항 중복", sr: side === "L" ? "지지대 겹침" : "저항대 겹침", vw: side === "L" ? "VWAP 지지" : "VWAP 저항", ke: "켈트너 겹침", vb: "거래량 급증", us: "미국장" }[c])).join(" + ");
+  /* 🔔 지금 포착된 신호: 순위와 상관없이 '방금 돌파·이탈 확정(3봉 이내)' 또는 '선까지 0.8% 이내 임박'한 패턴. 과거 성공률은 그 패턴 전체 통계 */
+  const GS = (R.groupStats && R.groupStats[tf]) || {}, grpOf = (type) => Object.keys(GRP_TYPES).find((g) => GRP_TYPES[g].includes(type));
+  const sigs = [];
+  live.forEach(({ r, p, f, z, n, cs, pq, zoner }) => {
+    const conf = p.state === "confirmed", px = cs[n - 1].close, g = grpOf(p.type); if (!g) return;
+    let side = conf ? (p.dirReal > 0 ? "L" : "S") : (p.dir > 0 ? "L" : p.dir < 0 ? "S" : null), dist = null;
+    const up = p._lines && p._lines.up ? p._lines.up(n - 1) : null, lo = p._lines && p._lines.lo ? p._lines.lo(n - 1) : null;
+    if (!conf) {
+      if (!side) { const du = up != null ? (up / px - 1) * 100 : null, dl = lo != null ? (lo / px - 1) * 100 : null; if (du == null && dl == null) return; side = (du != null && (dl == null || Math.abs(du) <= Math.abs(dl))) ? "L" : "S"; dist = side === "L" ? du : dl; }
+      else { const lv = side === "L" ? up : lo; if (lv == null) return; dist = (lv / px - 1) * 100; }
+      if (Math.abs(dist) > 0.8) return;   /* 임박만 */
+    } else if (n - 1 - p.confirmI > 3) return;
+    const d = side === "L" ? 1 : -1, cf = confluence(cs, p, d, pq, zoner, 0.5), vb = conf ? volBurst(cs, p.confirmI) : null, age = conf ? n - 1 - p.confirmI : null, gs = (GS[g] || {})[side];
+    sigs.push({ r, g, side, conf, dist, age, cf, vb, gs, sc: side === "L" ? f.score : 6 - f.score });
+  });
+  sigs.sort((a, b) => ((b.conf ? 1 : 0) - (a.conf ? 1 : 0)) || (a.conf ? a.age - b.age : Math.abs(a.dist) - Math.abs(b.dist)));
+  const supTxt = (cf, side) => (cf.conf ? (side === "L" ? "🛡 지지 " : "🛡 저항 ") + cf.conf + "중첩(" + [cf.srC ? (side === "L" ? "지지대" : "저항대") : null, cf.vwapC ? "VWAP" : null, cf.keltC ? "켈트너 " + cf.keltAt : null].filter(Boolean).join("·") + ")" : "");
+  const sigBlock = sigs.length ? sigs.slice(0, 8).map((s) => {
+    const dirTxt = s.side === "L" ? "▲ 상단 돌파" : "▼ 하단 이탈", hist = s.gs ? "과거 성공률 " + p1(s.gs.win) + " (n=" + s.gs.n + " · 기준선 대비 " + pp(s.gs.lift) + ")" : "과거 표본 부족";
+    const head2 = s.conf ? "✅ " + nameOf(s.r) + " · " + s.g + " " + dirTxt + " 확정 " + s.age + "봉 전" : "⏳ " + nameOf(s.r) + " · " + s.g + " " + dirTxt + " 임박 (" + sgn(s.dist) + ")";
+    const extra = [hist, supTxt(s.cf, s.side), s.conf && s.vb != null ? "거래량 ×" + s.vb.toFixed(1) : null].filter(Boolean).join(" · ");
+    return head2 + "\n     " + extra;
+  }).join("\n") : "지금 새로 포착된 신호 없음";
+  const bl = R.baseline || {}, ivTxt = tf === "1h" ? "1시간봉" : tf === "4h" ? "4시간봉" : tf;
+  const head = "🏆 패턴 셋업 리포트 · " + kstStamp(Date.now()) +
+    "\n📊 " + ivTxt + " · 평일 거래대금 상위 " + (R.universe || []).length + "종목 · 과거 " + R.period.from + " ~ " + R.period.to +
+    "\n📚 평일 돌파·이탈 " + R.resolved + "건으로 검증 (앞 60%로 선정 → 뒤 40%로 확인)" +
+    "\n📏 전체 패턴 평균 성공률: 롱 " + p1(bl.L && bl.L[tf]) + " · 숏 " + p1(bl.S && bl.S[tf]) +
+    "\n✅ 성공 = 돌파 후 패턴 높이의 60% 도달 · ❌ 실패 = 반대로 60% 이동";
+  const msgs = [];
+  msgs.push(head + "\n\n🔔 지금 포착된 신호  (방금 돌파·이탈했거나 곧 돌파·이탈할 패턴)\n" + sigBlock + (rowsL.length ? "\n\n━━━━━━━━━━━━━━\n🔺 롱 셋업 — 상단선 돌파\n━━━━━━━━━━━━━━\n\n" + block(rowsL, "L") : ""));
+  if (rowsS.length) msgs.push("━━━━━━━━━━━━━━\n🔻 숏 셋업 — 하단선 이탈\n━━━━━━━━━━━━━━\n\n" + block(rowsS, "S"));
+  return msgs;
 }
+
 export function pickRow(uni, ticker, info) {
   const alias = info.alias[ticker] || ticker;
   return uni.find((r) => r.short === alias && r.dex === "xyz") || uni.find((r) => r.short === alias && r.dayNtl > 1e5) || (/^[A-Z0-9]{2,8}$/.test(ticker) ? { full: ticker, short: ticker, dex: "코인" } : null);
