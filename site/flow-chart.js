@@ -26,10 +26,11 @@ F.defaultInd=()=>({
   led:{ku:{fx:"off",color:"#ffd84d",speed:5,power:6},low:{fx:"off",color:"#ffd84d",speed:5,power:6},rs:{fx:"off",color:"#7fe9ff",speed:5,power:6}}},   /* LED 효과: off/glow(네온)/flow(흐르는 불빛)/pulse(맥동) */
  dots:{on:true,size:2,stocks:false},   /* 선이 꺾이는 봉마다 작은 동그라미(반지름 px). stocks=종목선에도 */
  gap:{ku:{color:"#f5c542",w:0,style:0,on:true},rs:{color:"#ffffff",w:0,style:0,on:true},hist:{up:"#31d67b",dn:"#ff5a6e",a:0.55,h:0.28}},
- wr:{zones:true,smooth:6,curve:true,ob:-20,os:-80,mid:false,   /* smooth=%R 결과를 EMA 로 다듬는 기간(1=끔) · curve=곡선으로 이어붙이기 */obColor:"#5be49b",osColor:"#6cb6ff",zoneA:0.16,   /* 과매수(−20 위)=연한 그린 / 과매도(−80 아래)=연한 블루 */
+ wr:{zones:true,smooth:6,curve:true,obColor2:"#ff5a6e",osColor2:"#b07cff",ob:-20,   /* obColor2/osColor2 = 두 선이 모두 과매수/과매도일 때(강한 구간) 진한 음영색 */
+   os:-80,mid:false,   /* smooth=%R 결과를 EMA 로 다듬는 기간(1=끔) · curve=곡선으로 이어붙이기 */obColor:"#5be49b",osColor:"#6cb6ff",zoneA:0.16,   /* 과매수(−20 위)=연한 그린 / 과매도(−80 아래)=연한 블루 */
   lines:[
    {src:"rs",len:14,color:"#ffffff",w:2,style:0,on:true},
-   {src:"rs",len:48,color:"#9ad0ff",w:2.6,style:0,on:true},
+   {src:"rs",len:48,color:"#ff8a1f",w:3.8,style:0,on:true},   /* 48 = 주황 · 단기(14)보다 두껍게 */
   ]}
 });
 /* 저장돼 있던 옛 설정에 항목이 빠져 있어도 기본값으로 채움(배열은 통째로 저장되므로 길이·필드 보정) */
@@ -39,11 +40,13 @@ F.normInd=()=>{
  I.ma=Object.assign({},d.ma,I.ma||{});I.ma.lines=fix(I.ma.lines,d.ma.lines);
  if(I.ma.lv!==2){[4,5,6].forEach(i=>{Object.assign(I.ma.lines[i],d.ma.lines[i]);});I.ma.lv=2;}   /* 1회 이전: 장기선(120·240·480)을 새 기본(주황·굵게·연하게)으로 */
  I.ma.lines.forEach(l=>{l.a=(+l.a>0&&+l.a<=1)?+l.a:1;});
+ if(I.ma.lo!==1){F.ui.show.ma=false;F.ui.show.maLow=true;I.ma.lo=1;}   /* 1회 이전: 차트(위) EMA 끄고 하단 이격뷰 EMA 켬 */
  I.dots=Object.assign({},d.dots,I.dots||{});I.dots.size=Math.max(0.5,Math.min(8,+I.dots.size||2));
  I.fx=Object.assign({},d.fx,I.fx||{});I.fx.shade=Object.assign({},d.fx.shade,I.fx.shade||{});I.fx.led=Object.assign({},d.fx.led,I.fx.led||{});["ku","low","rs"].forEach(k=>{I.fx.led[k]=Object.assign({},d.fx.led[k],I.fx.led[k]||{});});
  I.gap=Object.assign({},d.gap,I.gap||{});["ku","rs","hist"].forEach(k=>{I.gap[k]=Object.assign({},d.gap[k],I.gap[k]||{});});
  I.wr=Object.assign({},d.wr,I.wr||{});I.wr.lines=fix(I.wr.lines,d.wr.lines);
- if(I.wr.sv!==2){I.wr.smooth=d.wr.smooth;I.wr.curve=true;I.wr.sv=2;}   /* 1회 이전: 3분봉처럼 짧은 봉에서도 부드럽게 보이도록 평활 6 */
+ if(!(I.wr.sv>=2)){I.wr.smooth=d.wr.smooth;I.wr.curve=true;}
+ if(I.wr.sv!==3){I.wr.lines[0]=Object.assign({},d.wr.lines[0]);I.wr.lines[1]=Object.assign({},d.wr.lines[1]);I.wr.sv=3;}   /* 1회 이전: 14=흰 얇게 / 48=주황 굵게 */   /* 1회 이전: 3분봉처럼 짧은 봉에서도 부드럽게 보이도록 평활 6 */
  I.ma.lines.forEach(l=>{l.len=Math.max(1,Math.min(2000,Math.round(+l.len||1)));});
  I.wr.lines.forEach(l=>{l.len=Math.max(2,Math.min(500,Math.round(+l.len||14)));if(l.src!=="ku")l.src="rs";});I.wr.smooth=Math.max(1,Math.min(30,Math.round(+I.wr.smooth||1)));
 };
@@ -55,7 +58,7 @@ mode:"kel",                   /* 표시 기준: kel=각 종목 현재 일봉 켈
  candleMode:"line",            /* 종목선 표시 방식: line=종가선(기존) / candle=일반 봉캔들 / heikin=하이킨아시(파랑 계열) */
  w:{stock:1.6,index:3.6,commodity:3.2,line:4.6},   /* 종류별 굵기: 일반종목/지수/원자재/켈상단·상대강도 */
  ind:F.defaultInd(),
- show:{ku:true,mid:true,low:true,clip:true,rs:true,stocks:true,sessions:true,pills:true,cross:true,crossBottom:true,gap:true,weekend:true,h24:true,ma:true,wr:true},
+ show:{ku:true,mid:true,low:true,clip:true,rs:true,stocks:true,sessions:true,pills:true,cross:true,crossBottom:true,gap:true,weekend:true,h24:true,ma:false,maLow:true,wr:true},   /* ma=차트(위) EMA 기본 끔 · maLow=하단 이격뷰 EMA 기본 켬 */
  weight:"ntl",                 /* 상대강도 가중: ntl=거래대금 / eq=균등 */
  checks:{},fs:{},solo:null,draw:{},collapsed:{},tool:"cursor",updated:0,
  scale:{},                     /* 프레임별로 고정한 상하 스케일 { "20D|1h": { main:[하한,상한], gap:[..], wr:[..] } } */
@@ -67,7 +70,7 @@ F.scale=()=>1+(F.ui.font-3)*0.1;
 const S=F.S={data:{},grid:[],gidx:new Map(),P:{},U:{},M:{},DN:{},O:{},H:{},L:{},series:{},seriesMode:{},haOpen:{},barFresh:{},hover:null,crosses:[],crossesM:[],rsA:[],kuA:[],mA:[],dA:[],maA:[],wrA:[],fitted:false};
 let chart=null,stage=null,chartEl=null,ov=null,ctx=null,PILL_W=250;
 let rsS=null,kuS=null,mS=null,lowS=null,anchS=null,rs2=null,ku2=null,histS=null,mk1=null,mk2=null,refS=null;
-let maS=[],maC=[],wrS=[],wrAnchor=null,wrPL=[];   /* 상단 EMA 본선·심선 / 하단 W%R 선들·기준(축 고정) 시리즈·−20/−80 기준선 */
+let maS=[],maC=[],maL=[],wrS=[],wrAnchor=null,wrPL=[];   /* maL = 하단 이격뷰(상대강도) 위에 겹치는 EMA 5·10·20·60·120 */   /* 상단 EMA 본선·심선 / 하단 W%R 선들·기준(축 고정) 시리즈·−20/−80 기준선 */
 /* 축 눈금 표기: 패널마다 달라서(메인·이격뷰=%p, W%R=−20 형식) 차트 전체 포매터 대신 시리즈별 포매터를 씀 */
 const PF_P={type:"custom",minMove:0.01,formatter:p=>(p>=0?"+":"")+p.toFixed(2)+"%p"};
 const PF_W={type:"custom",minMove:0.1,formatter:p=>Math.abs(p-Math.round(p))<0.05?String(Math.round(p)):p.toFixed(1)};
@@ -231,6 +234,7 @@ F.initChart=(stageEl,chartDiv,canvas,pillW)=>{
  F.ui.ind.ma.lines.forEach((l,i)=>{
   maS[i]=chart.addSeries(LW.LineSeries,Object.assign({},base,{color:l.color,lineWidth:l.w,visible:false}),0);
   maC[i]=chart.addSeries(LW.LineSeries,Object.assign({},base,{color:l.core||"#ffffff",lineWidth:1,visible:false}),0);
+  if(i<5)maL[i]=chart.addSeries(LW.LineSeries,Object.assign({},base,{color:l.color,lineWidth:1.1,visible:false}),1);   /* 하단 이격뷰: 상대강도와 같은 가격축 → 스케일이 맞음 */
  });
  topOrder();
  ensureWr();   /* 하단 윌리엄스 %R 패널(3번째) */
@@ -479,7 +483,7 @@ function indData(){
  if(!chart||!S.grid.length)return;
  const I=F.ui.ind;
  S.maA=I.ma.lines.map(l=>emaArr(srcArr(I.ma.src),l.len,I.ma.early!==false));
- I.ma.lines.forEach((l,i)=>{const d=ptsOf(S.maA[i]);maS[i].setData(d);maC[i].setData(l.core?d:[]);});
+ I.ma.lines.forEach((l,i)=>{const d=ptsOf(S.maA[i]);maS[i].setData(d);maC[i].setData(l.core?d:[]);if(maL[i])maL[i].setData(d);});
  S.wrA=I.wr.lines.map(l=>wrArr(srcArr(l.src),l.len));
  if(wrS.length){I.wr.lines.forEach((l,i)=>wrS[i].setData(ptsOf(S.wrA[i])));
   const G=S.grid;if(G.length>1)wrAnchor.setData([{time:G[0],value:0},{time:G[G.length-1],value:-100}]);}
@@ -489,7 +493,7 @@ function indData(){
 function liveInd(li,tm){
  const I=F.ui.ind;
  const fit=a=>{while(a.length<=li)a.push(NaN);return a;};
- I.ma.lines.forEach((l,i)=>{const a=emaArr(srcArr(I.ma.src),l.len,I.ma.early!==false);S.maA[i]=a;const v=a[li];upd(maS[i],tm,v);if(l.core)upd(maC[i],tm,v);});
+ I.ma.lines.forEach((l,i)=>{const a=emaArr(srcArr(I.ma.src),l.len,I.ma.early!==false);S.maA[i]=a;const v=a[li];upd(maS[i],tm,v);if(maL[i])upd(maL[i],tm,v);if(l.core)upd(maC[i],tm,v);});
  I.wr.lines.forEach((l,i)=>{const a=fit(S.wrA[i]||(S.wrA[i]=[]));let v=wrAt(srcArr(l.src),l.len,li);const sm=wrSm(),pv=a[li-1];if(sm>1&&F.num(v)&&F.num(pv)){const k=2/(sm+1);v=v*k+pv*(1-k);}a[li]=v;if(wrS[i])upd(wrS[i],tm,v);});
 }
 /* 윌리엄스 %R 패널: 켜면 3번째 패널과 시리즈를 만들고, 끄면 시리즈를 지워 패널째 없앰(빈 패널이 안 남게) */
@@ -514,7 +518,7 @@ function ensureWr(){
 }
 /* 보이는 순서: 종목선 < EMA < 켈상단·상대강도 */
 function topOrder(){
- try{maS.forEach((s,i)=>{s.setSeriesOrder(9e5+i*2);maC[i].setSeriesOrder(9e5+i*2+1);});lowS&&lowS.setSeriesOrder(1e6-1);mS&&mS.setSeriesOrder(1e6);kuS.setSeriesOrder(1e6+1);rsS.setSeriesOrder(1e6+2);}catch(e){}
+ try{maS.forEach((s,i)=>{s.setSeriesOrder(9e5+i*2);maC[i].setSeriesOrder(9e5+i*2+1);});lowS&&lowS.setSeriesOrder(1e6-1);mS&&mS.setSeriesOrder(1e6);kuS.setSeriesOrder(1e6+1);rsS.setSeriesOrder(1e6+2);if(ku2)ku2.setSeriesOrder(1e6+3);if(rs2)rs2.setSeriesOrder(1e6+4);}catch(e){}   /* 하단 이격뷰에서도 상대강도·켈상단이 EMA 위에 */
 }
 /* 설정(색·굵기·모양·표시)만 반영 — 데이터 재계산 없음 */
 function indStyle(){
@@ -526,6 +530,7 @@ function indStyle(){
   const al=(+l.a>0&&+l.a<1)?+l.a:1,mc=al<1?rgba(l.color,al):l.color;   /* 진하기(a)<1 이면 연하게 */
   maS[i].applyOptions(Object.assign({color:mc,lineWidth:l.w,lineStyle:l.style,visible:!!(showMa&&l.on)},DOT()));
   maC[i].applyOptions({color:l.core||"#ffffff",lineWidth:Math.max(1,Math.round(l.w*0.36*10)/10),lineStyle:l.style,visible:!!(showMa&&l.on&&l.core)});
+  if(maL[i])maL[i].applyOptions({color:mc,lineWidth:i===4?2.1:1.1,lineStyle:0,pointMarkersVisible:false,visible:!!(F.ui.show.maLow&&l.on)});   /* 얇게(상대강도가 잘 보이게) · 120만 조금 두껍게 · 색은 차트 EMA 와 동일 */
  });
  if(wrAnchor){
   const W=I.wr,lw=F.ui.w.line;
@@ -831,7 +836,19 @@ function draw(){
  }
 }
 /* 과매수(−20 위)·과매도(−80 아래)로 %R 선이 실제로 넘어간 구간만 선과 기준선 사이를 과매수=그린 / 과매도=블루로 진하게 칠함(넘어가는 지점은 선형 보간) */
-function drawWrFills(p2,WR,yo,ys){
+function drawWrFills(p2,WR,yo,ys){drawWrFills0(p2,WR,yo,ys);drawWrStrong(p2,WR,yo,ys);}
+/* 두 %R 선(14·48)이 "모두" 과매수(−20 위)이거나 "모두" 과매도(−80 아래)인 구간 = 강한 구간 → 기준선 바깥 띠 전체를 다른 색·더 진하게 */
+function drawWrStrong(p2,WR,yo,ys){
+ const act=[];WR.lines.forEach((l,k)=>{if(l.on&&S.wrA[k]&&wrS[k])act.push(k);});if(act.length<2)return;
+ const vr=chart.timeScale().getVisibleLogicalRange();if(!vr||!S.grid.length)return;
+ const G=S.grid,i0=Math.max(0,Math.floor(vr.from)-1),i1=Math.min(G.length-1,Math.ceil(vr.to)+1),half=Math.max(1,pixelsPerBar()/2),al=Math.min(0.75,(+WR.zoneA||0.16)*3.4);
+ const run=(above,yl,col)=>{if(yl==null)return;ctx.fillStyle=col;const y0=above?p2.top:p2.top+Math.max(0,Math.min(p2.h,yl)),h=above?Math.max(0,Math.min(p2.h,yl)):p2.h-Math.max(0,Math.min(p2.h,yl));let st=-1;
+  const flush=en=>{if(st<0)return;const a=xOf(G[st]),b=xOf(G[en]);if(a!=null&&b!=null)ctx.fillRect(a-half,y0,b-a+half*2,h);st=-1;};
+  for(let i=i0;i<=i1;i++){const ok=act.every(k=>{const v=S.wrA[k][i];return F.num(v)&&(above?v>+WR.ob:v<+WR.os);});if(ok){if(st<0)st=i;}else flush(i-1);}
+  flush(i1);};
+ run(true,yo,rgba(WR.obColor2||"#ff5a6e",al));run(false,ys,rgba(WR.osColor2||"#b07cff",al));
+}
+function drawWrFills0(p2,WR,yo,ys){
  const vr=chart.timeScale().getVisibleLogicalRange();if(!vr||!S.grid.length)return;
  const G=S.grid,i0=Math.max(0,Math.floor(vr.from)-1),i1=Math.min(G.length-1,Math.ceil(vr.to)+1),al=Math.min(0.6,(+WR.zoneA||0.16)*2.6);
  WR.lines.forEach((l,k)=>{const a=S.wrA[k],ser=wrS[k];if(!l.on||!a||!ser)return;

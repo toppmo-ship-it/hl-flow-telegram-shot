@@ -40,6 +40,7 @@ async function loadSettings(){
  Object.keys(F.ui.draw||{}).forEach(k=>{if(F.OLD_FRAME[k]){F.ui.draw[F.OLD_FRAME[k]]=F.ui.draw[k];delete F.ui.draw[k];}});
  if(F.ui.sideSplit===0.42)F.ui.sideSplit=0.34;   /* 예전 기본값이면 새 기본값(조건검색 박스를 더 작게)으로 */
  F.setExtra(F.ui.extra||[]);
+ F.normInd&&F.normInd();   /* 저장된 옛 설정에 새 기본값(1회 이전) 반영 */
 }
 
 /* ═════════════ 조건검색(패싯) ═════════════ */
@@ -482,7 +483,7 @@ function buildTools(){
 }
 const CHIPS=[
  /* 상단선·중심선·하단선·상대강도 토글은 차트 위 버튼 줄(#chartTools)에 있어서 범례에서는 뺌 */
- ["stocks","종목선",null],["clip","스케일: 이상치 제외",null],["ma","EMA 이동평균","#ffb020",true],["wr","윌리엄스 %R","#9ad0ff",true],["cross","메인 골든/데드",null],["crossBottom","하단 골든/데드",null],["gap","이격 막대",null],
+ ["stocks","종목선",null],["clip","스케일: 이상치 제외",null],["ma","차트 EMA","#ffb020",true],["maLow","하단 EMA","#ffb020",true],["wr","윌리엄스 %R","#9ad0ff",true],["cross","메인 골든/데드",null],["crossBottom","하단 골든/데드",null],["gap","이격 막대",null],
  ["sessions","세션선 KR·US",null],["pills","오른쪽 알약",null],["weekend","주말 음영",null],["h24","24시간 전 선",null]
 ];
 function buildLegend(){
@@ -683,7 +684,7 @@ const IND={
   let h='<div class="isec">선 — 상대강도 × 켈트너 상단 (굵기를 비우면 메인과 동일)</div>';
   h+=lineRow("상대강도","gap.rs")+lineRow("켈트너 상단","gap.ku");
   h+='<div class="isec">이격 막대 (상대강도 − 켈상단)</div><div class="ir">'+iChk("@show.gap","막대 표시")+'<span class="nm"></span><label>상대강도가 위'+iCol("gap.hist.up",getPath("gap.hist.up"))+'</label><label>아래'+iCol("gap.hist.dn",getPath("gap.hist.dn"))+'</label><label>진하기'+iRange("gap.hist.a",0.1,1,0.05)+'</label><label>막대 높이'+iRange("gap.hist.h",0.1,0.7,0.02)+'</label></div>';
-  h+='<div class="isec">표시</div><div class="ir">'+iChk("@show.crossBottom","하단 골든/데드 표시(화살표·날짜)")+'</div>';
+  h+='<div class="isec">표시</div><div class="ir">'+iChk("@show.crossBottom","하단 골든/데드 표시(화살표·날짜)")+iChk("@show.maLow","하단 EMA(상대강도 기준 5·10·20·60·120)")+'</div>';
   h+='<div class="note">이 패널은 두 선의 벌어짐을 확대해서 보여주는 자체 스케일 화면입니다. 골든 = 상대강도가 켈상단을 아래→위로 교차.</div>';
   return h;}},
  wr:{title:"⚙ 윌리엄스 %R · 하단 지표",gear:"gearWr",place:"top",w:"43rem",body:()=>{
@@ -696,6 +697,7 @@ const IND={
   h+='<div class="isec">과매수 · 과매도 구간</div>';
   h+='<div class="ir">'+iChk("wr.zones","음영 표시")+'<span class="nm"></span><label>과매수 기준'+iNum("wr.ob",-99,0,1)+'</label><label>과매도 기준'+iNum("wr.os",-100,-1,1)+'</label>'+iChk("wr.mid","중간선")+'</div>';
   h+='<div class="ir"><span class="nm">음영 색</span><label>과매수(위)'+iCol("wr.obColor",W.obColor)+'</label><label>과매도(아래)'+iCol("wr.osColor",W.osColor)+'</label><label>진하기'+iRange("wr.zoneA",0.04,0.5,0.02)+'</label></div>';
+  h+='<div class="ir"><span class="nm">강한 구간(두 선 모두)</span><label>과매수'+iCol("wr.obColor2",W.obColor2||"#ff5a6e")+'</label><label>과매도'+iCol("wr.osColor2",W.osColor2||"#b07cff")+'</label></div>';
   h+='<div class="note">%R = −100 × (최근 N봉 최고 − 현재) ÷ (최고 − 최저). 여기서는 <b>종목 가격이 아니라 상대강도선·켈상단선 자체</b>(가중평균 %p)에 적용합니다. −20 위 = 과매수, −80 아래 = 과매도(둘 다 위 칸에서 바꿀 수 있어요).</div>';
   return h;}}
 };
@@ -749,7 +751,7 @@ function onIndInput(e){
  else return;
  if(t==="c"&&/\.core$/.test(p)){const i=+p.split(".")[2];const cb=$("indPop").querySelector('input[data-t="core"][data-i="'+i+'"]');if(cb)cb.checked=true;coreMem[i]=v;}
  setPath(p,v);
- if(p==="@show.ma"||p==="@show.wr"||p==="@show.gap"||p==="@show.crossBottom")syncChips();
+ if(p==="@show.ma"||p==="@show.maLow"||p==="@show.wr"||p==="@show.gap"||p==="@show.crossBottom")syncChips();
  /* 기간 칸을 바꾸면 행 제목(EMA 20 등)도 바로 갱신 */
  if(/\.len$/.test(p)){const nm=el.closest(".ir").querySelector(".nm small");if(nm)nm.textContent=v;}
  applyIndQ(DATA_P.test(p));
@@ -851,8 +853,9 @@ function applyShot(){
  const q=new URLSearchParams(location.search);
  Object.assign(F.ui,{frame:q.get("frame")||"20D",iv:q.get("iv")||"4h",mode:"kel",candleMode:"line",font:+q.get("font")||6,sideHide:true,solo:null,checks:{},tool:"cursor"});
  F.ui.w.line=+q.get("lw")||4.2;
- Object.assign(F.ui.show,{ku:true,mid:true,low:true,rs:true,stocks:true,pills:true,cross:true,crossBottom:true,gap:true,wr:true,sessions:true,weekend:true,h24:true,ma:q.get("ma")!=="0",clip:false});   /* EMA(장기선 주황·굵게 / 단기선 가늘게)도 같이 그림 — 끄려면 주소에 &ma=0 */   /* clip:false = '이상치 제외' 끔 → 모든 선이 눈금 안에(잘리지 않음) */
+ Object.assign(F.ui.show,{ku:true,mid:true,low:true,rs:true,stocks:true,pills:true,cross:true,crossBottom:true,gap:true,wr:true,sessions:true,weekend:true,h24:true,ma:q.get("ma")==="1",maLow:q.get("malow")!=="0",clip:false});   /* EMA(장기선 주황·굵게 / 단기선 가늘게)도 같이 그림 — 끄려면 주소에 &ma=0 */   /* clip:false = '이상치 제외' 끔 → 모든 선이 눈금 안에(잘리지 않음) */
  const I=F.ui.ind;
+ I.ma.lo=1;   /* 촬영은 쿼리가 정함: 차트 EMA 기본 끔(&ma=1 로 켬) · 하단 EMA 기본 켬(&malow=0 으로 끔) */
  I.fx.shade={on:true,color:"#f5c542",a:0.17};
  I.fx.led.ku={fx:"glow",color:"#ffd84d",speed:5,power:8};I.fx.led.low={fx:"glow",color:"#ffd84d",speed:5,power:8};I.fx.led.rs={fx:"glow",color:"#7fe9ff",speed:5,power:9};
  I.dots={on:true,size:2.2,stocks:false};
