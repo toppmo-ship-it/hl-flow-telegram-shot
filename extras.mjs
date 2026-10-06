@@ -366,7 +366,8 @@ const MEDAL = ["🥇", "🥈", "🥉", "4️⃣"];
 const ZN = { A: "켈트너 상단 위", B: "켈트너 중심~상단", C: "켈트너 하단~중심", D: "켈트너 하단 아래" };
 export async function buildPatternRankText({ uni, info, log, cacheDir, tf0, scanN }) {
   const file = path.join(path.dirname(fileURLToPath(import.meta.url)), "pattern_rank.json");
-  let R; try { R = JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { return []; }
+  /* 셋업 순위 데이터(연구 결과)는 공개 저장소에 두지 않고 GitHub 비밀값 PATTERN_RANK_JSON 으로 받음. 로컬 시험용으로만 같은 폴더의 파일(git 추적 제외)을 읽음 */
+  let R; try { R = process.env.PATTERN_RANK_JSON ? JSON.parse(process.env.PATTERN_RANK_JSON) : JSON.parse(fs.readFileSync(file, "utf8")); log && log("패턴 순위 데이터:", process.env.PATTERN_RANK_JSON ? "비밀값에서 읽음" : "파일에서 읽음"); } catch (e) { log && log("패턴 순위 데이터를 못 읽음 — 패턴 리포트 생략"); return []; }
   const PT = globalThis.Patterns, QT = globalThis.Quant; if (!PT || !QT || !R.setups) return [];
   const has = (k) => R.setups[k] && ((R.setups[k].L || []).length || (R.setups[k].S || []).length);
   const tf = (tf0 === "4h" || tf0 === "8h") && has("4h") ? "4h" : has("1h") ? "1h" : has("4h") ? "4h" : null;

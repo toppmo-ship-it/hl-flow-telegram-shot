@@ -78,6 +78,7 @@ jobs:
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           SHOT_DRY: ${{ github.event.inputs.dry }}
           SHOT_OVERRIDES: ${{ github.event.inputs.overrides }}
+          PATTERN_RANK_JSON: ${{ secrets.PATTERN_RANK_JSON }}
         run: node shot.mjs
 
       # 캡처가 실패·시간초과여도 반드시 실행(always). 시험용 dry 실행은 이어가지 않음.
