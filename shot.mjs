@@ -26,8 +26,9 @@ const DEF_CFG = { frame: "20D", iv: "15m", vol: ["v4", "v3"], kel: ["above", "mi
 /* 해상도 프리셋: 화면(CSS) 크기 × 배율 = 사진 픽셀. 폴드는 거의 정사각형, PC는 16:9 와이드 */
 const RES = {
   fold: { w: 1092, h: 984, dsf: 2, label: "폴드 2184×1968" },
-  pc: { w: 1600, h: 900, dsf: 1.6, label: "PC 2560×1440" },
-  pcxl: { w: 1920, h: 1080, dsf: 5 / 3, label: "PC 3200×1800" },
+  wide: { w: 1920, h: 1200, dsf: 5 / 3, fixed: true, label: "16:10 갤탭·PC 3200×2000" },   /* 갤럭시탭·16:10 모니터에 좌우 꽉 차게 */
+  pc: { w: 1600, h: 900, dsf: 1.6, fixed: true, label: "PC 16:9 2560×1440" },
+  pcxl: { w: 1920, h: 1080, dsf: 5 / 3, fixed: true, label: "PC 16:9 3200×1800" },
 };
 const MAX_PIXELS = 24e6;   /* 실행기는 CPU가 충분 → 큰 사진도 가능(텔레그램 사진은 변 합 10000px 이하) */
 
@@ -258,6 +259,7 @@ async function runExtras({ cfg0, q, dry, base }) {
         const d = await buildCardData({ row, ticker: t, info, iv, days, fx, log, cacheDir: CACHE, mode: cfg0.mode });
         if (!d) { log("카드 데이터 부족:", t); continue; }
         d.colors = cfg0.colors || null;
+        d.vp = cfg0.cardRes === "wide" ? { w: 1600, h: 1000 } : { w: 1200, h: 1100 };   /* 카드 사진 해상도: wide = 16:10 갤탭·PC 꽉 찬 화면(3200×2000), 기본 fold = 폴드 펼친 화면(2400×2200) */
         d.textOn = cfg0.cardText !== false;   /* 사진 아래 글 켜기/끄기 — 끄면 기본 정보 2줄(종목·가격·24h 거래대금)만 */
         d.scale = cfg0.cardScale === "price" ? "price" : "all";   /* 가격 스케일: 오토(지표 포함) / 가격만(캔들 중심) */
         d.layers = cfg0.layers ? { pattern: !!cfg0.layers.pattern, vwap: !!cfg0.layers.vwap, ict: !!cfg0.layers.ict } : (cfg0.mode === "ict" ? { pattern: false, vwap: false, ict: true } : { pattern: true, vwap: true, ict: false });   /* 기본: 차트패턴 + VWAP 지지·저항 (ICT 꺼짐) */
@@ -304,14 +306,14 @@ async function main() {
   const sw = lvl(q.sw, cfg0.sw, 2), swi = lvl(q.swi, cfg0.swi, 3), swc = lvl(q.swc, cfg0.swc, 3);
   const VW = R.w, dsf0 = Math.min(4, Math.max(1, +q.dsf || R.dsf));
   const vz = Math.min(300, Math.max(100, Math.round(+(q.vz != null ? q.vz : cfg0.vz) || 100)));
-  const VH = R.h + Math.round((vz / 100 - 1) * 0.6 * (R.h - 110));
+  const VH = R.fixed ? R.h : R.h + Math.round((vz / 100 - 1) * 0.6 * (R.h - 110));   /* 와이드(fixed)는 화면 비율을 지키려고 '세로 길이' 슬라이더를 적용하지 않음 — 폴드만 세로를 늘림 */
   const dsf = Math.max(1, Math.min(dsf0, Math.sqrt(MAX_PIXELS / (VW * VH))));
   const sendDoc = q.doc != null ? q.doc === "1" : cfg0.doc !== false;
   const bool = (qv, cv, old) => (qv != null ? qv === "1" : (cv != null ? !!cv : !!old));
   const lead = bool(q.lead, cfg0.lead, cfg0.coins), alt = bool(q.alt, cfg0.alt, cfg0.coins);
   const secRaw = q.sec != null ? String(q.sec) : (Array.isArray(cfg0.sectors) ? cfg0.sectors.join(",") : "");
   const sectors = secRaw.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 40);
-  log("설정", R.label, frame + "/" + iv, "거래대금[" + vol + "] 켈[" + kel + "] 대장" + (lead ? "O" : "X") + " 알트" + (alt ? "O" : "X"), "섹터", sectors.length || "전체", "세로" + vz + "%", "굵기" + sw + "/" + swi + "/" + swc, "지수" + idx.length, "원자재" + cmd.length, "→", Math.round(VW * dsf) + "x" + Math.round(VH * dsf));
+  log("설정", R.label, frame + "/" + iv, "거래대금[" + vol + "] 켈[" + kel + "] 대장" + (lead ? "O" : "X") + " 알트" + (alt ? "O" : "X"), "섹터", sectors.length || "전체", "세로" + (RES[String(q.res || cfg0.res || "fold")] && RES[String(q.res || cfg0.res || "fold")].fixed ? "고정(와이드)" : vz + "%"), "굵기" + sw + "/" + swi + "/" + swc, "지수" + idx.length, "원자재" + cmd.length, "→", Math.round(VW * dsf) + "x" + Math.round(VH * dsf));
 
   stage(8, "저장된 캔들 이어받는 중");
   const { store, from } = await loadStore();
@@ -331,7 +333,7 @@ async function main() {
     page.on("pageerror", (e) => log("페이지 오류:", String(e.message).slice(0, 160)));
     await page.goto(base + "/robots.txt", { waitUntil: "domcontentloaded", timeout: 20000 });
     if (store) await page.evaluate(seedInPage, store, iv);
-    const url = base + "/flow.html?shot=1&frame=" + frame + "&iv=" + iv + "&vol=" + vol.join(",") + "&kel=" + kel.join(",") + "&lead=" + (lead ? 1 : 0) + "&alt=" + (alt ? 1 : 0) + "&vz=" + vz + "&sw=" + sw + "&swi=" + swi + "&swc=" + swc + "&idx=" + idx.join(",") + "&cmd=" + cmd.join(",") + (sectors.length ? "&sec=" + encodeURIComponent(sectors.join(",")) : "") + (q.nolive ? "&nolive=1" : "");
+    const url = base + "/flow.html?shot=1&frame=" + frame + "&iv=" + iv + "&vol=" + vol.join(",") + "&kel=" + kel.join(",") + "&lead=" + (lead ? 1 : 0) + "&alt=" + (alt ? 1 : 0) + "&vz=" + (R.fixed ? 100 : vz) + "&sw=" + sw + "&swi=" + swi + "&swc=" + swc + "&idx=" + idx.join(",") + "&cmd=" + cmd.join(",") + (sectors.length ? "&sec=" + encodeURIComponent(sectors.join(",")) : "") + (q.nolive ? "&nolive=1" : "");
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
     let info = null, readyAt = 0, lastLog = 0;
     const needLive = !q.nolive;

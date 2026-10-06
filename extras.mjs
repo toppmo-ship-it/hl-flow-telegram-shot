@@ -477,6 +477,7 @@ export function pickRow(uni, ticker, info) {
 }
 /* 카드 이미지 렌더(site/card.html) */
 export async function renderCard(page, base, data) {
+  if (data.vp) await page.setViewport({ width: data.vp.w, height: data.vp.h, deviceScaleFactor: 2 });   /* 카드 사진 크기: 폴드 1200×1100 / 갤탭·PC 16:10 1600×1000 */
   await page.goto(base + "/card.html", { waitUntil: "domcontentloaded", timeout: 20000 });
   { const k = kst(Date.now()); data.stamp = k.getUTCFullYear() + "-" + p2(k.getUTCMonth() + 1) + "-" + p2(k.getUTCDate()) + "(" + WDK[k.getUTCDay()] + ") " + p2(k.getUTCHours()) + ":" + p2(k.getUTCMinutes()) + ":" + p2(k.getUTCSeconds()); }
   const sum = await page.evaluate((d) => window.renderCard(d), data);
