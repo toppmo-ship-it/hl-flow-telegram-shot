@@ -25,13 +25,11 @@ const CFG_KEY = "tg_shot_cfg";
 const DEF_CFG = { frame: "20D", iv: "15m", vol: ["v4", "v3"], kel: ["above", "mid"], lead: false, alt: false, sectors: null, idx: ["XYZ100", "KR200", "SP500"], cmd: ["BRENTOIL"], sw: 2, swi: 3, swc: 3, cardIv: "4h", cardDays: 60 };
 /* 해상도 프리셋: 화면(CSS) 크기 × 배율 = 사진 픽셀. 폴드는 거의 정사각형, PC는 16:9 와이드 */
 const RES = {
-  fold: { w: 1092, h: 984, dsf: 2, label: "폴드 2184×1968" },
-  fwide: { w: 1092, h: 921, dsf: 2, fixed: true, label: "폴드 펼침 가로 2184×1842" },   /* 폴드SE 펼친 화면을 가로로 돌렸을 때 꽉 차게(비율 1.186) */
-  fcover: { w: 900, h: 1996, dsf: 1.2, fixed: true, label: "폴드 접힘 세로 1080×2395" },   /* 폴드SE 접은(커버) 화면 세로에 꽉 차게(비율 9:20) */
-  wide: { w: 1920, h: 1200, dsf: 5 / 3, fixed: true, label: "16:10 갤탭·PC 3200×2000" },   /* 갤럭시탭·16:10 모니터에 좌우 꽉 차게 */
-  pc: { w: 1600, h: 900, dsf: 1.6, fixed: true, label: "PC 16:9 2560×1440" },
-  pcxl: { w: 1920, h: 1080, dsf: 5 / 3, fixed: true, label: "PC 16:9 3200×1800" },
+  fcover: { w: 900, h: 1996, dsf: 1.2, fixed: true, label: "폴드 접힘 세로 1080×2395" },   /* 폴드 접은(커버) 화면 세로에 꽉 차게(비율 9:20) */
+  fwide: { w: 1092, h: 921, dsf: 2, fixed: true, label: "폴드 펼침 가로 2184×1842" },   /* 폴드 펼친 화면을 가로로 돌렸을 때 꽉 차게(비율 1.186) */
+  pcxl: { w: 1920, h: 1080, dsf: 5 / 3, fixed: true, label: "PC 16:9 3200×1800" },   /* PC 가로 와이드 고해상도 */
 };
+const normRes = (v) => (RES[v] ? v : (v === "wide" || v === "pc" ? "pcxl" : "fwide"));   /* 예전 값(fold·wide·pc)은 가장 가까운 새 3종으로 */
 const MAX_PIXELS = 24e6;   /* 실행기는 CPU가 충분 → 큰 사진도 가능(텔레그램 사진은 변 합 10000px 이하) */
 
 const sbH = () => ({ apikey: SBK, Authorization: "Bearer " + SBK });
@@ -261,7 +259,7 @@ async function runExtras({ cfg0, q, dry, base }) {
         const d = await buildCardData({ row, ticker: t, info, iv, days, fx, log, cacheDir: CACHE, mode: cfg0.mode });
         if (!d) { log("카드 데이터 부족:", t); continue; }
         d.colors = cfg0.colors || null;
-        d.vp = ({ wide: { w: 1600, h: 1000 }, fwide: { w: 1092, h: 921 }, fcover: { w: 540, h: 1197 } })[cfg0.cardRes] || { w: 1200, h: 1100 };   /* 카드 사진 해상도: wide = 16:10 갤탭·PC 꽉 찬 화면(3200×2000), 기본 fold = 폴드 펼친 화면(2400×2200) */
+        d.vp = ({ pcxl: { w: 1600, h: 900 }, fwide: { w: 1092, h: 921 }, fcover: { w: 540, h: 1197 } })[normRes(String(q.res || cfg0.res || cfg0.cardRes || "fwide"))];   /* 카드 사진도 흐름 사진과 같은 3종: 폴드 접힘 1080×2394 / 폴드 펼침 가로 2184×1842 / PC 16:9 3200×1800 */
         d.textOn = cfg0.cardText !== false;   /* 사진 아래 글 켜기/끄기 — 끄면 기본 정보 2줄(종목·가격·24h 거래대금)만 */
         d.scale = cfg0.cardScale === "price" ? "price" : "all";   /* 가격 스케일: 오토(지표 포함) / 가격만(캔들 중심) */
         d.layers = cfg0.layers ? { pattern: !!cfg0.layers.pattern, vwap: !!cfg0.layers.vwap, ict: !!cfg0.layers.ict } : (cfg0.mode === "ict" ? { pattern: false, vwap: false, ict: true } : { pattern: true, vwap: true, ict: false });   /* 기본: 차트패턴 + VWAP 지지·저항 (ICT 꺼짐) */
@@ -301,7 +299,7 @@ async function main() {
   const list = (v, def) => (v == null ? def : String(v).split(",").map((x) => x.replace(/[^0-9a-z]/g, "")).filter(Boolean));
   const frame = String(q.frame || cfg0.frame).replace(/[^0-9A-Za-z]/g, ""), iv = String(q.iv || cfg0.iv).replace(/[^0-9a-z]/g, "");
   const vol = list(q.vol, cfg0.vol), kel = list(q.kel, cfg0.kel);
-  const R = RES[String(q.res || cfg0.res || "fold")] || RES.fold;
+  const R = RES[normRes(String(q.res || cfg0.res || "fwide"))];
   const tk = (v, def) => (v == null ? def : String(v).split(",").map((x) => x.replace(/[^0-9A-Za-z]/g, "")).filter(Boolean).slice(0, 20));
   const idx = tk(q.idx, Array.isArray(cfg0.idx) ? cfg0.idx : DEF_CFG.idx), cmd = tk(q.cmd, Array.isArray(cfg0.cmd) ? cfg0.cmd : DEF_CFG.cmd);
   const lvl = (qv, cv, d) => Math.min(5, Math.max(1, Math.round(+(qv != null ? qv : cv) || d)));
@@ -315,7 +313,7 @@ async function main() {
   const lead = bool(q.lead, cfg0.lead, cfg0.coins), alt = bool(q.alt, cfg0.alt, cfg0.coins);
   const secRaw = q.sec != null ? String(q.sec) : (Array.isArray(cfg0.sectors) ? cfg0.sectors.join(",") : "");
   const sectors = secRaw.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 40);
-  log("설정", R.label, frame + "/" + iv, "거래대금[" + vol + "] 켈[" + kel + "] 대장" + (lead ? "O" : "X") + " 알트" + (alt ? "O" : "X"), "섹터", sectors.length || "전체", "세로" + (RES[String(q.res || cfg0.res || "fold")] && RES[String(q.res || cfg0.res || "fold")].fixed ? "고정(와이드)" : vz + "%"), "굵기" + sw + "/" + swi + "/" + swc, "지수" + idx.length, "원자재" + cmd.length, "→", Math.round(VW * dsf) + "x" + Math.round(VH * dsf));
+  log("설정", R.label, frame + "/" + iv, "거래대금[" + vol + "] 켈[" + kel + "] 대장" + (lead ? "O" : "X") + " 알트" + (alt ? "O" : "X"), "섹터", sectors.length || "전체", "세로" + ("고정"), "굵기" + sw + "/" + swi + "/" + swc, "지수" + idx.length, "원자재" + cmd.length, "→", Math.round(VW * dsf) + "x" + Math.round(VH * dsf));
 
   stage(8, "저장된 캔들 이어받는 중");
   const { store, from } = await loadStore();
