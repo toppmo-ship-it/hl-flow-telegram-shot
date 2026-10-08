@@ -609,7 +609,7 @@ function build(el, data, opt) {
     const dk = dailyKeltner(data.daily); ctl.dk = dk;
     const sk = stepKeltner(cs, data.daily, dk);
     const st = isDaily ? { mid: [], up: [], lo: [], up1: [], lo1: [] } : sk;
-    if (isDaily) data.daily.forEach((d, i) => { const v = dk[i]; if (!v) return; st.mid.push({ time: d.time + KST, value: v.mid }); st.up.push({ time: d.time + KST, value: v.up }); st.lo.push({ time: d.time + KST, value: v.lo }); st.up1.push({ time: d.time + KST, value: v.up1 }); st.lo1.push({ time: d.time + KST, value: v.lo1 }); });
+    if (isDaily) data.daily.forEach((d, i) => { const v = dk[i]; if (!v || d.time < cs[0].time) return;   /* 캔들보다 앞선 날짜의 켈트너 점은 빼야 시간축에 빈 칸(앞쪽 공백)이 안 생김 */ st.mid.push({ time: d.time + KST, value: v.mid }); st.up.push({ time: d.time + KST, value: v.up }); st.lo.push({ time: d.time + KST, value: v.lo }); st.up1.push({ time: d.time + KST, value: v.up1 }); st.lo1.push({ time: d.time + KST, value: v.lo1 }); });
     ctl.band.set(sk.rows, !isDaily, rgba(col.kShade, 0.13));
     /* 스케일 모드 '가격만': 켈트너 선이 눈금 범위에 영향을 주지 않음(null) → 캔들 기준으로 눈금이 맞춰지고 선은 범위 밖이면 잘림 */
     const mk = (pts, color, w, lv) => { const s = chart.addSeries(LW.LineSeries, Object.assign({ color, lineWidth: lw(w), lineType: isDaily ? 0 : 1, priceLineVisible: false, lastValueVisible: lv !== false, crosshairMarkerVisible: false, priceFormat: { type: "price", precision: pf, minMove: Math.pow(10, -pf) } }, priceOnly ? { autoscaleInfoProvider: () => null } : {}), 0); s.setData(pts); return s; };
