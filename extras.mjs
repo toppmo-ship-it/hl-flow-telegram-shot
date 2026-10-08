@@ -15,7 +15,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const KST_MS = 9 * 3600e3;
 
 /* ── HL 호출: 분당 가중치 예산(900) + 429 재시도 ── */
-const BUDGET = 1100;   /* HL 실제 한도는 분당 1200 — 여유 100을 두고 사용 (이전 900 은 매 실행 ~55초 대기를 만들었음) */
+const BUDGET = Number(process.env.HL_BUDGET) || 1100;   /* HL 실제 한도는 분당 1200 — 여유 100을 두고 사용 (이전 900 은 매 실행 ~55초 대기를 만들었음) */
 let used = [];
 const weightOf = (b) => {
   if (b && b.type === "candleSnapshot" && b.req) {
@@ -24,7 +24,7 @@ const weightOf = (b) => {
   }
   return 20;
 };
-async function hl(body, log) {
+export async function hl(body, log) {
   const w = weightOf(body);
   for (let a = 0; a < 6; a++) {
     for (;;) {
@@ -45,7 +45,7 @@ async function hl(body, log) {
   }
   return null;
 }
-async function pool(items, n, fn) {
+export async function pool(items, n, fn) {
   const out = new Array(items.length); let i = 0;
   await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => { while (i < items.length) { const k = i++; out[k] = await fn(items[k], k); } }));
   return out;

@@ -11,6 +11,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadSiteInfo, loadUniverse, usdKrw, buildWeeklyTexts, buildSurgeText, pickRow, buildCardData, renderCard, flushCardCache, buildPatternRankText } from "./extras.mjs";
+import { buildReport } from "./report.mjs";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const SITE = path.join(ROOT, "site");
@@ -215,6 +216,50 @@ async function sendDetail(text, replyTo) {
   }
   return null;
 }
+let _uni = null, _fx = null;   /* 같은 실행 안에서 유니버스·환율은 한 번만 받음 */
+const getUni = async () => _uni || (_uni = await loadUniverse(log));
+const getFx = async () => _fx || (_fx = await usdKrw(log));
+
+/* ── 하이퍼 리포트(사진): 탬퍼몽키 3분 리포트와 같은 구성. 데이터·섹션은 report.mjs, 그리기는 rep-render.js ── */
+const REP_W = { fcover: 1360, fwide: 2184, pcxl: 3200 };   /* 해상도 3종 → 리포트 가로 픽셀(세로는 내용만큼) */
+async function runReport({ cfg0, q, dry }) {
+  const want = q.rep != null ? q.rep === "1" : cfg0.rep !== false;
+  if (!want) return;
+  const st0 = loadState(), now = Date.now(), force = q.force === "1" || q.rep === "1";
+  const every = cfg0.repEvery != null ? +cfg0.repEvery : 15;
+  if (!(force || due(st0.lastRep, every))) { log("하이퍼 리포트: 아직 보낼 주기가 아님"); return; }
+  stage(90, "하이퍼 리포트 데이터 모으는 중");
+  const info = loadSiteInfo(SITE), uni = await getUni(), fx = await getFx();
+  const out = await buildReport({ cfg: cfg0, info, uni, fx, cacheDir: CACHE, log, deadline: Date.now() + (+process.env.REP_MS || 130000), limit: +process.env.REP_LIMIT || 0 });
+  if (out.skip) { log("하이퍼 리포트:", out.skip); return; }
+  log("하이퍼 리포트 데이터 OK", JSON.stringify(out.meta));
+  stage(95, "하이퍼 리포트 그리는 중");
+  const key = normRes(String(q.res || cfg0.res || "fwide")), W0 = REP_W[key] || 2184;
+  const browser = await launchChrome({ executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome", headless: true, args: ["--no-sandbox", "--hide-scrollbars", "--disable-dev-shm-usage"], defaultViewport: { width: 1600, height: 1000 } });
+  let buf = null, dim = "";
+  try {
+    const page = await browser.newPage();
+    page.on("pageerror", (e) => log("리포트 페이지 오류:", String(e.message).slice(0, 160)));
+    await page.setContent("<html><body style='margin:0;background:#17181c'></body></html>");
+    await page.addScriptTag({ content: fs.readFileSync(path.join(ROOT, "rep-render.js"), "utf8") });
+    for (let k = 0, w = W0; k < 3; k++, w = Math.round(w * 0.78)) {   /* 텔레그램 사진 10MB 한도 — 넘으면 한 단계 줄여 다시 */
+      const r = await page.evaluate((spec) => window.drawReport(spec), { header: out.header, sections: out.sections, foot: out.foot, outW: w });
+      buf = Buffer.from(r.url.split(",")[1], "base64"); dim = r.w + "x" + r.h;
+      if (buf.length < 9.5e6) break;
+    }
+  } finally { await browser.close(); }
+  log("하이퍼 리포트 PNG", dim, Math.round(buf.length / 1024) + "KB");
+  if (process.env.SHOT_SAVE_REPORT) fs.writeFileSync(process.env.SHOT_SAVE_REPORT, buf);
+  if (dry) { log("dry 모드 — 리포트 전송 생략"); return; }
+  const mid = await sendPhoto(buf, out.caption);
+  log("하이퍼 리포트 사진 전송", mid);
+  if (cfg0.doc !== false) {
+    try { const d = new Date(now + 9 * 3600e3), p = (n) => String(n).padStart(2, "0"); const did = await sendDocument(buf, "report_" + d.getUTCFullYear() + p(d.getUTCMonth() + 1) + p(d.getUTCDate()) + "_" + p(d.getUTCHours()) + p(d.getUTCMinutes()) + ".png", mid); log("리포트 원본 문서 전송", did); }
+    catch (e) { log(String((e && e.message) || e)); }
+  }
+  const st = loadState(); st.lastRep = now; saveState(st);
+}
+
 async function runExtras({ cfg0, q, dry, base }) {
   const flag = (qv, cv) => (qv != null ? qv === "1" : !!cv);
   const wantW = flag(q.rankw, cfg0.rankWeekly), wantS = flag(q.ranks, cfg0.rankSurge);
@@ -226,7 +271,7 @@ async function runExtras({ cfg0, q, dry, base }) {
   const dueCards = cards.length && (force || due(st.lastCards, cfg0.cardEvery != null ? +cfg0.cardEvery : 0));
   const dueP = wantP && (force || due(st.lastPat, cfg0.rankPatEvery != null ? +cfg0.rankPatEvery : 60));
   if (!dueRank && !dueCards && !dueP) { log("추가 기능: 아직 보낼 주기가 아님"); return; }
-  const info = loadSiteInfo(SITE), uni = await loadUniverse(log), fx = await usdKrw(log);
+  const info = loadSiteInfo(SITE), uni = await getUni(), fx = await getFx();
   log("추가 기능 시작 — HIP-3 " + uni.length + "종목, 환율 " + fx.toFixed(1));
   if (dueP) {
     stage(73, "패턴 확률 순위 계산 중 (종목 스캔)");
@@ -296,6 +341,7 @@ async function main() {
   const q = Object.fromEntries(new URLSearchParams(process.env.SHOT_OVERRIDES || ""));   /* 수동 실행 시 한 번만 덮어쓰기: 예) res=pc&vz=200 */
   stage(3, "설정 읽는 중");
   const cfg0 = Object.assign({}, DEF_CFG, (await sbRead(CFG_KEY)) || {});
+  const wantFlow = q.force === "1" || due(loadState().lastFlow, cfg0.flowEvery != null ? +cfg0.flowEvery : 0);   /* 가격흐름 사진 보내는 주기(0 = 매번 5분) */
   const list = (v, def) => (v == null ? def : String(v).split(",").map((x) => x.replace(/[^0-9a-z]/g, "")).filter(Boolean));
   const frame = String(q.frame || cfg0.frame).replace(/[^0-9A-Za-z]/g, ""), iv = String(q.iv || cfg0.iv).replace(/[^0-9a-z]/g, "");
   const vol = list(q.vol, cfg0.vol), kel = list(q.kel, cfg0.kel);
@@ -321,6 +367,8 @@ async function main() {
   const { server, base } = await startServer();
   let browser = null;
   try {
+    if (!wantFlow) log("가격흐름 사진: 아직 보낼 주기가 아님");
+    if (wantFlow) {
     stage(14, "차트 화면 여는 중");
     browser = await launchChrome({
       executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome",
@@ -372,6 +420,7 @@ async function main() {
       stage(64, "텔레그램으로 차트 사진 보내는 중");
       const mid = await sendPhoto(png, "📈 흐름차트 · " + frame + " · " + ({ "4h": "4시간", "1h": "1시간", "8h": "8시간", "15m": "15분", "30m": "30분", "3m": "3분" }[iv] || iv) + "봉 · " + (lead || alt ? "" : "코인 제외 · ") + kstText());
       log("사진 전송", mid); stage(72, "차트 사진 전송 완료");
+      { const s2 = loadState(); s2.lastFlow = Date.now(); saveState(s2); }
       if (sendDoc) {
         try {
           const d = new Date(Date.now() + 9 * 3600e3), p2 = (n) => String(n).padStart(2, "0");
@@ -380,8 +429,10 @@ async function main() {
         } catch (e) { log(String((e && e.message) || e)); }
       }
     }
+    }
     /* 사진 직후 바로: 순위 텍스트 · 종목 카드 (설정 페이지의 토글) */
     try { await runExtras({ cfg0, q, dry, base }); } catch (e) { log("추가 기능 오류:", String((e && e.message) || e)); }
+    try { await runReport({ cfg0, q, dry }); } catch (e) { log("하이퍼 리포트 오류:", String((e && e.message) || e)); }
   } finally {
     try { if (browser) await browser.close(); } catch (e) {}
     server.close();

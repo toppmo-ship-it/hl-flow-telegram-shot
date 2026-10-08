@@ -24,3 +24,12 @@ Actions 탭 → telegram-chart → **Run workflow** (`dry=true` 면 캡처만, �
 
 ## 흐름차트 미리 갱신 (warm.yml)
 20분마다 `warm.mjs`가 `site/`의 흐름차트를 `?warm=1`로 대신 열어, 서버 저장본(프레임 스냅샷·일봉 켈트너·4h 중심선·3일 거래대금)을 최신으로 유지합니다. 며칠 만에 사이트를 열어도 바로 최신으로 보이게 하는 용도예요. 설정은 건드리지 않고(저장 끔), 마지막에 쓴 기간/봉으로 엽니다. 시험: Actions 탭 → flow-warm → Run workflow.
+
+## 하이퍼 리포트 (사진) — 탬퍼몽키 3분 리포트와 같은 구성
+`shot.mjs` 가 매 실행마다(설정의 주기 `repEvery`에 맞춰) `report.mjs` 로 리포트를 만들어 텔레그램에 사진 + 원본 PNG 로 보냅니다.
+- `repcalc.mjs` : 파인스크리너 지표(양W 14/48 · 일봉 켈트너 20/10/1.5 · 켈유 · 4H 켈트너 40/10/2.5 발산 · 스퀴즈 · RV구간 · 듀얼 · VWAP · 3격/5격 · 누적T)를 하이퍼리퀴드 캔들로 계산. 캔들은 `.cache/rep_bars.json.gz` 에 쌓고 새 봉이 생길 때만 이어받음(HL 호출 최소). 처음에는 몇 번 나눠서 모음(첫 리포트까지 15~20분).
+- `report.mjs` : 섹션(★핵심 · 지수·원자재 · 전종목 · TOP5 4종 · 최근 진입 · 급변동 · 요약 칩) 조립 + 진입 상태(`.cache/rep_state.json`) 비교
+- `rep-render.js` : 헤드리스 크롬 안에서 표를 그림(이모지 대신 벡터 아이콘 — 서버 글꼴과 무관). 가로 폭은 해상도 프리셋(폴드 접힘 1360 · 펼침 2184 · PC 3200)
+- `repnames.mjs` : 한글 이름·섹터 사전
+- 설정(`tg_shot_cfg`): `rep`(켬/끔) · `repEvery`(분) · `repOrder`/`repOff`(항목 순서·끔) · `repCols`(표 칸) · `repRows` · `repSurge`, 그리고 가격흐름 사진 주기 `flowEvery`
+- 시험(전송 없음): `SHOT_DRY=1 SB_OFF=1 REP_LIMIT=30 HL_BUDGET=600 SHOT_SAVE_REPORT=out.png node shot.mjs`
