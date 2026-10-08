@@ -87,8 +87,8 @@ const CMDS = [
   ["surgeSet", /^(급변구간|급변동구간|surgeset)$/],
   ["alertList", /^(알림목록|알림리스트|알림확인|alerts)$/],
   ["alertDel", /^(알림삭제|알림해제|알림취소|알림제거)$/],
-  ["entryAlert", /^(진입알림)$/],
-  ["surgeAlert", /^(급변동알림|급등알림|급변알림)$/],
+  ["autoAlert", /^(켈알림|켈상단알림|양w알림|양w2알림|핵심알림|발산알림|4h발산알림|4h알림|4h중심알림|4h진입알림|대금알림|거래대금알림|급변동알림|급등알림|급변알림|진입알림|자동알림|알림설정)$/],
+  ["alertTest", /^(알림테스트|테스트알림)$/],
   ["alertAdd", /^(알림|alert)$/],
   ["themeAdd", /^(테마추가|테마만들기|테마저장|themeadd)$/],
   ["themeDel", /^(테마삭제|테마제거|themedel)$/],
@@ -102,7 +102,7 @@ export function parseCommand(text) {
   /* 두 낱말을 붙인 명령(카드 추가 / oi 순위 / 펀딩 순위 …) */
   if (rest.length) {
     const joined = norm(words[0] + words[1]);
-    for (const [cmd, re] of CMDS) if (/^(카드추가|카드삭제|카드목록|카드초기화|펀딩순위|oi순위|테마추가|테마삭제|리포트줄|급변구간|기본봉|기본기간|일봉기간|일봉기본|알림목록|알림삭제|진입알림|급변동알림)$/.test(joined) && re.test(joined)) return { cmd, arg: words.slice(2) };
+    for (const [cmd, re] of CMDS) if (/^(카드추가|카드삭제|카드목록|카드초기화|펀딩순위|oi순위|테마추가|테마삭제|리포트줄|급변구간|기본봉|기본기간|일봉기간|일봉기본|알림목록|알림삭제|진입알림|급변동알림|알림설정|알림테스트|자동알림|대금알림|거래대금알림|양w알림|4h알림|켈알림|핵심알림|발산알림)$/.test(joined) && re.test(joined)) return { cmd, arg: words.slice(2), w: joined };
   }
   for (const [cmd, re] of CMDS) {
     if (!re.test(w1)) continue;
@@ -113,7 +113,7 @@ export function parseCommand(text) {
       return null;
     }
     if (cmd === "now" && rest.length) return null;
-    if (["help", "status", "config", "sectors"].includes(cmd) || rest.length === 0 || ["quote", "indic", "surge", "funding", "mute", "resSet", "miniSet", "ivSet", "daysSet", "dailySet", "docSet", "rowsSet", "surgeSet", "themeAdd", "themeDel", "cardAdd", "cardDel", "alertAdd", "alertDel", "entryAlert", "surgeAlert"].includes(cmd)) return { cmd, arg: rest };
+    if (["help", "status", "config", "sectors"].includes(cmd) || rest.length === 0 || ["quote", "indic", "surge", "funding", "mute", "resSet", "miniSet", "ivSet", "daysSet", "dailySet", "docSet", "rowsSet", "surgeSet", "themeAdd", "themeDel", "cardAdd", "cardDel", "alertAdd", "alertDel", "autoAlert", "alertTest"].includes(cmd)) return { cmd, arg: rest, w: words[0] };
     return null;   /* 예) '핵심 종목들' 처럼 뒤에 낱말이 붙은 건 일반 요청으로 */
   }
   return null;

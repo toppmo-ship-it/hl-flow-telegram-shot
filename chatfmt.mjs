@@ -85,7 +85,7 @@ const CAT = {
     "안 쓰면 설정값 그대로: <b>" + (IV_KO[c.cardIv || "4h"] || c.cardIv) + "봉 · " + (c.cardDays || 60) + "일</b>",
     "<code>메타 15분</code>   <code>메타 일봉</code>",
     "<code>메타 1시간 30일</code>   <code>메타 일봉 90일</code>",
-    "<code>sk하이닉스 일봉</code> → 일봉 " + (c.dailyDays || 60) + "개 (설정값)",
+    "<code>sk하이닉스 일봉</code> → 일봉 " + (c.cardDailyDays || 120) + "개 (설정값)",
     "봉: 15분 · 30분 · 1시간 · 2시간 · 4시간 · 8시간 · 일봉",
     "",
     "카드 밑 버튼(15분·30분·1시간·2시간·4시간·일봉)을 눌러도 바로 바뀌어요",
@@ -124,16 +124,19 @@ const CAT = {
     "<code>펀딩 BTC</code>  <code>펀딩순위</code>  <code>OI순위</code>",
   ].join("\n"),
   alert: () => [
-    "🔔 <b>알림</b> (조건이 맞으면 바로 알려줘요 · 가격은 30초마다 확인)",
-    "<code>알림 메타 700</code> — 가격이 700에 닿으면 (위/아래는 지금 가격 보고 자동)",
-    "<code>알림 메타 +3%</code> — 지금보다 3% 오르면",
-    "<code>알림 메타 -3%</code> — 3% 내리면 · <code>알림 비트 ±5%</code> 오르내림 아무쪽",
+    "🔔 <b>알림</b> — 조건이 맞으면 <b>일봉 차트 사진</b>과 함께 와요",
+    "",
+    "<b>① 내 종목 알림</b> (한 번 울리면 사라져요)",
+    "<code>알림 메타 700</code> — 그 가격에 닿으면",
+    "<code>알림 메타 +3%</code> / <code>-3%</code> / <code>±5%</code> — 지금 가격에서 변하면",
+    "카드 사진 밑 <b>🔔 알림</b> 버튼 → 버튼만 눌러서 만들기",
     "<code>알림목록</code>  <code>알림삭제 1</code>  <code>알림삭제 메타</code>  <code>알림삭제 전체</code>",
     "",
-    "<b>자동 알림</b> (5분마다 확인)",
-    "<code>진입알림 켜기</code> ★핵심·4H발산 진입  /  <code>진입알림 전체</code>  /  <code>진입알림 끄기</code>",
-    "<code>급변동알림 켜기</code>  <code>급변동알림 3%</code>  <code>급변동알림 30분</code>  <code>급변동알림 끄기</code>",
-    "알림은 한 번 울리면 사라지고, 자동 알림은 계속 와요",
+    "<b>② 자동 알림</b> (전체 종목 감시 · 3분마다)",
+    "켈상단 돌파 · 양W +2 도달 · ★핵심 진입 · 4H 발산/중심 진입 · 거래대금 급증 · 급변동 · 모든 진입",
+    "<code>알림설정</code> — 버튼으로 켜고 끄기 (설정 페이지 위쪽 '텔레그램 알림 설정'과 같은 값)",
+    "<code>켈알림 끄기</code>  <code>양W알림 켜기</code>  <code>대금알림 5배</code>  <code>급변동알림 3% 30분</code>  <code>자동알림 끄기</code>",
+    "<code>알림테스트</code> — 알림이 어떻게 오는지 미리 보기",
   ].join("\n"),
   send: () => [
     "📤 <b>보내기</b> (설정된 사진을 지금 받기)",
@@ -161,7 +164,7 @@ const CAT = {
     "<code>해상도 폴드</code> · <code>펼침</code> · <code>PC</code>",
     "<code>미니 끄기</code> <code>미니 켜기</code> <code>미니 90</code>  (일봉 미니차트)",
     "<code>기본봉 4시간</code>  <code>기본기간 5일</code>  (분·시간봉 차트)",
-    "<code>일봉기간 90</code>  (\"종목 일봉\"으로 볼 때 일봉 개수, 기본 60)",
+    "<code>일봉기간 90</code>  (큰 일봉 차트 개수: 30·60·90·120·150, 기본 120 · 설정 페이지와 같은 값)",
     "<code>원본 끄기</code> (원본 PNG 파일)  <code>리포트줄 60</code>  <code>급변구간 30</code>",
     "",
     "<b>자동으로 오는 카드 종목</b>",
@@ -209,7 +212,7 @@ export function sectorButtons(info, custom) {
   return { inline_keyboard: rows };
 }
 /* 카드 밑 '봉 바꾸기' 버튼 */
-export const cardButtons = (tk, cur) => { const b = [["15m", "15분"], ["30m", "30분"], ["1h", "1시간"], ["2h", "2시간"], ["4h", "4시간"], ["1d", "일봉"]].map(([iv, t]) => ({ text: (iv === cur ? "● " : "") + t, callback_data: "z:" + tk + ":" + iv })); return { inline_keyboard: [b.slice(0, 3), b.slice(3)] }; };
+export const cardButtons = (tk, cur) => { const al = [{ text: "🔔 알림 (가격·변동 / 자동 알림)", callback_data: "a:m:" + tk }]; const b = [["15m", "15분"], ["30m", "30분"], ["1h", "1시간"], ["2h", "2시간"], ["4h", "4시간"], ["1d", "일봉"]].map(([iv, t]) => ({ text: (iv === cur ? "● " : "") + t, callback_data: "z:" + tk + ":" + iv })); return { inline_keyboard: [b.slice(0, 3), b.slice(3), al] }; };
 
 /* ───────── 설정·상태 글 ───────── */
 const RESN = { fcover: "폴드 접힘(세로)", fwide: "폴드 펼침(가로)", pcxl: "PC 16:9" };
@@ -223,7 +226,7 @@ export function configText(c, mute, themes, prefs) {
     "📈 가격흐름: <b>" + everyKo(c.flowEvery != null ? +c.flowEvery : 0) + "</b>마다 · " + (c.frame || "20D") + " · " + (c.iv || "15m") + "봉",
     "🃏 카드: " + (cards.length ? "<b>" + cards.length + "장</b> (" + esc(cards.slice(0, 8).join(", ")) + (cards.length > 8 ? " …" : "") + ")" : "<b>없음</b>") + " · " + everyKo(c.cardEvery != null ? +c.cardEvery : 0) + "마다",
     "     기본 " + (IV_KO[c.cardIv || "4h"] || c.cardIv) + "봉 · " + (c.cardDays || 60) + "일 · 일봉 미니 " + (c.cardDaily === false ? "끔" : "켬(" + (c.cardDailyBars || 60) + "개)"),
-    "     일봉 차트(종목 일봉): " + ((prefs && prefs.dailyDays) || 60) + "개",
+    "     큰 일봉 차트(종목 일봉): " + (c.cardDailyDays || 120) + "개 (미니와 별개)",
     "📑 순위글: " + ((c.rankWeekly || c.rankSurge) ? esc([c.rankWeekly ? "거래대금" : "", c.rankSurge ? "급증" : ""].filter(Boolean).join("+")) + " · " + everyKo(c.rankEvery != null ? +c.rankEvery : 0) + "마다" : "끔"),
     "🧩 패턴 셋업 리포트: " + (c.rankPattern !== false ? "<b>" + everyKo(c.rankPatEvery != null ? +c.rankPatEvery : 60) + "</b>마다" : "<b>끔</b>"),
     "🖼 해상도: " + (RESN[c.res] || RESN.fwide) + " · 원본 파일 " + (c.doc === false ? "끔" : "함께"),

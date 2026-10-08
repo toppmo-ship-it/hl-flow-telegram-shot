@@ -58,9 +58,9 @@ async function say(text, extra) {
   }
   return last && last.result && last.result.message_id;
 }
-async function photo(buf, caption, markup) {
+async function photo(buf, caption, markup, html) {
   if (DRY) { fs.mkdirSync(OUT, { recursive: true }); const f = path.join(OUT, String(++outN).padStart(2, "0") + ".png"); fs.writeFileSync(f, buf); console.log("\n┌─ 봇 사진 ─ " + f + " (" + Math.round(buf.length / 1024) + "KB)\n" + String(caption || "").replace(/<\/?[a-z]+[^>]*>/g, "") + "\n└──────────────"); return outN; }
-  const send = async (asDoc) => { const f = new FormData(); f.append("chat_id", CHAT); if (caption) { f.append("caption", String(caption).slice(0, 1000)); } if (markup) f.append("reply_markup", JSON.stringify(markup)); f.append(asDoc ? "document" : "photo", new Blob([buf], { type: "image/png" }), asDoc ? "chart.png" : "chart.png"); return tg(asDoc ? "sendDocument" : "sendPhoto", f, true); };
+  const send = async (asDoc) => { const f = new FormData(); f.append("chat_id", CHAT); if (caption) { f.append("caption", String(caption).slice(0, 1000)); if (html) f.append("parse_mode", "HTML"); } if (markup) f.append("reply_markup", JSON.stringify(markup)); f.append(asDoc ? "document" : "photo", new Blob([buf], { type: "image/png" }), asDoc ? "chart.png" : "chart.png"); return tg(asDoc ? "sendDocument" : "sendPhoto", f, true); };
   let j = await send(false);
   if (!j.ok && /429|Too Many/i.test(String(j.description))) { await sleep(8000); j = await send(false); }
   if (!j.ok) { log("사진 전송 실패", j.description); throw new Error("사진 전송 실패: " + j.description); }
@@ -81,9 +81,9 @@ async function loadCtx(force) {
   if (!C.idx) C.idx = buildIndex(C.info, C.uni.map((r) => r.short), Object.values(C.themes).flat());
 }
 const cfgGet = async () => (await sbGet("tg_shot_cfg")) || {};
-/* 일봉 차트 기본 개수(보이는 기간) — 설정 페이지에 없는 값이라 봇 전용 키(tg_bot_prefs)에 저장. 기본 60개 */
-const prefsGet = async () => { const p = await sbGet("tg_bot_prefs"); return p && typeof p === "object" ? p : {}; };
-const dailyBars = async () => Math.min(150, Math.max(10, +(await prefsGet()).dailyDays || 60));
+/* 큰 일봉 차트 개수 = 설정 페이지의 '큰 일봉 차트 개수'(cardDailyDays, 기본 120) — 미니차트 개수(cardDailyBars)와 별개 */
+const DAILY_CHOICES = [30, 60, 90, 120, 150];
+const dailyBars = async (cfg) => { const c = cfg || await cfgGet(); return DAILY_CHOICES.includes(+c.cardDailyDays) ? +c.cardDailyDays : 120; };
 const cardCfg = (c) => c;   /* (가독용) */
 
 /* 모든 종목 계산 결과 — 45초 안이면 재사용. 캔들은 백그라운드가 계속 채워 두므로 보통 빠름 */
@@ -226,7 +226,7 @@ async function doRequest(text, forceCards) {
     const sug = [...C.idx.keys()].filter((t) => q.misses.some((m) => norm(m).length >= 2 && norm(t).startsWith(norm(m).slice(0, 2)))).slice(0, 5);
     return say("🤔 <b>" + F.esc(q.misses.join(" ") || text.slice(0, 30)) + "</b> — 못 찾았어요\n" + (sug.length ? "혹시: " + sug.map((s) => "<code>" + F.esc(s) + "</code>").join(" · ") + "\n" : "") + "종목 이름·티커·섹터 이름을 써 주세요.  <code>도움말</code> 을 눌러 보세요", F.helpButtons());
   }
-  const iv = q.iv || String(cfg.cardIv || "4h"), days = q.days || (iv === "1d" ? await dailyBars() : Math.min(150, Math.max(3, +cfg.cardDays || 60)));   /* 일봉은 '일봉 N개' 설정값(기본 60) */
+  const iv = q.iv || String(cfg.cardIv || "4h"), days = q.days || (iv === "1d" ? await dailyBars(cfg) : Math.min(150, Math.max(3, +cfg.cardDays || 60)));   /* 일봉은 '큰 일봉 개수' 설정값(기본 120) */
   const notes = q.notes.slice();
   if (q.misses.length) notes.push("못 찾은 말: " + q.misses.join(", "));
   const asTable = q.sectors.length && !q.asCards && !forceCards || q.asTable;
@@ -259,7 +259,7 @@ async function doReport() {
 async function doCards() {
   const cfg = await cfgGet(), list = (Array.isArray(cfg.cards) ? cfg.cards : []).slice(0, MAXC);
   if (!list.length) return say("🃏 설정한 카드 종목이 없어요.\n<code>카드추가 메타 애플</code> 로 넣거나, 그냥 <code>메타</code> 처럼 이름을 쓰세요");
-  const iv = String(cfg.cardIv || "4h"), days = Math.min(150, Math.max(3, +cfg.cardDays || 60));
+  const iv = String(cfg.cardIv || "4h"), days = iv === "1d" ? await dailyBars(cfg) : Math.min(150, Math.max(3, +cfg.cardDays || 60));
   await sendCards(list, iv, days, cfg, { buttons: true });
 }
 /* 순위 글 */
@@ -493,9 +493,9 @@ async function doSetting(cmd, arg) {
     return reply("카드 기본 기간(분·시간봉) → <b>" + d + "일</b>  <i>(일봉은 별도: <code>일봉기간 90</code>)</i>");
   }
   if (cmd === "dailySet") {
-    const m = /(\d+)/.exec(a0); need(m, "예) <code>일봉기간 90</code>  (일봉 몇 개를 보여줄지, 10~150개)");
-    const d = Math.min(150, Math.max(10, +m[1])); const p = await prefsGet(); p.dailyDays = d; await W("tg_bot_prefs", p);
-    return say("✅ 일봉 차트 보이는 기간 → <b>" + d + "개</b>\n<i>예) <code>sk하이닉스 일봉</code>  ·  그때만 바꾸려면 <code>sk하이닉스 일봉 90일</code></i>");
+    const m = /(\d+)/.exec(a0); need(m, "예) <code>일봉기간 90</code>  (일봉 몇 개를 보여줄지: 30·60·90·120·150)");
+    const d = DAILY_CHOICES.reduce((b, x) => (Math.abs(x - +m[1]) < Math.abs(b - +m[1]) ? x : b)); await patchCfg((c) => { c.cardDailyDays = d; });
+    return say("✅ 큰 일봉 차트 개수 → <b>" + d + "개</b>" + (d !== +m[1] ? " <i>(선택지 30·60·90·120·150 중 가장 가까운 값)</i>" : "") + "  <i>설정 페이지와 같은 값</i>\n<i>예) <code>sk하이닉스 일봉</code>  ·  그때만 바꾸려면 <code>sk하이닉스 일봉 90일</code></i>");
   }
   if (cmd === "docSet") {
     const e = parseEvery(a0); need(e === "on" || e === "off", "<code>원본 켜기</code> / <code>원본 끄기</code>  (사진과 함께 오는 원본 PNG 파일)");
@@ -552,7 +552,18 @@ async function doMute(arg) {
 }
 async function doUnmute() { await W("tg_bot_mute", { until: 0, at: Date.now() }); return say("🔔 <b>재개</b> — 주기 발송이 다음 칸부터 다시 와요"); }
 
-const AL = makeAlerts({ C, say, W, sbGet, loadCtx, log, CACHE, cfgGet, UserErr, get C() { return C; } });
+/* 알림용: 큰 일봉 차트 사진(설정된 일봉 개수·패턴 포함) + 글을 한 장으로 */
+async function alertChart(tk, caption, markup) {
+  const cfg = await cfgGet(), c = await makeCard(tk, "1d", await dailyBars(cfg), cfg);
+  if (!c) return false;
+  await photo(c.png, caption, markup, true); return true;
+}
+async function editMsg(mid, text, markup) {
+  if (DRY) return say(text, markup);
+  const r = await tg("editMessageText", { chat_id: CHAT, message_id: mid, text, parse_mode: "HTML", reply_markup: markup });
+  if (!r.ok && !/not modified/i.test(String(r.description))) await say(text, markup);
+}
+const AL = makeAlerts({ C, say, W, sbGet, loadCtx, log, CACHE, cfgGet, UserErr, chart: alertChart, edit: editMsg });
 
 /* ───────────────── 라우터 ───────────────── */
 async function handleText(text, from) {
@@ -586,11 +597,11 @@ async function handleText(text, from) {
       case "dailySet": case "resSet": case "miniSet": case "ivSet": case "daysSet": case "docSet": case "rowsSet": case "surgeSet": return doSetting(cmd.cmd, cmd.arg);
       case "cardAdd": case "cardDel": case "cardList": case "cardClear": return doCardList(cmd.cmd, cmd.arg);
       case "themeAdd": case "themeDel": return doTheme(cmd.cmd, cmd.arg);
-      case "alertAdd": return cmd.arg.length ? AL.add(cmd.arg) : AL.list();
+      case "alertAdd": return cmd.arg.length ? AL.add(cmd.arg) : AL.settings();
+      case "alertTest": return AL.testAlert();
       case "alertList": return AL.list();
       case "alertDel": return AL.del(cmd.arg);
-      case "entryAlert": return AL.entrySet(cmd.arg);
-      case "surgeAlert": return AL.surgeSet(cmd.arg);
+      case "autoAlert": return AL.autoCmd(cmd.w, cmd.arg);
     }
   };
   try { await Promise.race([run(), new Promise((_, no) => setTimeout(() => no(new Error("시간이 너무 오래 걸려 중단했어요")), 12 * 60000))]); }
@@ -612,6 +623,7 @@ async function handleCallback(cb) {
       if (!r.ok && !/not modified/i.test(String(r.description))) await say(text, markup);
       return;
     }
+    if (d.startsWith("a:")) return AL.callback(d, cb, ack);
     await loadCtx();
     if (d.startsWith("s:") || d.startsWith("u:")) {
       const i = +d.slice(2), cfg = await cfgGet();
@@ -620,7 +632,7 @@ async function handleCallback(cb) {
     }
     if (d.startsWith("z:")) {
       const [, tk, iv] = d.split(":"); await ack((IV_KO[iv] || iv) + "봉으로 만드는 중…");
-      const cfg = await cfgGet(); return sendCards([tk], iv, iv === "1d" ? await dailyBars() : Math.min(150, Math.max(3, +cfg.cardDays || 60)), cfg);
+      const cfg = await cfgGet(); return sendCards([tk], iv, iv === "1d" ? await dailyBars(cfg) : Math.min(150, Math.max(3, +cfg.cardDays || 60)), cfg);
     }
     await ack();
   } catch (e) { log("버튼 오류:", String((e && e.message) || e).slice(0, 200)); await say("⚠️ 처리 중 문제가 생겼어요: " + F.esc(String((e && e.message) || e).slice(0, 120))); }
@@ -661,7 +673,7 @@ async function main() {
   if (process.env.BOT_INPUT) {
     for (const ln of fs.readFileSync(process.env.BOT_INPUT, "utf8").split(/\r?\n/).map((s) => s.trim()).filter((s) => s && !s.startsWith("#"))) {
       console.log("\n══════════ 입력: " + ln + " ══════════");
-      if (ln.startsWith("!tick")) await AL.tickPrice(); else if (ln.startsWith("!slow")) await AL.tickSlow(); else if (ln.startsWith("!wait")) await sleep(+ln.slice(5) * 1000 || 5000); else if (ln.startsWith("@")) await handleCallback({ id: "t", data: ln.slice(1), message: { message_id: 1 } }); else await handleText(ln);
+      if (ln.startsWith("!tick")) await AL.tickPrice(); else if (ln.startsWith("!slow")) await AL.tickAuto(); else if (ln.startsWith("!wait")) await sleep(+ln.slice(5) * 1000 || 5000); else if (ln.startsWith("@")) await handleCallback({ id: "t", data: ln.slice(1), message: { message_id: 1 } }); else await handleText(ln);
     }
     flushCardCache(CACHE); process.exit(0);
   }

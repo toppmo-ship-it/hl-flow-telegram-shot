@@ -307,7 +307,7 @@ async function runExtras({ cfg0, q, dry, base }) {
   }
   if (dueCards) {
     stage(88, "종목 카드 준비 중");
-    const iv = String(cfg0.cardIv || "1h").replace(/[^0-9a-z]/g, ""), days = Math.min(150, Math.max(3, +cfg0.cardDays || 60));
+    const iv = String(cfg0.cardIv || "1h").replace(/[^0-9a-z]/g, ""), days = iv === "1d" ? ([30, 60, 90, 120, 150].includes(+cfg0.cardDailyDays) ? +cfg0.cardDailyDays : 120) : Math.min(150, Math.max(3, +cfg0.cardDays || 60));   /* 일봉이면 '큰 일봉 개수' 설정 사용 */
     const browser = await launchChrome({ executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome", headless: true, args: ["--no-sandbox", "--hide-scrollbars", "--disable-dev-shm-usage"], defaultViewport: { width: 1200, height: 1100, deviceScaleFactor: 2 } });
     try {
       const page = await browser.newPage();
@@ -318,7 +318,7 @@ async function runExtras({ cfg0, q, dry, base }) {
         if (!row) { log("카드 종목 없음:", t); continue; }
         const d = await buildCardData({ row, ticker: t, info, iv, days, fx, log, cacheDir: CACHE, mode: cfg0.mode });
         if (!d) { log("카드 데이터 부족:", t); continue; }
-        applyCardCfg(d, cfg0, String(q.res || cfg0.res || cfg0.cardRes || "fwide"));   /* 일봉 미니차트·카드 크기(해상도 3종)·글·스케일·레이어 — 챗봇 카드와 같은 함수 */
+        applyCardCfg(d, cfg0, String(q.res || cfg0.res || cfg0.cardRes || "fwide"), { noMini: iv === "1d" });   /* 일봉 미니차트·카드 크기(해상도 3종)·글·스케일·레이어 — 챗봇 카드와 같은 함수 */
         const png = await renderCard(page, base, d);
         if (dry) { const f = path.join(ROOT, "out_card_" + t + ".png"); fs.writeFileSync(f, png); console.log("\n──── 카드 " + t + " ────\n" + d.caption + (d.detail ? "\n\n[상세 분석 메시지]\n" + d.detail : "")); }
         else { const mid = await sendPhoto(png, d.caption); if (d.detail && cfg0.cardDetail === true) { await new Promise((ok) => setTimeout(ok, 3300)); await sendDetail(d.detail, mid); lastSent = Date.now(); }   /* 패턴 상세 분석 메시지는 기본 꺼짐 — 설정(tg_shot_cfg)에 cardDetail:true 를 넣으면 다시 나옴 */ const gap = 3300 - (Date.now() - lastSent); if (gap > 0) await new Promise((ok) => setTimeout(ok, gap)); lastSent = Date.now(); }   /* 분당 18장 이하로 간격 유지 */
