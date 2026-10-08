@@ -51,3 +51,4 @@ Actions 탭 → telegram-chart → **Run workflow** (`dry=true` 면 캡처만, �
 - 구조: 말 해석 `chatparse.mjs`(순수 함수) · 글 꾸미기/도움말 `chatfmt.mjs` · 본체 `chatbot.mjs` · 캔들은 메모리에 계속 최신으로 유지(백그라운드)
 - 보안: 설정된 방(TG_CHAT_ID) 글만 처리. 처리한 update 번호는 `tg_bot_offset` 에 저장(재시작해도 중복 처리 없음)
 - 시험: `BOT_DRY=1 BOT_INPUT=in.txt node chatbot.mjs` (줄마다 한 글, `@h:chart` 처럼 `@` 로 시작하면 버튼) — 전송·저장 없이 화면 출력 + `out_chat/*.png`
+- **알림**(chatalert.mjs): `알림 메타 700` · `알림 메타 +3%` · `알림목록` · `알림삭제` · `진입알림 켜기/전체/끄기` · `급변동알림 3% 30분` — tg_bot_alerts, 가격은 30초·진입/급변동은 5분마다 감시

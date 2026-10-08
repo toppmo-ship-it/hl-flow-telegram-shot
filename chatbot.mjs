@@ -14,7 +14,8 @@ import { loadSiteInfo, loadUniverse, usdKrw, pickRow, buildCardData, renderCard,
 import { buildReport, buildListReport, collectRows, refreshBars } from "./report.mjs";
 import { loadBars, saveBars, stripLive, changeOver } from "./repcalc.mjs";
 import { FIXED_INDEX, KO } from "./repnames.mjs";
-import { sbGet, sbPut } from "./sb.mjs";
+import { sbGet as sbGetRaw, sbPut } from "./sb.mjs";
+import { makeAlerts } from "./chatalert.mjs";
 import { norm, secName, parseCommand, parseRequest, parseEvery, snapEvery, everyKo, buildIndex, resolveSectors, IV_KO, MAX_CARDS, MAX_TABLE } from "./chatparse.mjs";
 import * as F from "./chatfmt.mjs";
 
@@ -25,7 +26,9 @@ const clean = (v) => String(v || "").trim().replace(/^["'`]+|["'`]+$/g, "").trim
 const TOKEN = clean(process.env.TG_BOT_TOKEN).replace(/^bot/i, ""), CHAT = clean(process.env.TG_CHAT_ID);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
-const W = async (k, v) => { if (DRY) { log("[dry] 저장 생략", k, JSON.stringify(v).slice(0, 120)); return true; } return sbPut(k, v); };   /* 시험 중에는 운영 DB에 쓰지 않음 */
+const MEM = new Map();   /* 시험 모드에서는 운영 DB에 쓰지 않고 메모리에만 저장(같은 실행 안에서는 읽힘) */
+const W = async (k, v) => { if (DRY) { MEM.set(k, JSON.parse(JSON.stringify(v))); log("[dry] 저장 생략(메모리에만)", k, JSON.stringify(v).slice(0, 100)); return true; } return sbPut(k, v); };
+const sbGet = async (k) => (DRY && MEM.has(k) ? MEM.get(k) : sbGetRaw(k));
 
 /* ───────────────── 텔레그램 입출력 ───────────────── */
 let outN = 0;
@@ -168,7 +171,7 @@ class UserErr extends Error {}
 async function doHelp(arg, withKeyboard) {
   const cfg = await cfgGet();
   const k = norm((arg || [])[0] || "");
-  const map = { 차트: "chart", 종목: "chart", 섹터: "sector", 테마: "sector", 조회: "query", 보내기: "send", 설정: "set" };
+  const map = { 차트: "chart", 종목: "chart", 섹터: "sector", 테마: "sector", 조회: "query", 보내기: "send", 설정: "set", 알림: "alert" };
   if (map[k]) return say(F.helpCat(map[k], cfg), F.helpBack());
   if (withKeyboard) await say("⌨️ 아래 키보드 버튼으로도 바로 쓸 수 있어요", F.replyKeyboard());
   return say(F.helpMain(cfg), F.helpButtons());
@@ -549,6 +552,8 @@ async function doMute(arg) {
 }
 async function doUnmute() { await W("tg_bot_mute", { until: 0, at: Date.now() }); return say("🔔 <b>재개</b> — 주기 발송이 다음 칸부터 다시 와요"); }
 
+const AL = makeAlerts({ C, say, W, sbGet, loadCtx, log, CACHE, cfgGet, UserErr, get C() { return C; } });
+
 /* ───────────────── 라우터 ───────────────── */
 async function handleText(text, from) {
   const cmd = parseCommand(text);
@@ -581,6 +586,11 @@ async function handleText(text, from) {
       case "dailySet": case "resSet": case "miniSet": case "ivSet": case "daysSet": case "docSet": case "rowsSet": case "surgeSet": return doSetting(cmd.cmd, cmd.arg);
       case "cardAdd": case "cardDel": case "cardList": case "cardClear": return doCardList(cmd.cmd, cmd.arg);
       case "themeAdd": case "themeDel": return doTheme(cmd.cmd, cmd.arg);
+      case "alertAdd": return cmd.arg.length ? AL.add(cmd.arg) : AL.list();
+      case "alertList": return AL.list();
+      case "alertDel": return AL.del(cmd.arg);
+      case "entryAlert": return AL.entrySet(cmd.arg);
+      case "surgeAlert": return AL.surgeSet(cmd.arg);
     }
   };
   try { await Promise.race([run(), new Promise((_, no) => setTimeout(() => no(new Error("시간이 너무 오래 걸려 중단했어요")), 12 * 60000))]); }
@@ -651,11 +661,12 @@ async function main() {
   if (process.env.BOT_INPUT) {
     for (const ln of fs.readFileSync(process.env.BOT_INPUT, "utf8").split(/\r?\n/).map((s) => s.trim()).filter((s) => s && !s.startsWith("#"))) {
       console.log("\n══════════ 입력: " + ln + " ══════════");
-      if (ln.startsWith("@")) await handleCallback({ id: "t", data: ln.slice(1), message: { message_id: 1 } }); else await handleText(ln);
+      if (ln.startsWith("!tick")) await AL.tickPrice(); else if (ln.startsWith("!slow")) await AL.tickSlow(); else if (ln.startsWith("!wait")) await sleep(+ln.slice(5) * 1000 || 5000); else if (ln.startsWith("@")) await handleCallback({ id: "t", data: ln.slice(1), message: { message_id: 1 } }); else await handleText(ln);
     }
     flushCardCache(CACHE); process.exit(0);
   }
   bgLoop();
+  AL.loop(MAX_MS, T_START);
   let offset = 0; { const o = await sbGet("tg_bot_offset"); if (o && +o.next) offset = +o.next; }
   const seen = new Set();
   while (Date.now() - T_START < MAX_MS) {

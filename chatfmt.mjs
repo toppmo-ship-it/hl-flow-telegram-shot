@@ -123,6 +123,18 @@ const CAT = {
     "<code>환율</code>",
     "<code>펀딩 BTC</code>  <code>펀딩순위</code>  <code>OI순위</code>",
   ].join("\n"),
+  alert: () => [
+    "🔔 <b>알림</b> (조건이 맞으면 바로 알려줘요 · 가격은 30초마다 확인)",
+    "<code>알림 메타 700</code> — 가격이 700에 닿으면 (위/아래는 지금 가격 보고 자동)",
+    "<code>알림 메타 +3%</code> — 지금보다 3% 오르면",
+    "<code>알림 메타 -3%</code> — 3% 내리면 · <code>알림 비트 ±5%</code> 오르내림 아무쪽",
+    "<code>알림목록</code>  <code>알림삭제 1</code>  <code>알림삭제 메타</code>  <code>알림삭제 전체</code>",
+    "",
+    "<b>자동 알림</b> (5분마다 확인)",
+    "<code>진입알림 켜기</code> ★핵심·4H발산 진입  /  <code>진입알림 전체</code>  /  <code>진입알림 끄기</code>",
+    "<code>급변동알림 켜기</code>  <code>급변동알림 3%</code>  <code>급변동알림 30분</code>  <code>급변동알림 끄기</code>",
+    "알림은 한 번 울리면 사라지고, 자동 알림은 계속 와요",
+  ].join("\n"),
   send: () => [
     "📤 <b>보내기</b> (설정된 사진을 지금 받기)",
     "<code>리포트</code> TM Daily Report",
@@ -169,7 +181,7 @@ export const helpCat = (k, c) => (CAT[k] ? CAT[k](c || {}) : helpMain(c));
 export const helpButtons = () => ({ inline_keyboard: [
   [{ text: "📈 차트 보기", callback_data: "h:chart" }, { text: "🗂 섹터·테마", callback_data: "h:sector" }],
   [{ text: "🔎 조회", callback_data: "h:query" }, { text: "📤 보내기", callback_data: "h:send" }],
-  [{ text: "⚙️ 설정 바꾸기", callback_data: "h:set" }],
+  [{ text: "🔔 알림", callback_data: "h:alert" }, { text: "⚙️ 설정 바꾸기", callback_data: "h:set" }],
 ] });
 export const helpBack = () => ({ inline_keyboard: [[{ text: "◀ 처음으로", callback_data: "h:main" }]] });
 /* 화면 아래 고정 키보드(한 번 누르면 바로 실행) */
@@ -178,7 +190,7 @@ export const replyKeyboard = () => ({ keyboard: [["📋 리포트", "📈 흐름
 export const MENU = [
   ["help", "도움말 · 명령어 안내"], ["sectors", "섹터·테마 목록"], ["report", "리포트 사진 받기"], ["flow", "가격흐름 사진 받기"], ["cards", "설정한 종목 카드 받기"], ["rank", "순위 글 받기"], ["pattern", "패턴 셋업 리포트 받기"],
   ["now", "설정된 사진 전부 지금 받기"], ["core", "★핵심 종목"], ["hx", "4H 발산 종목"], ["macro", "지수·원자재·금리"], ["entries", "최근 진입"], ["surge", "급변동 TOP"], ["fx", "환율"],
-  ["status", "마지막·다음 발송 상태"], ["config", "현재 설정 보기"], ["mute", "조용히 (주기 발송 잠깐 쉬기)"], ["unmute", "다시 켜기"],
+  ["status", "마지막·다음 발송 상태"], ["config", "현재 설정 보기"], ["alerts", "알림 목록·등록"], ["mute", "조용히 (주기 발송 잠깐 쉬기)"], ["unmute", "다시 켜기"],
 ];
 
 /* 섹터 목록 글 + 버튼 */
