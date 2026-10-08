@@ -36,7 +36,7 @@ export async function hl(body, log) {
     }
     used.push([Date.now(), w]);
     try {
-      const r = await fetch(HL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const r = await fetch(HL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(25000) });   /* 응답이 안 오는 연결에 영원히 매달리지 않게 */
       if (r.ok) return await r.json();
       if (r.status === 429) { log && log("HL 429 — 잠시 대기"); await sleep(8000 + a * 4000); continue; }
       if (r.status >= 500) { await sleep(1500); continue; }
@@ -506,4 +506,20 @@ export async function renderCard(page, base, data) {
     if (data.caption.length > 1000) data.caption = data.caption.slice(0, 997) + "…";
   }
   return await page.screenshot({ type: "png" });
+}
+
+/* ═════════ 카드 사진 설정 적용 (사슬의 주기 카드 · 텔레그램 챗봇 카드가 같이 씀) ═════════ */
+export const CARD_VP = { pcxl: { w: 1600, h: 900 }, fwide: { w: 1092, h: 921 }, fcover: { w: 540, h: 1197 } };   /* 해상도 3종 → 카드 화면 크기(×2 = 사진 픽셀) */
+export const normRes = (v) => (CARD_VP[v] ? v : (v === "wide" || v === "pc" ? "pcxl" : "fwide"));
+export function applyCardCfg(d, cfg0, resKey, opt) {
+  opt = opt || {};
+  d.colors = cfg0.colors || null;
+  /* 일봉 미니차트(카드 왼쪽 아래): 켜기·크기·일봉 개수·넣을 지표. 패턴·패턴 글자는 항상 없음. 기본값 = 켬 · 보통 · 60개 · 지표 전부 */
+  const ind = Array.isArray(cfg0.cardDailyInd) ? cfg0.cardDailyInd : ["kel", "vwap", "vol", "rsi"];
+  d.mini = { on: cfg0.cardDaily !== false && !opt.noMini, size: ["s", "m", "l"].includes(cfg0.cardDailySize) ? cfg0.cardDailySize : "m", bars: [30, 60, 90].includes(+cfg0.cardDailyBars) ? +cfg0.cardDailyBars : 60, kel: ind.includes("kel"), vwap: ind.includes("vwap"), vol: ind.includes("vol"), rsi: ind.includes("rsi") };
+  d.vp = CARD_VP[normRes(String(resKey || cfg0.res || cfg0.cardRes || "fwide"))];
+  d.textOn = cfg0.cardText !== false;   /* 사진 아래 글 켜기/끄기 — 끄면 기본 정보 2줄만 */
+  d.scale = cfg0.cardScale === "price" ? "price" : "all";   /* 가격 스케일: 오토(지표 포함) / 가격만(캔들 중심) */
+  d.layers = cfg0.layers ? { pattern: !!cfg0.layers.pattern, vwap: !!cfg0.layers.vwap, ict: !!cfg0.layers.ict } : (cfg0.mode === "ict" ? { pattern: false, vwap: false, ict: true } : { pattern: true, vwap: true, ict: false });   /* 기본: 차트패턴 + VWAP 지지·저항 (ICT 꺼짐) */
+  return d;
 }

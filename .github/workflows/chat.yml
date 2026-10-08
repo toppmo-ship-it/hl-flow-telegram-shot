@@ -1,0 +1,95 @@
+name: telegram-chat
+
+# 텔레그램 챗봇 상시 실행: 한 번에 약 5시간 40분 동안 방의 글을 계속 읽고 답하다가, 끝나면 스스로 다음 실행을 걸어 이어달립니다.
+#  - 5분 사슬(shot.yml)과는 별개 작업이라 서로 영향을 주지 않습니다 (캐시 이름만 store-/chat- 로 다름)
+#  - cron 은 워치독: 이어달리기가 끊겼을 때만 되살립니다(이미 돌고 있으면 아무것도 안 함)
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      hello:
+        description: "true = 시작할 때 환영 글 + 도움말 다시 보내기"
+        default: "false"
+
+concurrency:
+  group: telegram-chat
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: 중복 실행 방지(워치독용)
+        id: guard
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            n=$(gh api "repos/${{ github.repository }}/actions/workflows/chat.yml/runs?per_page=20" \
+              --jq '[.workflow_runs[] | select(.id != ${{ github.run_id }}) | select(.status=="in_progress" or .status=="queued" or .status=="waiting" or .status=="pending")] | length' || echo 0)
+            if [ "${n:-0}" -gt 0 ]; then echo "챗봇이 살아 있음(진행/대기 ${n}건) — 이번 cron은 건너뜀"; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+            echo "진행 중인 챗봇이 없음 — 끊긴 것으로 보고 되살림"
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "t0=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: steps.guard.outputs.skip != 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.guard.outputs.skip != 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+        if: steps.guard.outputs.skip != 'true'
+
+      - name: 한글 글꼴 설치
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          mkdir -p ~/.fonts
+          cp fonts/*.ttf ~/.fonts/
+          fc-cache -f
+
+      - name: 캔들 저장본 이어받기 (챗봇 → 없으면 5분 사슬 것)
+        if: steps.guard.outputs.skip != 'true'
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: chat-${{ github.run_id }}
+          restore-keys: |
+            chat-
+            store-
+
+      - name: 챗봇 실행
+        id: bot
+        if: steps.guard.outputs.skip != 'true'
+        continue-on-error: true
+        timeout-minutes: 345
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          PATTERN_RANK_JSON: ${{ secrets.PATTERN_RANK_JSON }}
+          HL_BUDGET: "900"
+          BOT_MAX_MIN: "335"
+          BOT_HELLO: ${{ github.event.inputs.hello == 'true' && '1' || '0' }}
+        run: node chatbot.mjs
+
+      # 정상 종료든 오류든 반드시 다음 실행을 이어 걺. 시작 직후 계속 실패하면 1초마다 도는 일이 없도록 최소 간격을 둠
+      - name: 다음 챗봇 실행 이어걸기
+        if: ${{ always() && steps.guard.outputs.skip != 'true' }}
+        run: |
+          now=$(date +%s); el=$(( now - ${{ steps.guard.outputs.t0 || 0 }} ))
+          if [ "$el" -lt 300 ]; then echo "실행이 ${el}초 만에 끝남 — 3분 쉬고 이어걸기"; sleep 180; fi
+          for i in 1 2 3 4 5; do
+            if gh workflow run chat.yml --repo "${{ github.repository }}" --ref "${{ github.ref_name }}"; then echo "다음 챗봇 예약 OK (시도 $i)"; exit 0; fi
+            echo "예약 실패 $i/5 — 20초 뒤 재시도"; sleep 20
+          done
+          echo "::error::다음 챗봇 예약 5번 실패 — cron 워치독이 되살릴 때까지 멈춤"; exit 1

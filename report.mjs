@@ -119,22 +119,29 @@ async function resolveRef(S, log) {
   S.ref = { t: now, perps: meta.universe.map((u) => u.name), spot };
   return S.ref;
 }
-export async function buildReport({ cfg, info, uni, fx, cacheDir, log, deadline, limit, only }) {
-  const now = Date.now();
-  const order = (Array.isArray(cfg.repOrder) ? cfg.repOrder : BLOCK_IDS).filter((b, i, arr) => BLOCK_IDS.includes(b) && arr.indexOf(b) === i);
-  BLOCK_IDS.forEach((b) => { if (!order.includes(b)) order.push(b); });
-  const off = new Set(Array.isArray(cfg.repOff) ? cfg.repOff : []), blocks = order.filter((b) => !off.has(b));   /* repOrder = 전체 순서, repOff = 끈 항목 */
-  const colIds = (Array.isArray(cfg.repCols) ? cfg.repCols : COL_IDS.filter((c) => c !== "px")).filter((c) => COL_IDS.includes(c));   /* 가격 칸은 기본 꺼짐(지수·원자재 박스에는 항상 들어감) */
-  const allRows = Math.min(100, Math.max(10, +cfg.repRows || 45)), surgeMin = [5, 15, 30, 60].includes(+cfg.repSurge) ? +cfg.repSurge : 15;
-  /* 대상 종목: 사이트 관심종목 전부(코인·지수·원자재 포함). 10Y(금리)는 제외 */
-  const tickers = []; info.watch.forEach(([, items]) => items.split(",").forEach((t) => { if (t && !tickers.includes(t)) tickers.push(t); }));
-  const S = loadBars(cacheDir), ref = await resolveRef(S, log);
+/* 종목들의 지표 계산 결과(rows)를 모음 — 리포트·섹터 표·챗봇 조회가 함께 씀.
+   only = 이 티커들만 / extra = 사이트 관심종목에 없어도 추가 / bars = 이미 메모리에 있는 캔들 저장소(주면 파일 읽기·저장 생략) */
+/* 대상 코인 고르기(사이트 관심종목 + 추가 티커 → 하이퍼리퀴드 이름) */
+async function pickCoins({ info, uni, S, log, limit, only, extra }) {
+  const tickers = []; info.watch.forEach(([, items]) => items.split(",").forEach((t) => { if (t && !tickers.includes(t)) tickers.push(t); }));   /* 10Y(금리) 포함, 관심종목 전부 */
+  (extra || []).forEach((t) => { if (t && !tickers.includes(t)) tickers.push(t); });
+  const ref = await resolveRef(S, log);
   let coins = tickers.filter((t) => !only || only.includes(t)).map((t) => { const r = pickCoin(uni, t, info); if (!r) return null; let full = r.full; if (r.dex === "코인" && ref.perps.length && !ref.perps.includes(full) && ref.spot[full]) full = ref.spot[full]; return { tk: t, full }; }).filter(Boolean);
   const seen = new Set(); coins = coins.filter((c) => (seen.has(c.full) ? false : (seen.add(c.full), true)));
   if (limit) coins = coins.slice(0, limit);
+  return coins;
+}
+/* 챗봇 백그라운드: 캔들만 조금씩 갱신(계산 없음) */
+export async function refreshBars({ info, uni, bars, log, deadline }) {
+  const coins = await pickCoins({ info, uni, S: bars, log });
+  return ensureBars(bars, coins, { deadline, log, par: 3 });
+}
+export async function collectRows({ info, uni, fx, cacheDir, log, deadline, limit, only, extra, bars }) {
+  const now = Date.now();
+  const S = bars || loadBars(cacheDir), coins = await pickCoins({ info, uni, S, log, limit, only, extra });
   /* 캔들 받기(예산 안에서) → 저장 → 지금 가격 끼우기 */
   const st0 = await ensureBars(S, coins, { deadline, log });
-  saveBars(cacheDir, S);
+  if (!bars) saveBars(cacheDir, S);
   const mids = await fetchMids(coins, log);
   patchLive(S, coins, mids, now);
   const rows = [];
@@ -144,6 +151,35 @@ export async function buildReport({ cfg, info, uni, fx, cacheDir, log, deadline,
     const kn = splitKo(c.tk, (info.koFull || info.ko || {})[c.tk] || (info.ko || {})[c.tk], (info.sectorOf || {})[c.tk] ? String(info.sectorOf[c.tk]).replace(/\s*\(.*?\)/g, "") : "");
     rows.push({ tk: c.tk, full: c.full, name: kn.name, sec: kn.sec || "-", v, stock: isStock(c.tk), e });
   });
+  return { S, coins, rows, st0, now, mids };
+}
+export const rowFlags = flagsOf;
+export const rowIsCore = isCore;
+
+/* 섹터·테마 표 한 장: 고른 종목들을 (가격·등락·억원 + 설정한 표 칸)으로 보여 줌. 챗봇의 '메모리 대장주' 같은 요청용 */
+export async function buildListReport({ title, sub, tickers, cfg, info, uni, fx, cacheDir, log, deadline, bars }) {
+  const { rows, coins, st0, now } = await collectRows({ info, uni, fx, cacheDir, log, deadline, only: tickers, extra: tickers, bars });
+  const colIds = (Array.isArray(cfg.repCols) ? cfg.repCols : COL_IDS.filter((c) => c !== "px")).filter((c) => COL_IDS.includes(c));
+  const ids = ["px", "chg", "ntl"].concat(colIds.filter((c) => !["px", "chg", "ntl"].includes(c)));
+  const byTk = Object.fromEntries(rows.map((r) => [r.tk, r]));
+  const ordered = tickers.map((t) => byTk[t]).filter(Boolean);
+  const missing = tickers.filter((t) => !byTk[t]);
+  const cols = [["#", "c"], ["종목", "l"], ["이름", "l"], ["섹터", "l"]].concat(ids.map((id) => [COLS[id][0], COLS[id][1], COLS[id][2]]));
+  const sec = { index: true, title: title + " · " + ordered.length + "종목", sub, empty: "— 계산 가능한 종목 없음 —", cols,
+    rowbg: ordered.map((r) => (isCore(r.v) ? GOLD_ROW : null)),
+    rows: ordered.map((r, i) => [cell(i + 1, "#9fb3d9"), cell(r.tk, "#dce6f7", true), cell(nameOf(r), "#dce6f7"), cell(wcut(r.sec, 14), C.sub)].concat(ids.map((id) => COLS[id][3](r.v, r))) ,),
+    notes: missing.length ? ["데이터 없음: " + missing.join(", ")] : [] };
+  const header = { title: "TM 섹터 표 · " + hm(now), sub: mdhm(now) + " · 1$=" + Math.round(fx).toLocaleString("en-US") + "원 환산 · 억원=한화 · 금색 줄 = {S}핵심(양W +2 + 켈상단 + 4H켈중심) · {F} = 4H발산 · {o} = 충족" };
+  return { sections: [sec], header, foot: "데이터: 하이퍼리퀴드 캔들 · 거래대금은 하이퍼리퀴드 체결 기준 · 지표 정의는 TM Matrix Screener v48.9 와 동일", caption: "🗂 " + title + " · " + ordered.length + "종목 · " + hm(now), meta: { ok: ordered.length, total: coins.length, left: st0 ? st0.left : 0 }, rows: ordered };
+}
+
+export async function buildReport({ cfg, info, uni, fx, cacheDir, log, deadline, limit, only, bars, stateIO }) {
+  const order = (Array.isArray(cfg.repOrder) ? cfg.repOrder : BLOCK_IDS).filter((b, i, arr) => BLOCK_IDS.includes(b) && arr.indexOf(b) === i);
+  BLOCK_IDS.forEach((b) => { if (!order.includes(b)) order.push(b); });
+  const off = new Set(Array.isArray(cfg.repOff) ? cfg.repOff : []), blocks = order.filter((b) => !off.has(b));   /* repOrder = 전체 순서, repOff = 끈 항목 */
+  const colIds = (Array.isArray(cfg.repCols) ? cfg.repCols : COL_IDS.filter((c) => c !== "px")).filter((c) => COL_IDS.includes(c));   /* 가격 칸은 기본 꺼짐(지수·원자재 박스에는 항상 들어감) */
+  const allRows = Math.min(100, Math.max(10, +cfg.repRows || 45)), surgeMin = [5, 15, 30, 60].includes(+cfg.repSurge) ? +cfg.repSurge : 15;
+  const { rows, coins, st0, now } = await collectRows({ info, uni, fx, cacheDir, log, deadline, limit, only, bars });
   const cover = rows.length / Math.max(1, coins.length);
   const meta = { total: coins.length, ok: rows.length, cover, left: st0 ? st0.left : 0, fetched: st0 ? st0.fetched : 0 };
   if (rows.length < 20 || cover < 0.8) return { skip: "데이터 준비 중 (" + rows.length + "/" + coins.length + "종목 계산 가능 · 남은 받기 " + meta.left + "건)", meta };
@@ -152,6 +188,7 @@ export async function buildReport({ cfg, info, uni, fx, cacheDir, log, deadline,
   /* 진입 상태 */
   const stFile = path.join(cacheDir, "rep_state.json");
   let S2 = { flags: {}, log: [], day: "", cnt: {}, passed: [] }; try { S2 = Object.assign(S2, JSON.parse(fs.readFileSync(stFile, "utf8"))); } catch (e) {}
+  if (stateIO) { try { const rs = await stateIO.read(); if (rs && rs.t && rs.t >= (S2.t || 0)) S2 = Object.assign(S2, rs); } catch (e) {} }   /* 챗봇·사슬이 같은 '진입 기록'을 공유(더 최근 것 사용) */
   const cur = {}; rows.forEach((r) => { cur[r.tk] = flagsOf(r.v); });
   const baseline = Object.keys(S2.flags).length >= 20;
   if (baseline) { transitions(S2.flags, cur).forEach((x) => { S2.log.unshift({ k: x.k, t: now, kinds: x.kinds }); }); S2.log = S2.log.slice(0, 80); }
@@ -159,6 +196,7 @@ export async function buildReport({ cfg, info, uni, fx, cacheDir, log, deadline,
   const newIn = baseline ? nowPassed.filter((t) => !prevPassed.has(t)) : [], gone = baseline ? [...prevPassed].filter((t) => !nowPassed.includes(t)) : [];
   S2.flags = cur; S2.passed = nowPassed; S2.t = now;
   try { fs.mkdirSync(cacheDir, { recursive: true }); fs.writeFileSync(stFile, JSON.stringify(S2)); } catch (e) {}
+  if (stateIO) { try { await stateIO.write(S2); } catch (e) {} }
 
   /* ── 섹션들 ── */
   const indCols = colIds.map((id) => [COLS[id][0], COLS[id][1], COLS[id][2]]);
@@ -229,5 +267,5 @@ export async function buildReport({ cfg, info, uni, fx, cacheDir, log, deadline,
     sub: mdhm(now) + " · " + pass.length + "종목 (수집 " + rows.length + ") · 1$=" + Math.round(fx).toLocaleString("en-US") + "원 환산 · 억원=한화 · 등락=전일대비 · {o}=충족 · {F}=4H 켈트너 상단 위(발산)" };
   const foot = "데이터: 하이퍼리퀴드 캔들(일봉 = 한국 09:00 기준) · 거래대금은 하이퍼리퀴드 체결 기준 · 지표 정의는 TM Matrix Screener v48.9 와 동일 · 진입은 리포트를 만들 때마다 직전과 비교";
   const caption = "📋 TM Daily Report · " + hm(now) + " · " + pass.length + "종목 (수집 " + rows.length + ") · ★핵심 " + core.length + (S2.log.length ? " · 최근 진입 " + S2.log[0].k : "");
-  return { sections, header, foot, caption, meta: Object.assign(meta, { pass: pass.length, core: core.length }) };
+  return { sections, header, foot, caption, ent: S2.log.slice(0, 40), meta: Object.assign(meta, { pass: pass.length, core: core.length }) };
 }

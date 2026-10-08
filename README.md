@@ -39,3 +39,15 @@ Actions 탭 → telegram-chart → **Run workflow** (`dry=true` 면 캡처만, �
 
 ## 종목 카드의 일봉 미니차트
 카드 사진 왼쪽 아래에 일봉 N개(30/60/90) 차트를 겹쳐 붙임(`site/card.html` 의 `#mini`, 같은 `chartlib.js` 를 `iv:"1d"`·`compact:true`·`rightPad:6` 로 한 번 더 그림). 패턴·패턴 글자는 항상 끔. 설정(`tg_shot_cfg`): `cardDaily`(기본 켬) · `cardDailySize`(s/m/l) · `cardDailyBars` · `cardDailyInd`(kel·vwap·vol·rsi). 일봉 데이터는 카드가 이미 받는 일봉 220개를 재사용(HL 추가 호출 없음). 아래 지표 칩이 채워진 뒤 위치를 잡고, 메인 차트의 패널 제목이 미니에 걸치면 숨김.
+
+## 텔레그램 챗봇 (chat.yml · chatbot.mjs)
+
+방(TG_CHAT_ID)에 글을 쓰면 읽고 답하는 상시 봇. `chat.yml` 이 5시간 40분씩 이어달리며(워치독 cron 15분), 글이 오면 바로 처리합니다.
+- **차트**: 종목 이름·티커·줄임말 → 카드(기본 봉·기간은 설정 페이지 값, 글에 봉·기간을 쓰면 그때만 변경)
+- **섹터·테마**: 섹터 이름 → 표 한 장(`리포트` 표 칸 설정 따름), 뒤에 `카드` → 카드, `섹터` → 목록(버튼), `테마추가/삭제` → 내 테마
+- **조회**: 시세·지표·핵심·발산·켈유·거래대금·등락·급등·진입·매크로·환율·펀딩·OI순위
+- **보내기**: 리포트·흐름(`shot.mjs` 를 SHOT_ONLY=flow 로 실행)·카드·순위, `지금` = 사슬에 '지금 보내기' 요청(tg_shot_cmd)
+- **설정**: 주기·해상도·미니차트·기본봉/기간·카드 종목·조용히(tg_bot_mute, 사슬이 읽고 쉼) — 모두 Supabase `tg_shot_cfg` 를 읽고-고치고-씀(설정 페이지와 같은 값)
+- 구조: 말 해석 `chatparse.mjs`(순수 함수) · 글 꾸미기/도움말 `chatfmt.mjs` · 본체 `chatbot.mjs` · 캔들은 메모리에 계속 최신으로 유지(백그라운드)
+- 보안: 설정된 방(TG_CHAT_ID) 글만 처리. 처리한 update 번호는 `tg_bot_offset` 에 저장(재시작해도 중복 처리 없음)
+- 시험: `BOT_DRY=1 BOT_INPUT=in.txt node chatbot.mjs` (줄마다 한 글, `@h:chart` 처럼 `@` 로 시작하면 버튼) — 전송·저장 없이 화면 출력 + `out_chat/*.png`
