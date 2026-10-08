@@ -68,8 +68,9 @@ const NON_KEYWORDS = ["지수", "원자재", "ETF", "환율", "곡물"];
 /* ETF지만 전종목(개별주) 표에서 같이 보고 싶은 티커 */
 const STOCK_LIKE = new Set(["DRAM", "SMH", "SOXL", "EWY", "KORU", "MAGS", "EWJ", "EWT", "EWZ"]);
 
+const HANJA = (t) => String(t).replace(/美/g, "미국").replace(/中/g, "중국").replace(/日/g, "일본").replace(/韓/g, "한국");   /* 서버(나눔고딕)에 한자 글리프가 없어 빈칸으로 나옴 → 한글로 */
 export function splitKo(ticker, siteKo, siteSector) {
-  const e = KO[String(ticker).toUpperCase()];
+  const e = KO[String(ticker).toUpperCase()] ? HANJA(KO[String(ticker).toUpperCase()]) : undefined;
   let name, sec = "";
   if (e) { const p = e.split(" · "); name = p[0]; sec = p.length > 1 ? p[1].replace(/\(.*?\)/g, "").trim() : ""; }
   else name = (siteKo && siteKo !== ticker) ? siteKo : ticker;

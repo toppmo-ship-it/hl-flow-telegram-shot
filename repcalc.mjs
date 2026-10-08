@@ -78,7 +78,7 @@ export function calcCoin(e, now) {
   const todayRows = m15.filter((r) => r[0] >= todayStart);
   const D = dDone.filter((b) => b[0] < todayStart).slice(-N1D);
   if (todayRows.length) { const a = agg(todayRows, D1)[0]; D.push(a); }
-  if (D.length < 25) return null;
+  if (D.length < 12) return null;   /* 상장 직후(일봉 12개~)도 계산 — 모자라는 지표는 파인과 같이 0/없음 */
   const dh = D.map((b) => b[1]), dl = D.map((b) => b[2]), dc = D.map((b) => b[3]), dv = D.map((b) => b[4] || 0);
   const n = D.length, i = n - 1, px = dc[i];
   /* 일봉 켈트너 상단 = EMA20 + ATR10 × 1.5, 켈유 = 상단 위 종가 연속 일수 */
@@ -167,7 +167,7 @@ function merge(old, rows, keep) { const m = new Map((old || []).map((r) => [r[0]
 /* 코인 하나가 지금 받아야 할 것(없으면 빈 배열) — 우선순위가 높을수록 앞 */
 function needs(e, now) {
   const out = [];
-  if (e.bad && now - e.bad < 6 * 3600e3) return out;
+  if (e.bad && now - e.bad < 3 * 3600e3) return out;
   const cur15 = Math.floor(now / M15) * M15, td = Math.floor(now / D1) * D1, c4 = Math.floor(now / H4) * H4;
   if (!e.m || (e.m.length < 400 && !e.mHist)) out.push({ k: "m", full: true, pri: 0 });
   else if ((e.tm || 0) < cur15) out.push({ k: "m", full: false, pri: 1 });
@@ -190,7 +190,7 @@ export async function ensureBars(S, coins, { deadline, log, par = 4 }) {
       if (t.k === "m") {
         const from = t.full ? tn - N15 * M15 : Math.max(tn - N15 * M15, e.m[e.m.length - 1][0] - 2 * M15);
         const got = await hl({ type: "candleSnapshot", req: { coin: c.full, interval: "15m", startTime: from, endTime: tn } }, log);
-        if (got === null) { e.fail = (e.fail || 0) + 1; if (e.fail >= 3) e.bad = tn; return; }
+        if (got === null) return;   /* 호출 한도·네트워크 같은 일시 오류 — 제외하지 않고 다음 실행에서 다시 */
         const rows = toRows(got, true);
         if (!rows.length) { e.fail = (e.fail || 0) + 1; if (e.fail >= 3) e.bad = tn; return; }
         e.m = merge(e.m, rows, N15); e.tm = tn; e.fail = 0;

@@ -3,7 +3,7 @@
    설정(tg_shot_cfg): rep(켬/끔) · repEvery(분) · repOrder(항목 순서, 위→아래) · repOff(끈 항목) · repCols(표 칸) · repRows(전종목 줄 수) · repSurge(급변동 구간, 분) */
 import fs from "node:fs";
 import path from "node:path";
-import { pickRow } from "./extras.mjs";
+import { pickRow, hl } from "./extras.mjs";
 import { splitKo, isStock, FIXED_INDEX } from "./repnames.mjs";
 import { loadBars, saveBars, ensureBars, patchLive, fetchMids, calcCoin, changeOver } from "./repcalc.mjs";
 
@@ -96,7 +96,17 @@ function entryCell(kinds) {
 }
 
 /* ───────── 메인: 데이터 → 섹션 ───────── */
-export async function buildReport({ cfg, info, uni, fx, cacheDir, log, deadline, limit }) {
+/* 메인 거래소 perp 이름 + 현물(USDC) 페어 이름(@번호) — KNTQ 처럼 perp 가 아니라 현물인 종목 연결용. 12시간마다 갱신 */
+async function resolveRef(S, log) {
+  const now = Date.now(); if (S.ref && now - S.ref.t < 12 * 3600e3) return S.ref;
+  const meta = await hl({ type: "meta" }, log), sm = await hl({ type: "spotMeta" }, log);
+  if (!meta || !sm || !meta.universe || !sm.tokens) return S.ref || { t: 0, perps: [], spot: {} };
+  const nameBy = {}; sm.tokens.forEach((t) => { nameBy[t.index] = t.name; });
+  const spot = {}; sm.universe.forEach((u) => { const b = nameBy[u.tokens[0]]; if (nameBy[u.tokens[1]] === "USDC" && !(b in spot)) spot[b] = u.name; });
+  S.ref = { t: now, perps: meta.universe.map((u) => u.name), spot };
+  return S.ref;
+}
+export async function buildReport({ cfg, info, uni, fx, cacheDir, log, deadline, limit, only }) {
   const now = Date.now();
   const order = (Array.isArray(cfg.repOrder) ? cfg.repOrder : BLOCK_IDS).filter((b, i, arr) => BLOCK_IDS.includes(b) && arr.indexOf(b) === i);
   BLOCK_IDS.forEach((b) => { if (!order.includes(b)) order.push(b); });
@@ -105,11 +115,11 @@ export async function buildReport({ cfg, info, uni, fx, cacheDir, log, deadline,
   const allRows = Math.min(100, Math.max(10, +cfg.repRows || 45)), surgeMin = [5, 15, 30, 60].includes(+cfg.repSurge) ? +cfg.repSurge : 15;
   /* 대상 종목: 사이트 관심종목 전부(코인·지수·원자재 포함). 10Y(금리)는 제외 */
   const tickers = []; info.watch.forEach(([, items]) => items.split(",").forEach((t) => { if (t && t !== "10Y" && !tickers.includes(t)) tickers.push(t); }));
-  let coins = tickers.map((t) => { const r = pickRow(uni, t, info); return r ? { tk: t, full: r.full } : null; }).filter(Boolean);
+  const S = loadBars(cacheDir), ref = await resolveRef(S, log);
+  let coins = tickers.filter((t) => !only || only.includes(t)).map((t) => { const r = pickRow(uni, t, info); if (!r) return null; let full = r.full; if (r.dex === "코인" && ref.perps.length && !ref.perps.includes(full) && ref.spot[full]) full = ref.spot[full]; return { tk: t, full }; }).filter(Boolean);
   const seen = new Set(); coins = coins.filter((c) => (seen.has(c.full) ? false : (seen.add(c.full), true)));
   if (limit) coins = coins.slice(0, limit);
   /* 캔들 받기(예산 안에서) → 저장 → 지금 가격 끼우기 */
-  const S = loadBars(cacheDir);
   const st0 = await ensureBars(S, coins, { deadline, log });
   saveBars(cacheDir, S);
   const mids = await fetchMids(coins, log);
@@ -148,7 +158,7 @@ export async function buildReport({ cfg, info, uni, fx, cacheDir, log, deadline,
   const sec = {};
   const topN = (title, list, extraSub, cols, fn) => ({ half: true, title, sub: extraSub, empty: "— 해당 없음 —", cols, rowbg: goldBg(list), rows: list.map(fn) });
 
-  sec.core = () => { const l = core.slice().sort(byEok), s = l.slice(0, 5); return { feature: true, title: "핵심 · 켈상단 + 4H켈중심", sub: l.length + "종목 중 · 양W +2 + 켈상단 + 4H켈중심", empty: "— 지금 조건 충족 종목 없음 —", cols: bigCols, rowbg: undefined, rows: s.map((r, i) => bigRow(r, i, true)) }; };
+  sec.core = () => { const l = core.slice().sort(byEok), s = l.slice(0, 5); return { feature: true, title: "{S} 핵심 · 켈상단 + 4H켈중심", sub: l.length + "종목 중 · 양W +2 + 켈상단 + 4H켈중심", empty: "— 지금 조건 충족 종목 없음 —", cols: bigCols, rowbg: undefined, rows: s.map((r, i) => bigRow(r, i, true)) }; };
   sec.index = () => {
     const non = rows.filter((r) => !r.stock), fixed = FIXED_INDEX.map((t) => non.find((r) => r.tk === t)).filter(Boolean);
     const rest = non.filter((r) => !FIXED_INDEX.includes(r.tk)).sort(byEok).slice(0, 6), l = fixed.concat(rest);
