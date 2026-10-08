@@ -260,6 +260,19 @@ async function runReport({ cfg0, q, dry }) {
   const st = loadState(); st.lastRep = now; saveState(st);
 }
 
+/* ── 텔레그램 방 진단(한 번만): 봇이 이 방의 글을 읽을 수 있는지 확인용. 키·방 번호는 기록하지 않고 종류/권한만 Supabase tg_diag 에 남김 ── */
+async function tgDiag() {
+  const out = { at: new Date().toISOString() };
+  const tg = async (m, p) => { try { const r = await fetch("https://api.telegram.org/bot" + tgToken() + "/" + m, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p || {}) }); return await r.json(); } catch (e) { return { ok: false, description: String(e.message || e) }; } };
+  const chat = clean(process.env.TG_CHAT_ID);
+  const me = await tg("getMe"); out.bot = me.ok ? { username: me.result.username, can_read_all_group_messages: me.result.can_read_all_group_messages, can_join_groups: me.result.can_join_groups } : { error: me.description };
+  const ch = await tg("getChat", { chat_id: chat }); out.chat = ch.ok ? { type: ch.result.type, title: ch.result.type === "private" ? null : (ch.result.title || null), is_forum: !!ch.result.is_forum } : { error: ch.description };
+  if (ch.ok && ch.result.type !== "private" && me.ok) { const m = await tg("getChatMember", { chat_id: chat, user_id: me.result.id }); out.member = m.ok ? { status: m.result.status } : { error: m.description }; }
+  const wh = await tg("getWebhookInfo"); out.webhook = wh.ok ? { url_set: !!wh.result.url, pending: wh.result.pending_update_count, last_error: wh.result.last_error_message || null } : { error: wh.description };
+  try { await fetch(SBU + "/rest/v1/hlgrid_settings?on_conflict=key", { method: "POST", headers: { apikey: SBK, Authorization: "Bearer " + SBK, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" }, body: JSON.stringify({ key: "tg_diag", value: out, updated_at: new Date().toISOString() }) }); } catch (e) {}
+  return out;
+}
+
 async function runExtras({ cfg0, q, dry, base }) {
   const flag = (qv, cv) => (qv != null ? qv === "1" : !!cv);
   const wantW = flag(q.rankw, cfg0.rankWeekly), wantS = flag(q.ranks, cfg0.rankSurge);
@@ -348,6 +361,7 @@ async function main() {
   const sendCmd = process.env.SHOT_CMD ? JSON.parse(process.env.SHOT_CMD) : await sbRead("tg_shot_cmd");
   const manual = !!(sendCmd && sendCmd.id && sendCmd.id !== loadState().lastCmd);
   if (manual) { q.force = "1"; const s0 = loadState(); s0.lastCmd = sendCmd.id; saveState(s0); log("📤 「지금 보내기」 요청 — 설정된 사진을 모두 바로 보냅니다 (" + (sendCmd.at || "") + ")"); }
+  { const sd = loadState(); if (!dry && !sd.diag1) { try { const r = await tgDiag(); log("텔레그램 방 진단", JSON.stringify({ chat: r.chat && r.chat.type, bot_read_all: r.bot && r.bot.can_read_all_group_messages, member: r.member && r.member.status, webhook: r.webhook && r.webhook.url_set })); } catch (e) { log("진단 오류", String(e && e.message || e)); } sd.diag1 = Date.now(); saveState(sd); } }
   const wantFlow = q.force === "1" || due(loadState().lastFlow, cfg0.flowEvery != null ? +cfg0.flowEvery : 0);   /* 가격흐름 사진 보내는 주기(0 = 매번 5분) */
   const list = (v, def) => (v == null ? def : String(v).split(",").map((x) => x.replace(/[^0-9a-z]/g, "")).filter(Boolean));
   const frame = String(q.frame || cfg0.frame).replace(/[^0-9A-Za-z]/g, ""), iv = String(q.iv || cfg0.iv).replace(/[^0-9a-z]/g, "");
