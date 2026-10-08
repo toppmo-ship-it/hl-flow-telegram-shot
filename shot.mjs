@@ -304,6 +304,9 @@ async function runExtras({ cfg0, q, dry, base }) {
         const d = await buildCardData({ row, ticker: t, info, iv, days, fx, log, cacheDir: CACHE, mode: cfg0.mode });
         if (!d) { log("카드 데이터 부족:", t); continue; }
         d.colors = cfg0.colors || null;
+        /* 일봉 미니차트(카드 왼쪽 아래): 켜기·크기·일봉 개수·넣을 지표. 패턴·패턴 글자는 항상 없음. 기본값 = 켬 · 보통 · 60개 · 지표 전부 */
+        { const ind = Array.isArray(cfg0.cardDailyInd) ? cfg0.cardDailyInd : ["kel", "vwap", "vol", "rsi"];
+          d.mini = { on: cfg0.cardDaily !== false, size: ["s", "m", "l"].includes(cfg0.cardDailySize) ? cfg0.cardDailySize : "m", bars: [30, 60, 90].includes(+cfg0.cardDailyBars) ? +cfg0.cardDailyBars : 60, kel: ind.includes("kel"), vwap: ind.includes("vwap"), vol: ind.includes("vol"), rsi: ind.includes("rsi") }; }
         d.vp = ({ pcxl: { w: 1600, h: 900 }, fwide: { w: 1092, h: 921 }, fcover: { w: 540, h: 1197 } })[normRes(String(q.res || cfg0.res || cfg0.cardRes || "fwide"))];   /* 카드 사진도 흐름 사진과 같은 3종: 폴드 접힘 1080×2394 / 폴드 펼침 가로 2184×1842 / PC 16:9 3200×1800 */
         d.textOn = cfg0.cardText !== false;   /* 사진 아래 글 켜기/끄기 — 끄면 기본 정보 2줄(종목·가격·24h 거래대금)만 */
         d.scale = cfg0.cardScale === "price" ? "price" : "all";   /* 가격 스케일: 오토(지표 포함) / 가격만(캔들 중심) */

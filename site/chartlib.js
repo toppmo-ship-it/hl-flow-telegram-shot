@@ -578,10 +578,10 @@ function build(el, data, opt) {
   const subs = SUB_ORDER.filter((s) => (opt.subs || SUB_ORDER).includes(s));
   const chart = LW.createChart(el, {
     autoSize: true,
-    layout: { background: { type: "solid", color: "#0a0f19" }, textColor: "#9fb1cf", fontFamily: '"Pretendard","Malgun Gothic","Nanum Gothic",system-ui,sans-serif', fontSize: 14, panes: { separatorColor: "#34507f", separatorHoverColor: "#6f9bff", enableResize: false } },
+    layout: { background: { type: "solid", color: "#0a0f19" }, textColor: "#9fb1cf", fontFamily: '"Pretendard","Malgun Gothic","Nanum Gothic",system-ui,sans-serif', fontSize: opt.compact ? 11 : 14, attributionLogo: !opt.compact, panes: { separatorColor: "#34507f", separatorHoverColor: "#6f9bff", enableResize: false } },
     grid: { vertLines: { color: "#101a2b" }, horzLines: { color: "#101a2b" } },
     rightPriceScale: { borderColor: "#1c2a44", scaleMargins: { top: 0.04, bottom: 0.04 } },
-    timeScale: { borderColor: "#1c2a44", timeVisible: true, rightOffset: 18, barSpacing: opt.barSpacing || 8,
+    timeScale: { borderColor: "#1c2a44", timeVisible: true, rightOffset: opt.rightPad != null ? opt.rightPad : 18, barSpacing: opt.barSpacing || 8,
       tickMarkFormatter: (t, type) => { const x = new Date(t * 1000), p = (n) => String(n).padStart(2, "0"), W = ["일", "월", "화", "수", "목", "금", "토"]; return type <= 2 ? (x.getUTCMonth() + 1) + "/" + x.getUTCDate() + "(" + W[x.getUTCDay()] + ")" : p(x.getUTCHours()) + ":" + p(x.getUTCMinutes()); } },
     localization: { timeFormatter: (t) => { const x = new Date(t * 1000), p = (n) => String(n).padStart(2, "0"); return (x.getUTCMonth() + 1) + "/" + x.getUTCDate() + " " + p(x.getUTCHours()) + ":" + p(x.getUTCMinutes()); } },
     crosshair: { mode: 0, vertLine: { visible: false }, horzLine: { visible: false } },
@@ -653,7 +653,7 @@ function build(el, data, opt) {
     }
   });
   Object.keys(ctl.subSeries).forEach((k) => { const nb = new NightBand(); nb.set(nights, col.night); ctl.subSeries[k].attachPrimitive(nb); ctl.nights.push(nb); });
-  const ps = chart.panes(); ps[0].setStretchFactor(subs.length ? 6.5 : 1); subs.forEach((id, i) => ps[i + 1] && ps[i + 1].setStretchFactor(id === "rsi" ? 1.7 : 1));
+  const ps = chart.panes(); ps[0].setStretchFactor(subs.length ? (opt.compact ? 4.4 : 6.5) : 1); subs.forEach((id, i) => ps[i + 1] && ps[i + 1].setStretchFactor(id === "rsi" ? 1.7 : 1));
 
   /* ICT: 도형 + 지지·저항(전환 구분) */
   const I = patMode ? {} : (opt.ict || {});
@@ -687,12 +687,13 @@ function build(el, data, opt) {
   /* 패널 제목(왼쪽 위) */
   function titles() {
     el.querySelectorAll(".paneTitle").forEach((x) => x.remove());
-    const pr = chart.panes(), base = el.getBoundingClientRect(), mk = (txt, top) => { const d = document.createElement("div"); d.className = "paneTitle"; d.textContent = txt; d.style.cssText = "position:absolute;left:10px;top:" + (top + 4) + "px;z-index:6;font:700 13px 'Pretendard','Malgun Gothic','Nanum Gothic',sans-serif;color:#aebfdc;background:rgba(10,15,25,.78);padding:2px 7px;border-radius:5px;pointer-events:none"; el.appendChild(d); };
-    subs.forEach((id, i) => { const p = pr[i + 1]; if (!p || !p.getHTMLElement()) return; mk(SUB_TITLE[id], p.getHTMLElement().getBoundingClientRect().top - base.top); });
-    const lg = []; if (K.on !== false) lg.push("일봉 켈트너(20/10/1.5) — 중심선 주황 · 상하단 노랑" + (isDaily ? "" : " · 그날의 일봉 값(계단)"));
-    const d = document.createElement("div"); d.className = "paneTitle"; d.textContent = lg.join(""); d.style.cssText = "position:absolute;left:10px;top:6px;z-index:6;font:700 13px 'Pretendard','Malgun Gothic','Nanum Gothic',sans-serif;color:#c9d6ee;background:rgba(10,15,25,.78);padding:2px 7px;border-radius:5px;pointer-events:none"; if (lg.length) el.appendChild(d);
+    const CP = !!opt.compact, FS = CP ? 11 : 13, ST = CP ? { vol: "거래량", rsi: "RSI 14" } : SUB_TITLE;   /* 작은 차트(일봉 미니)는 제목을 짧게 */
+    const pr = chart.panes(), base = el.getBoundingClientRect(), mk = (txt, top) => { const d = document.createElement("div"); d.className = "paneTitle"; d.textContent = txt; d.style.cssText = "position:absolute;left:" + (CP ? 8 : 10) + "px;top:" + (top + (CP ? 3 : 4)) + "px;z-index:6;font:700 " + FS + "px 'Pretendard','Malgun Gothic','Nanum Gothic',sans-serif;color:#aebfdc;background:rgba(10,15,25,.78);padding:2px 7px;border-radius:5px;pointer-events:none"; el.appendChild(d); };
+    subs.forEach((id, i) => { const p = pr[i + 1]; if (!p || !p.getHTMLElement()) return; mk(ST[id], p.getHTMLElement().getBoundingClientRect().top - base.top); });
+    const lg = []; if (CP) lg.push("일봉 " + (opt.windowBars || cs.length) + "개" + (K.on !== false ? " · 켈트너(20/10/1.5)" : "")); else if (K.on !== false) lg.push("일봉 켈트너(20/10/1.5) — 중심선 주황 · 상하단 노랑" + (isDaily ? "" : " · 그날의 일봉 값(계단)"));
+    const d = document.createElement("div"); d.className = "paneTitle"; d.textContent = lg.join(""); d.style.cssText = "position:absolute;left:" + (CP ? 8 : 10) + "px;top:" + (CP ? 5 : 6) + "px;z-index:6;font:700 " + FS + "px 'Pretendard','Malgun Gothic','Nanum Gothic',sans-serif;color:#c9d6ee;background:rgba(10,15,25,.78);padding:2px 7px;border-radius:5px;pointer-events:none"; if (lg.length) el.appendChild(d);
   }
-  chart.timeScale().setVisibleLogicalRange({ from: winFrom, to: cs.length - 1 + Math.max(18, Math.round((cs.length - winFrom) * 0.09)) });   /* 오른쪽 여백 18봉: 최신 봉·가격 숫자가 겹치지 않게 */
+  chart.timeScale().setVisibleLogicalRange({ from: winFrom, to: cs.length - 1 + Math.max(opt.rightPad != null ? opt.rightPad : 18, Math.round((cs.length - winFrom) * 0.09)) });   /* 오른쪽 여백 18봉: 최신 봉·가격 숫자가 겹치지 않게 */
   setTimeout(titles, 60); ctl.titles = titles;
   /* 라이브 갱신용 */
   ctl.refreshAll = () => { drawKeltner(); if (ctl.vw) ctl.vw.set(cs); const r = drawIct(); if (ctl.patLayer) { ctl.pat = root_.Patterns.detect(cs); ctl.patLayer.set(ctl.pat, winFrom, cs, Math.max(14, Math.round((cs.length - winFrom) * 0.09) - 2)); } return r; };

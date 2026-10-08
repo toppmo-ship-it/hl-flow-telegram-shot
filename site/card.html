@@ -20,6 +20,8 @@ html,body{margin:0;height:100%;background:radial-gradient(900px 420px at 15% -10
 #chart{position:absolute;left:12px;right:12px;top:92px;bottom:84px;border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 0 22px rgba(60,140,255,.14)}
 .legend{position:absolute;left:24px;top:106px;z-index:5;font-size:15px;color:var(--mute);font-weight:600}
 .legend b{color:var(--gold)}
+/* 일봉 미니차트: 메인 차트 왼쪽 아래에 겹쳐 놓음(크기·위치는 JS 가 계산) */
+#mini{position:absolute;display:none;z-index:8;border-radius:12px;overflow:hidden;background:#0a0f19;border:1.5px solid rgba(255,216,77,.55);box-shadow:0 10px 30px rgba(0,0,0,.65),0 0 0 1px rgba(0,0,0,.4)}
 #qf{position:absolute;right:16px;bottom:10px;left:16px;height:68px;display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:6px}
 #qf .r1,#qf .r2{display:flex;gap:8px;align-items:center;flex-wrap:nowrap}
 #qf .chip{padding:3px 11px;border-radius:8px;font-size:15px;font-weight:800;border:1px solid #2a3f68;background:rgba(10,18,32,.9);color:#cfe0ff;white-space:nowrap}
@@ -53,6 +55,7 @@ html,body{margin:0;height:100%;background:radial-gradient(900px 420px at 15% -10
 <div id="card">
  <div id="head"><div id="hl"><div><span id="ttl"></span><span id="per"></span></div><div id="sub"></div></div><div id="px"></div></div>
  <div id="chart"></div>
+ <div id="mini"></div>
  <div class="legend" id="lg"></div>
  <div id="qf"></div>
 </div>
@@ -73,7 +76,7 @@ window.renderCard=function(d){
  const ctl=ChartLib.build(el,{candles:d.candles,daily:d.daily||[]},{iv:d.iv,mode:d.mode||"pattern",layers:d.layers||undefined,windowBars:d.windowBars,colors:d.colors,barSpacing:8,scale:d.scale||"all",kel:{on:true,wC:3,wB:3},ict:{sr:true,struct:true,fvg:true,ob:true,liq:true,pd:true}});
  document.getElementById("lg").innerHTML="";
  window.__ctl=ctl;ctl.titles();
- [150,350,600].forEach(function(t){setTimeout(function(){try{document.getElementById("lg").style.top=(document.getElementById("chart").offsetTop+12)+"px";ctl.titles();}catch(e){}},t);});   /* 좁은 화면은 차트 레이아웃이 늦게 확정돼서 창 제목 위치를 사진 찍기 전에 여러 번 다시 잡음 */
+ [150,350,600].forEach(function(t){setTimeout(function(){try{document.getElementById("lg").style.top=(document.getElementById("chart").offsetTop+12)+"px";ctl.titles();if(window.__miniPos)window.__miniPos();}catch(e){}},t);});   /* 좁은 화면은 차트 레이아웃이 늦게 확정돼서 창 제목 위치를 사진 찍기 전에 여러 번 다시 잡음 */
  const sum=ctl.summary();
  try{ if(sum.quant){const q=sum.quant,P=q.pts,qf=document.getElementById("qf");
   const ar=(on)=>on?'<span class="up">▲</span>':'<span class="dn">▼</span>';
@@ -89,6 +92,23 @@ window.renderCard=function(d){
   '<span class="it">%R48 <b>'+f(q.w48,0)+'</b> '+ar(P.w48)+'</span>'+
   '<span class="it">VWAP(구조 시작점) <b>'+(q.avGap==null?"—":(q.avGap>=0?"+":"")+q.avGap.toFixed(1)+"%")+'</b> '+ar(P.vwap)+'</span></div>';
  }}catch(e){}
+ /* ── 일봉 미니차트(d.mini): 일봉 N개 · 켈트너/VWAP/거래량/RSI 선택 · 패턴·패턴 글자는 없음 · 메인 차트 왼쪽 아래 고정 ──
+    아래쪽 지표 칩이 다 채워진 뒤(차트 높이가 확정된 뒤)에 위치를 잡고, 레이아웃이 더 바뀌어도 다시 맞춤 */
+ try{
+  const mel=document.getElementById("mini"),mm=d.mini;mel.style.display="none";mel.innerHTML="";window.__mini=null;
+  if(mm&&mm.on&&d.daily&&d.daily.length>=30){
+   const narrow=window.innerWidth<=760,frac=({s:narrow?.40:.30,m:narrow?.48:.38,l:narrow?.58:.46})[mm.size]||(narrow?.48:.38);
+   const pos=function(){const cw=el.offsetWidth,chh=el.offsetHeight,w=Math.round(cw*frac),h=Math.min(Math.round(w/(narrow?1.15:1.7)),Math.round(chh*.55));
+    mel.style.display="block";mel.style.width=w+"px";mel.style.height=h+"px";mel.style.left=(el.offsetLeft+6)+"px";mel.style.top=(el.offsetTop+chh-h-6)+"px";
+    /* 미니가 덮은 메인 차트의 패널 제목은 숨김(일부만 삐져나와 지저분해 보이지 않게) */
+    const mr=mel.getBoundingClientRect();el.querySelectorAll(".paneTitle").forEach(function(t){const r=t.getBoundingClientRect();t.style.visibility=(r.left<mr.right&&r.right>mr.left&&r.top<mr.bottom&&r.bottom>mr.top)?"hidden":"visible";});};
+   pos();
+   const dcs=d.daily.map(function(c){return {time:c.time,open:c.open,high:c.high,low:c.low,close:c.close,volume:c.volume*(c.high+c.low+c.close)/3};});   /* 거래량 = 거래대금($) — 메인과 같은 기준 */
+   const subs=[];if(mm.vol)subs.push("vol");if(mm.rsi)subs.push("rsi");
+   const mctl=ChartLib.build(mel,{candles:dcs,daily:d.daily},{iv:"1d",mode:d.mode||"pattern",layers:{pattern:false,vwap:!!mm.vwap,ict:false},windowBars:mm.bars||60,colors:d.colors,barSpacing:6,scale:d.scale||"all",kel:{on:!!mm.kel,wC:3,wB:3},subs:subs,compact:true,rightPad:6});
+   window.__mini=mctl;window.__miniPos=pos;[100,250,450].forEach(function(t){setTimeout(function(){try{pos();mctl.titles();}catch(e){}},t);});
+  }
+ }catch(e){window.__miniErr=String(e&&e.message||e);}
  return sum;
 };})();
 </script>
