@@ -27,6 +27,26 @@ html,body{margin:0;height:100%;background:radial-gradient(900px 420px at 15% -10
 #qf .it{font-size:14.5px;font-weight:700;color:#b7c6e2;white-space:nowrap;padding:2px 9px;border-radius:7px;background:rgba(10,18,32,.75);border:1px solid #1d2b47}
 #qf .it b{font-weight:800;color:#e8f0ff}
 #qf .up{color:#ff6b78}#qf .dn{color:#5fb8ff}
+/* ── 좁은 세로 화면(폴드 접힘 540px 등): 위 제목줄은 3줄로 쌓고, 아래 지표 칩은 줄바꿈 · 차트는 남는 높이를 채움 → 글자가 겹치거나 잘리지 않게 ── */
+@media (max-width:760px){
+ #card{display:flex;flex-direction:column;padding:12px 12px 10px}
+ #head{flex:none;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:6px;height:auto;padding:0 4px 8px}
+ #hl{flex:none}
+ #ttl{display:block;font-size:25px;margin-bottom:5px}
+ #per{display:inline-block;margin-left:0;font-size:15px;padding:2px 10px;vertical-align:middle}
+ #sub{margin-top:6px;font-size:14px}
+ #px{display:flex;align-items:baseline;justify-content:space-between;gap:10px;font-size:26px;width:100%}
+ #ts{font-size:15px;margin-right:0}
+ #px small{font-size:17px;margin-right:6px}
+ #px .pr{white-space:nowrap}
+ #chart{position:relative;left:auto;right:auto;top:auto;bottom:auto;flex:1 1 auto;min-height:0;margin:0 0 8px}
+ .legend{font-size:13px}
+ #qf{position:static;flex:none;height:auto;left:auto;right:auto;bottom:auto;align-items:stretch;justify-content:flex-start;gap:6px;padding:0 2px}
+ #qf .r1,#qf .r2{flex-wrap:wrap;justify-content:center;gap:6px}
+ #qf .chip{font-size:14px;padding:3px 10px}
+ #qf .sc{font-size:15.5px;padding:3px 12px}
+ #qf .it{font-size:13px;padding:2px 8px}
+}
 </style>
 </head>
 <body>
@@ -47,11 +67,13 @@ const LW=window.LightweightCharts,KST=9*3600;
 const pad=n=>String(n).padStart(2,"0"),WD=["일","월","화","수","목","금","토"];
 window.renderCard=function(d){
  document.getElementById("ttl").textContent=d.ttl||d.title;document.getElementById("per").textContent=d.period||"";document.getElementById("sub").textContent=d.sub||"";
- document.getElementById("px").innerHTML="<span id=\"ts\">"+(d.stamp||"")+"</span><small>Price</small>$"+d.price;
+ document.getElementById("px").innerHTML="<span id=\"ts\">"+(d.stamp||"")+"</span><span class=\"pr\"><small>Price</small>$"+d.price+"</span>";
  const el=document.getElementById("chart");
+ document.getElementById("lg").style.top=(el.offsetTop+12)+"px";   /* 범례는 차트 맨 위에 맞춤 */
  const ctl=ChartLib.build(el,{candles:d.candles,daily:d.daily||[]},{iv:d.iv,mode:d.mode||"pattern",layers:d.layers||undefined,windowBars:d.windowBars,colors:d.colors,barSpacing:8,scale:d.scale||"all",kel:{on:true,wC:3,wB:3},ict:{sr:true,struct:true,fvg:true,ob:true,liq:true,pd:true}});
  document.getElementById("lg").innerHTML="";
  window.__ctl=ctl;ctl.titles();
+ [150,350,600].forEach(function(t){setTimeout(function(){try{document.getElementById("lg").style.top=(document.getElementById("chart").offsetTop+12)+"px";ctl.titles();}catch(e){}},t);});   /* 좁은 화면은 차트 레이아웃이 늦게 확정돼서 창 제목 위치를 사진 찍기 전에 여러 번 다시 잡음 */
  const sum=ctl.summary();
  try{ if(sum.quant){const q=sum.quant,P=q.pts,qf=document.getElementById("qf");
   const ar=(on)=>on?'<span class="up">▲</span>':'<span class="dn">▼</span>';
