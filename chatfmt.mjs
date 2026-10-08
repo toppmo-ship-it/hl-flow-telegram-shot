@@ -84,7 +84,8 @@ const CAT = {
     "<b>봉·기간을 같이 쓰면 그때만 바뀌어요</b>",
     "안 쓰면 설정값 그대로: <b>" + (IV_KO[c.cardIv || "4h"] || c.cardIv) + "봉 · " + (c.cardDays || 60) + "일</b>",
     "<code>메타 15분</code>   <code>메타 일봉</code>",
-    "<code>메타 1시간 30일</code>",
+    "<code>메타 1시간 30일</code>   <code>메타 일봉 90일</code>",
+    "<code>sk하이닉스 일봉</code> → 일봉 " + (c.dailyDays || 60) + "개 (설정값)",
     "봉: 15분 · 30분 · 1시간 · 2시간 · 4시간 · 8시간 · 일봉",
     "",
     "카드 밑 버튼(15분·1시간·4시간·일봉)을 눌러도 바로 바뀌어요",
@@ -147,7 +148,8 @@ const CAT = {
     "<b>사진 모양</b>",
     "<code>해상도 폴드</code> · <code>펼침</code> · <code>PC</code>",
     "<code>미니 끄기</code> <code>미니 켜기</code> <code>미니 90</code>  (일봉 미니차트)",
-    "<code>기본봉 4시간</code>  <code>기본기간 60일</code>",
+    "<code>기본봉 4시간</code>  <code>기본기간 5일</code>  (분·시간봉 차트)",
+    "<code>일봉기간 90</code>  (\"종목 일봉\"으로 볼 때 일봉 개수, 기본 60)",
     "<code>원본 끄기</code> (원본 PNG 파일)  <code>리포트줄 60</code>  <code>급변구간 30</code>",
     "",
     "<b>자동으로 오는 카드 종목</b>",
@@ -199,7 +201,7 @@ export const cardButtons = (tk, cur) => ({ inline_keyboard: [[["15m", "15분"], 
 
 /* ───────── 설정·상태 글 ───────── */
 const RESN = { fcover: "폴드 접힘(세로)", fwide: "폴드 펼침(가로)", pcxl: "PC 16:9" };
-export function configText(c, mute, themes) {
+export function configText(c, mute, themes, prefs) {
   const rankOn = [c.rankWeekly ? "거래대금" : "", c.rankSurge ? "급증" : "", c.rankPattern !== false ? "패턴확률" : ""].filter(Boolean);
   const cards = Array.isArray(c.cards) ? c.cards : [];
   const L = [
@@ -209,6 +211,7 @@ export function configText(c, mute, themes) {
     "📈 가격흐름: <b>" + everyKo(c.flowEvery != null ? +c.flowEvery : 0) + "</b>마다 · " + (c.frame || "20D") + " · " + (c.iv || "15m") + "봉",
     "🃏 카드: " + (cards.length ? "<b>" + cards.length + "장</b> (" + esc(cards.slice(0, 8).join(", ")) + (cards.length > 8 ? " …" : "") + ")" : "<b>없음</b>") + " · " + everyKo(c.cardEvery != null ? +c.cardEvery : 0) + "마다",
     "     기본 " + (IV_KO[c.cardIv || "4h"] || c.cardIv) + "봉 · " + (c.cardDays || 60) + "일 · 일봉 미니 " + (c.cardDaily === false ? "끔" : "켬(" + (c.cardDailyBars || 60) + "개)"),
+    "     일봉 차트(종목 일봉): " + ((prefs && prefs.dailyDays) || 60) + "개",
     "📑 순위글: " + ((c.rankWeekly || c.rankSurge) ? esc([c.rankWeekly ? "거래대금" : "", c.rankSurge ? "급증" : ""].filter(Boolean).join("+")) + " · " + everyKo(c.rankEvery != null ? +c.rankEvery : 0) + "마다" : "끔"),
     "🧩 패턴 셋업 리포트: " + (c.rankPattern !== false ? "<b>" + everyKo(c.rankPatEvery != null ? +c.rankPatEvery : 60) + "</b>마다" : "<b>끔</b>"),
     "🖼 해상도: " + (RESN[c.res] || RESN.fwide) + " · 원본 파일 " + (c.doc === false ? "끔" : "함께"),

@@ -76,6 +76,7 @@ const CMDS = [
   ["resSet", /^(해상도|res|resolution)$/],
   ["miniSet", /^(미니|미니차트|일봉차트|mini)$/],
   ["ivSet", /^(기본봉|봉기본|defaultiv)$/],
+  ["dailySet", /^(일봉기간|일봉기본|일봉개수|일봉봉수|일봉수)$/],
   ["daysSet", /^(기본기간|기간기본|defaultdays)$/],
   ["cardAdd", /^(카드추가|카드더하기|cardadd)$/],
   ["cardDel", /^(카드삭제|카드빼기|카드제거|carddel)$/],
@@ -96,7 +97,7 @@ export function parseCommand(text) {
   /* 두 낱말을 붙인 명령(카드 추가 / oi 순위 / 펀딩 순위 …) */
   if (rest.length) {
     const joined = norm(words[0] + words[1]);
-    for (const [cmd, re] of CMDS) if (/^(카드추가|카드삭제|카드목록|카드초기화|펀딩순위|oi순위|테마추가|테마삭제|리포트줄|급변구간|기본봉|기본기간)$/.test(joined) && re.test(joined)) return { cmd, arg: words.slice(2) };
+    for (const [cmd, re] of CMDS) if (/^(카드추가|카드삭제|카드목록|카드초기화|펀딩순위|oi순위|테마추가|테마삭제|리포트줄|급변구간|기본봉|기본기간|일봉기간|일봉기본)$/.test(joined) && re.test(joined)) return { cmd, arg: words.slice(2) };
   }
   for (const [cmd, re] of CMDS) {
     if (!re.test(w1)) continue;
@@ -107,7 +108,7 @@ export function parseCommand(text) {
       return null;
     }
     if (cmd === "now" && rest.length) return null;
-    if (["help", "status", "config", "sectors"].includes(cmd) || rest.length === 0 || ["quote", "indic", "surge", "funding", "mute", "resSet", "miniSet", "ivSet", "daysSet", "docSet", "rowsSet", "surgeSet", "themeAdd", "themeDel", "cardAdd", "cardDel"].includes(cmd)) return { cmd, arg: rest };
+    if (["help", "status", "config", "sectors"].includes(cmd) || rest.length === 0 || ["quote", "indic", "surge", "funding", "mute", "resSet", "miniSet", "ivSet", "daysSet", "dailySet", "docSet", "rowsSet", "surgeSet", "themeAdd", "themeDel", "cardAdd", "cardDel"].includes(cmd)) return { cmd, arg: rest };
     return null;   /* 예) '핵심 종목들' 처럼 뒤에 낱말이 붙은 건 일반 요청으로 */
   }
   return null;

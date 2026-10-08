@@ -78,6 +78,9 @@ async function loadCtx(force) {
   if (!C.idx) C.idx = buildIndex(C.info, C.uni.map((r) => r.short), Object.values(C.themes).flat());
 }
 const cfgGet = async () => (await sbGet("tg_shot_cfg")) || {};
+/* 일봉 차트 기본 개수(보이는 기간) — 설정 페이지에 없는 값이라 봇 전용 키(tg_bot_prefs)에 저장. 기본 60개 */
+const prefsGet = async () => { const p = await sbGet("tg_bot_prefs"); return p && typeof p === "object" ? p : {}; };
+const dailyBars = async () => Math.min(150, Math.max(10, +(await prefsGet()).dailyDays || 60));
 const cardCfg = (c) => c;   /* (가독용) */
 
 /* 모든 종목 계산 결과 — 45초 안이면 재사용. 캔들은 백그라운드가 계속 채워 두므로 보통 빠름 */
@@ -220,7 +223,7 @@ async function doRequest(text, forceCards) {
     const sug = [...C.idx.keys()].filter((t) => q.misses.some((m) => norm(m).length >= 2 && norm(t).startsWith(norm(m).slice(0, 2)))).slice(0, 5);
     return say("🤔 <b>" + F.esc(q.misses.join(" ") || text.slice(0, 30)) + "</b> — 못 찾았어요\n" + (sug.length ? "혹시: " + sug.map((s) => "<code>" + F.esc(s) + "</code>").join(" · ") + "\n" : "") + "종목 이름·티커·섹터 이름을 써 주세요.  <code>도움말</code> 을 눌러 보세요", F.helpButtons());
   }
-  const iv = q.iv || String(cfg.cardIv || "4h"), days = q.days || Math.min(150, Math.max(3, +cfg.cardDays || 60));
+  const iv = q.iv || String(cfg.cardIv || "4h"), days = q.days || (iv === "1d" ? await dailyBars() : Math.min(150, Math.max(3, +cfg.cardDays || 60)));   /* 일봉은 '일봉 N개' 설정값(기본 60) */
   const notes = q.notes.slice();
   if (q.misses.length) notes.push("못 찾은 말: " + q.misses.join(", "));
   const asTable = q.sectors.length && !q.asCards && !forceCards || q.asTable;
@@ -484,7 +487,12 @@ async function doSetting(cmd, arg) {
   if (cmd === "daysSet") {
     const m = /(\d+)/.exec(a0); need(m, "예) <code>기본기간 60일</code>  (3~150일)");
     const d = Math.min(150, Math.max(3, +m[1])); await patchCfg((c) => { c.cardDays = d; });
-    return reply("카드 기본 기간 → <b>" + d + "일</b>");
+    return reply("카드 기본 기간(분·시간봉) → <b>" + d + "일</b>  <i>(일봉은 별도: <code>일봉기간 90</code>)</i>");
+  }
+  if (cmd === "dailySet") {
+    const m = /(\d+)/.exec(a0); need(m, "예) <code>일봉기간 90</code>  (일봉 몇 개를 보여줄지, 10~150개)");
+    const d = Math.min(150, Math.max(10, +m[1])); const p = await prefsGet(); p.dailyDays = d; await W("tg_bot_prefs", p);
+    return say("✅ 일봉 차트 보이는 기간 → <b>" + d + "개</b>\n<i>예) <code>sk하이닉스 일봉</code>  ·  그때만 바꾸려면 <code>sk하이닉스 일봉 90일</code></i>");
   }
   if (cmd === "docSet") {
     const e = parseEvery(a0); need(e === "on" || e === "off", "<code>원본 켜기</code> / <code>원본 끄기</code>  (사진과 함께 오는 원본 PNG 파일)");
@@ -570,7 +578,7 @@ async function handleText(text, from) {
       case "fundRank": return doFundRank();
       case "oiRank": return doOiRank();
       case "every": return doEvery(cmd.target, cmd.value);
-      case "resSet": case "miniSet": case "ivSet": case "daysSet": case "docSet": case "rowsSet": case "surgeSet": return doSetting(cmd.cmd, cmd.arg);
+      case "dailySet": case "resSet": case "miniSet": case "ivSet": case "daysSet": case "docSet": case "rowsSet": case "surgeSet": return doSetting(cmd.cmd, cmd.arg);
       case "cardAdd": case "cardDel": case "cardList": case "cardClear": return doCardList(cmd.cmd, cmd.arg);
       case "themeAdd": case "themeDel": return doTheme(cmd.cmd, cmd.arg);
     }
@@ -602,7 +610,7 @@ async function handleCallback(cb) {
     }
     if (d.startsWith("z:")) {
       const [, tk, iv] = d.split(":"); await ack((IV_KO[iv] || iv) + "봉으로 만드는 중…");
-      const cfg = await cfgGet(); return sendCards([tk], iv, Math.min(150, Math.max(3, +cfg.cardDays || 60)), cfg);
+      const cfg = await cfgGet(); return sendCards([tk], iv, iv === "1d" ? await dailyBars() : Math.min(150, Math.max(3, +cfg.cardDays || 60)), cfg);
     }
     await ack();
   } catch (e) { log("버튼 오류:", String((e && e.message) || e).slice(0, 200)); await say("⚠️ 처리 중 문제가 생겼어요: " + F.esc(String((e && e.message) || e).slice(0, 120))); }
