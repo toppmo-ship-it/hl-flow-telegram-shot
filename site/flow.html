@@ -153,12 +153,24 @@ input[type=checkbox]:indeterminate::after{content:"";width:.5rem;height:2px;back
 /* 안드로이드 크롬 태블릿(갤탭): 100vh 는 주소창·제스처바를 뺀 보이는 높이가 아니라 아래가 잘림 → 100dvh 지원 시 교체(선구안 사이트와 같은 방식) */
 @supports (height:100dvh){body,#app{height:100dvh}#chartWrap:fullscreen,#chartWrap:-webkit-full-screen{height:100dvh}}
 #chartWrap{flex:1;min-width:0;display:flex}
+/* ── 전체화면 전용 기간·봉 간격 바: 전체화면(body.is-fs)일 때만 차트 맨 위에 나타남 — 헤더·CANDLE 줄은 전체화면에 안 보이므로 같은 버튼을 여기에 한 벌 더 ── */
+#fsBar{display:none;flex:0 0 auto;align-items:center;gap:.65rem;padding:.42rem .9rem;background:linear-gradient(180deg,rgba(20,30,50,.98),rgba(10,15,25,.98));border-bottom:1px solid #2a4066;box-shadow:0 8px 26px rgba(0,0,0,.5),inset 0 1px 0 rgba(120,160,230,.12);overflow-x:auto;scrollbar-width:none;position:relative;z-index:6}
+#fsBar::-webkit-scrollbar{display:none}
+body.is-fs #fsBar{display:flex}
+#fsBar .fsTtl{font-size:.58rem;letter-spacing:.2em;color:#6f86b0;font-weight:800;flex:0 0 auto}
+#fsBar .fsSep{flex:0 0 1px;align-self:stretch;margin:.2rem .2rem;background:linear-gradient(180deg,transparent,#34507f,transparent)}
+#fsFrames{display:flex;gap:.45rem;flex-wrap:nowrap;align-items:center;flex:0 0 auto}
+#fsIv{display:flex;align-items:center;gap:.6rem;flex:0 0 auto}
+#fsBar .fbtn{flex:0 0 auto;white-space:nowrap;height:2.05rem}
+#fsBar .fbtn.on{box-shadow:0 0 0 1px rgba(77,148,255,.35),0 0 16px rgba(60,130,255,.45)}
+#fsBar .ivinfo{font-size:.74rem;color:var(--mute);white-space:nowrap}
 #chartWrap:fullscreen,#chartWrap:-webkit-full-screen{background:var(--bg);width:100vw;height:100vh}
 .ctBtn{display:inline-flex;align-items:center;gap:.35rem;height:2rem;padding:0 .65rem;border-radius:.6rem;background:rgba(13,18,28,.94);border:1px solid var(--line2);color:var(--dim);font-size:.74rem;font-weight:800;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.45)}
 .ctBtn:hover{color:var(--tx);border-color:#3a4d6d}
 .ctBtn .sw{width:1.05rem;height:.3rem;border-radius:2px;background:var(--c,#888);opacity:.35}
 .ctBtn.on{color:var(--tx);border-color:#3b5482;background:rgba(20,29,46,.96)}
 .ctBtn.on .sw{opacity:1;box-shadow:0 0 6px var(--c,transparent)}
+.ctBtn.key.on{border-color:#4fd4bd;box-shadow:0 0 0 1px rgba(79,212,189,.25),0 0 14px rgba(79,212,189,.35)}
 .ctBtn.acc{background:linear-gradient(180deg,#245bb8,#1a4593);border-color:#5b9cff;color:#fff}
 .ctBtn.acc:hover{filter:brightness(1.08)}
 @media (max-width:1100px){#chartBar{padding:.25rem .5rem;gap:.4rem}#chartTools{gap:.25rem}.ctBtn{height:1.8rem;padding:0 .5rem;font-size:.68rem}.ctBtn .sw{display:none}}
@@ -374,11 +386,14 @@ body.shot #app{padding:10px 10px 12px;box-sizing:border-box}
   <div id="chartWrap">
   <aside id="tools"></aside>
   <section id="main">
+   <div id="fsBar"><div class="fsTtl"><b>PERIOD</b></div><nav id="fsFrames"></nav><div class="fsSep"></div><div id="fsIv"></div></div>
    <div id="legend"></div>
    <div id="chartBar">
     <div id="soloBar"></div>
     <div class="grow"></div>
     <div id="chartTools">
+     <button class="ctBtn key" id="toggleKey_ndq" title="나스닥100 + 코스피200 세트 켜기/끄기 — 굵기·형광은 '선 굵기' 패널"><i class="sw" style="--c:#a5fde5"></i>◆ 나스닥·코스피</button>
+     <button class="ctBtn key" id="toggleKey_cmd" title="원자재 8종 + 미국10년물 금리 세트 켜기/끄기 — 상반된 자산"><i class="sw" style="--c:#ffd54a"></i>◆ 원자재·금리</button>
      <button class="ctBtn" id="toggleKu" title="켈트너 상단(굵은 금색 선) 켜기/끄기"><i class="sw" style="--c:#f5c542"></i>상단선</button>
      <button class="ctBtn" id="toggleMid" title="켈트너 중심선(하늘색 선) 켜기/끄기"><i class="sw" style="--c:#4dd9ff"></i>중심선</button>
      <button class="ctBtn" id="toggleLow" title="켈트너 하단선(노란 선) 켜기/끄기"><i class="sw" style="--c:#f5c542"></i>하단선</button>

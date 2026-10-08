@@ -43,6 +43,17 @@ F.TVSYM={KNTQ:"HYPERLIQUID:KNTQUSDC"};    /* 관심종목에서 접미사가 다
 F.INDEX_SET=new Set(["XYZ100","SP500","KR200","JP225","10Y"]);   /* 10Y = 미국 10년물 국채 금리(HL para:10Y) — 굵기·선택은 지수와 같은 취급 */
 F.COMMODITY_SET=new Set(["CL","BRENTOIL","GOLD","SILVER","NATGAS","COPPER","PLATINUM","PALLADIUM"]);
 F.kindOf=t=>F.INDEX_SET.has(t)?"index":(F.COMMODITY_SET.has(t)?"commodity":"stock");
+/* ── 핵심선 2세트: 항상 보이고(조건검색·단독보기와 무관) 형광(네온) 효과로 도드라지는 선 ──
+   ndq = 나스닥100(XYZ100) + 코스피200(KR200 — 하이퍼리퀴드에 코스피 종합은 없고 KR200 이 코스피200 선물) / cmd = 원자재 8종 + 미국10년물 금리(상반된 자산이라 한 세트)
+   굵기·형광 세기·표시는 세트 단위로 조절(F.ui.key.<id>) */
+F.KEY_SETS=[
+ {id:"ndq",name:"나스닥·코스피",icon:"◆",items:["XYZ100","KR200"],def:{on:true,w:4.4,glow:8}},
+ {id:"cmd",name:"원자재·금리",icon:"◆",items:["BRENTOIL","CL","NATGAS","GOLD","COPPER","PALLADIUM","SILVER","PLATINUM","10Y"],def:{on:true,w:3.4,glow:6}}
+];
+const KEY_OF={};F.KEY_SETS.forEach(k=>k.items.forEach(t=>{KEY_OF[t]=k;}));
+F.keySetOf=t=>KEY_OF[t]||null;
+F.isKey=t=>!!KEY_OF[t];
+F.kc=id=>{const u=F.ui||(F.ui={}),K=u.key||(u.key={}),k=F.KEY_SETS.find(x=>x.id===id);const o=K[id]=Object.assign({},k.def,K[id]);o.w=Math.max(1.5,Math.min(12,+o.w||k.def.w));o.glow=Math.max(0,Math.min(14,+o.glow>=0?+o.glow:k.def.glow));o.on=o.on!==false;return o;};
 F.NAME_KO={"10Y":"미국10년물금리",KR200:"코스피200",JP225:"닛케이225",XYZ100:"나스닥100",SP500:"S&P500",CL:"WTI원유",BRENTOIL:"브렌트유",GOLD:"금",SILVER:"은",NATGAS:"천연가스",COPPER:"구리",PLATINUM:"백금",PALLADIUM:"팔라듐",SMSN:"삼성전자",SKHYNIX:"SK하이닉스",SKHY:"하이닉스ADR",HYUNDAI:"현대차",SOFTBANK:"소프트뱅크",KIOXIA:"키오시아"};
 F.PSEUDO=[{id:"__KU",name:"켈트너 상단",color:"#f5c542"},{id:"__MID",name:"켈트너 중심선",color:"#4dd9ff"},{id:"__LOW",name:"켈트너 하단",color:"#f5c542"},{id:"__RS",name:"상대강도(가중평균)",color:"#ffffff"}];
 F.ALIAS={SKHYNIX:"SKHX"};
@@ -84,10 +95,12 @@ const splitEmoji=t=>{const m=/^(\S+)\s+(.*)$/.exec(t);return m?{icon:m[1],name:m
 F.SHOT=/[?&]shot=1/.test(location.search);   /* 텔레그램 자동 촬영용 화면(서버의 헤드리스 크롬이 엶): 설정 저장·미리받기·부가 수집을 끄고 고정 모양으로 그림 */
 F.TICKERS=[];F.SECTORS=[];F.SECTOR_OF={};
 F.rebuildTickers=()=>{
- const secs=WATCH.map(([n,items],i)=>{const e=splitEmoji(n);return {name:e.name,icon:e.icon,items:items.split(","),pseudo:i===0,watch:true};});
+ const secs=F.KEY_SETS.map(k=>({name:k.name+" 세트",icon:k.icon,items:k.items.slice(),watch:true,key:k.id}));   /* 핵심선 세트가 맨 위 — 아래 기본 그룹(지수·원자재)에서는 중복 제외됨 */
+ WATCH.forEach(([n,items],i)=>{const e=splitEmoji(n);secs.push({name:e.name,icon:e.icon,items:items.split(","),pseudo:i===0,watch:true});});
  secs.push({name:"기존 알트코인",icon:"🌈",items:F.EXTRA_OLD.slice()});
  if(F.extra.length)secs.push({name:"내가 추가한 종목",icon:"➕",items:F.extra.slice(),custom:true});
  const seen=new Set();secs.forEach(sec=>{sec.items=sec.items.filter(t=>t&&!seen.has(t)&&(seen.add(t),true));});
+ for(let i=secs.length-1;i>=0;i--)if(!secs[i].items.length&&!secs[i].pseudo)secs.splice(i,1);   /* 원자재 그룹처럼 세트로 옮겨져 빈 그룹은 제거 */
  F.SECTORS=secs;F.TICKERS=[];F.SECTOR_OF={};
  secs.forEach(sec=>sec.items.forEach(t=>{F.TICKERS.push(t);F.SECTOR_OF[t]=sec.name;}));
  F.TICKERS.forEach(t=>{F.COLORS[t]=colorFor(t);});
@@ -119,7 +132,7 @@ F.FRAMES=[
 F.OLD_FRAME={"120일":"120D","60일":"60D","20일":"20D","5일":"5D","3일":"3D","1일":"1D","12시간":"12H","6시간":"8H","3시간":"4H","1시간":"1H","30분":"30M"};
 const IVMIN={"1m":1,"3m":3,"5m":5,"15m":15,"30m":30,"1h":60,"2h":120,"4h":240,"8h":480,"12h":720,"1d":1440,"3d":4320,"1w":10080};
 /* ── 봉 간격(아랫줄): 기간(위 줄)과 별개로 고름. 20D + 15m = 20일치를 15분봉으로 ── */
-F.IVS=[{iv:"3m",label:"3m"},{iv:"15m",label:"15m"},{iv:"30m",label:"30m"},{iv:"1h",label:"1h"},{iv:"2h",label:"2h"},{iv:"4h",label:"4h"},{iv:"8h",label:"8h"},{iv:"1d",label:"1D"},{iv:"3d",label:"3D"},{iv:"1w",label:"1W"}];
+F.IVS=[{iv:"3m",label:"3m"},{iv:"5m",label:"5m"},{iv:"15m",label:"15m"},{iv:"30m",label:"30m"},{iv:"1h",label:"1h"},{iv:"2h",label:"2h"},{iv:"4h",label:"4h"},{iv:"8h",label:"8h"},{iv:"1d",label:"1D"},{iv:"3d",label:"3D"},{iv:"1w",label:"1W"}];
 F.MAXBARS=2500;   /* 한 종목당 최대 봉 수(하이퍼리퀴드 1회 5000봉 제한 + 화면·전송 무게) */
 /* 기간(range) + 봉 간격(sel; auto=기간 기본값) → 실제 프레임 정의. key 는 캐시·공유 저장 키(기간|봉) */
 /* 표시 기준: kel(기본) = 각 종목의 '현재 일봉 켈상단'을 0으로 — 기간을 바꿔도 현재 위치가 같음 / start = 예전 방식(기간 시작가 대비) */

@@ -23,9 +23,9 @@ F.defaultInd=()=>({
   {len:480,color:"#ff8a1f",w:6.4,style:0,on:true,core:null,a:0.72}
  ]},
  fx:{shade:{on:true,color:"#f5c542",a:0.14},   /* 켈 상단선~하단선 사이 음영(선·종목선보다 뒤) */
-  led:{ku:{fx:"off",color:"#ffd84d",speed:5,power:6},low:{fx:"off",color:"#ffd84d",speed:5,power:6},rs:{fx:"off",color:"#7fe9ff",speed:5,power:6}}},   /* LED 효과: off/glow(네온)/flow(흐르는 불빛)/pulse(맥동) */
- dots:{on:true,size:2,stocks:false},   /* 선이 꺾이는 봉마다 작은 동그라미(반지름 px). stocks=종목선에도 */
- gap:{ku:{color:"#f5c542",w:0,style:0,on:true},rs:{color:"#ffffff",w:0,style:0,on:true},hist:{up:"#31d67b",dn:"#ff5a6e",a:0.55,h:0.28}},
+  led:{ku:{fx:"off",color:"#ffd84d",speed:5,power:6},mid:{fx:"off",color:"#4dd9ff",speed:5,power:6},low:{fx:"off",color:"#ffd84d",speed:5,power:6},rs:{fx:"off",color:"#7fe9ff",speed:5,power:6}}},   /* LED 효과: off/glow(네온)/flow(흐르는 불빛)/pulse(맥동) */
+ dots:{on:true,size:1.5,stocks:true},   /* 선이 꺾이는 봉마다 작은 동그라미(반지름 px). stocks=종목선에도 */
+ gap:{ku:{color:"#f5c542",w:0,style:0,on:true},mid:{color:"#4dd9ff",w:0,style:0,on:true},low:{color:"#f5c542",w:0,style:0,on:true},rs:{color:"#ffffff",w:0,style:0,on:true},hist:{up:"#31d67b",dn:"#ff5a6e",a:0.55,h:0.28}},
  wr:{zones:true,smooth:6,curve:true,obColor2:"#ff5a6e",osColor2:"#b07cff",ob:-20,   /* obColor2/osColor2 = 두 선이 모두 과매수/과매도일 때(강한 구간) 진한 음영색 */
    os:-80,mid:false,   /* smooth=%R 결과를 EMA 로 다듬는 기간(1=끔) · curve=곡선으로 이어붙이기 */obColor:"#5be49b",osColor:"#6cb6ff",zoneA:0.16,   /* 과매수(−20 위)=연한 그린 / 과매도(−80 아래)=연한 블루 */
   lines:[
@@ -42,8 +42,11 @@ F.normInd=()=>{
  I.ma.lines.forEach(l=>{l.a=(+l.a>0&&+l.a<=1)?+l.a:1;});
  if(I.ma.lo!==1){F.ui.show.ma=false;F.ui.show.maLow=true;I.ma.lo=1;}   /* 1회 이전: 차트(위) EMA 끄고 하단 이격뷰 EMA 켬 */
  I.dots=Object.assign({},d.dots,I.dots||{});I.dots.size=Math.max(0.5,Math.min(8,+I.dots.size||2));
- I.fx=Object.assign({},d.fx,I.fx||{});I.fx.shade=Object.assign({},d.fx.shade,I.fx.shade||{});I.fx.led=Object.assign({},d.fx.led,I.fx.led||{});["ku","low","rs"].forEach(k=>{I.fx.led[k]=Object.assign({},d.fx.led[k],I.fx.led[k]||{});});
- I.gap=Object.assign({},d.gap,I.gap||{});["ku","rs","hist"].forEach(k=>{I.gap[k]=Object.assign({},d.gap[k],I.gap[k]||{});});
+ if(I.dots.v!==2){I.dots.v=2;I.dots.on=true;I.dots.size=1.5;I.dots.stocks=true;}   /* 1회 이전: 꺾이는 지점마다 아주 작은 점(종목선 포함) */
+ I.fx=Object.assign({},d.fx,I.fx||{});I.fx.shade=Object.assign({},d.fx.shade,I.fx.shade||{});I.fx.led=Object.assign({},d.fx.led,I.fx.led||{});["ku","mid","low","rs"].forEach(k=>{I.fx.led[k]=Object.assign({},d.fx.led[k],I.fx.led[k]||{});});
+ I.fx.led.mid.color=I.fx.led.mid.color||"#4dd9ff";
+ if(!I.fx.midInit){I.fx.midInit=1;const ku=I.fx.led.ku;I.fx.led.mid=Object.assign({},I.fx.led.mid,{fx:ku.fx,speed:ku.speed,power:ku.power,color:"#4dd9ff"});}   /* 1회 이전: 중심선 LED 효과를 켈 상단·하단선과 똑같이(색만 하늘색) */
+ I.gap=Object.assign({},d.gap,I.gap||{});["ku","mid","low","rs","hist"].forEach(k=>{I.gap[k]=Object.assign({},d.gap[k],I.gap[k]||{});});
  I.wr=Object.assign({},d.wr,I.wr||{});I.wr.lines=fix(I.wr.lines,d.wr.lines);
  if(!(I.wr.sv>=2)){I.wr.smooth=d.wr.smooth;I.wr.curve=true;}
  if(I.wr.sv!==3){I.wr.lines[0]=Object.assign({},d.wr.lines[0]);I.wr.lines[1]=Object.assign({},d.wr.lines[1]);I.wr.sv=3;}   /* 1회 이전: 14=흰 얇게 / 48=주황 굵게 */   /* 1회 이전: 3분봉처럼 짧은 봉에서도 부드럽게 보이도록 평활 6 */
@@ -69,7 +72,7 @@ F.scale=()=>1+(F.ui.font-3)*0.1;
 
 const S=F.S={data:{},grid:[],gidx:new Map(),P:{},U:{},M:{},DN:{},O:{},H:{},L:{},series:{},seriesMode:{},haOpen:{},barFresh:{},hover:null,crosses:[],crossesM:[],rsA:[],kuA:[],mA:[],dA:[],maA:[],wrA:[],fitted:false};
 let chart=null,stage=null,chartEl=null,ov=null,ctx=null,PILL_W=250;
-let rsS=null,kuS=null,mS=null,lowS=null,anchS=null,rs2=null,ku2=null,histS=null,mk1=null,mk2=null,refS=null;
+let rsS=null,kuS=null,mS=null,lowS=null,anchS=null,rs2=null,ku2=null,mid2=null,low2=null,histS=null,mk1=null,mk2=null,refS=null;
 let maS=[],maC=[],maL=[],wrS=[],wrAnchor=null,wrPL=[];   /* maL = 하단 이격뷰(상대강도) 위에 겹치는 EMA 5·10·20·60·120 */   /* 상단 EMA 본선·심선 / 하단 W%R 선들·기준(축 고정) 시리즈·−20/−80 기준선 */
 /* 축 눈금 표기: 패널마다 달라서(메인·이격뷰=%p, W%R=−20 형식) 차트 전체 포매터 대신 시리즈별 포매터를 씀 */
 const PF_P={type:"custom",minMove:0.01,formatter:p=>(p>=0?"+":"")+p.toFixed(2)+"%p"};
@@ -86,32 +89,39 @@ F.frameObj=frameObj;
 
 /* ── 종목 선 스타일: 종류(일반/지수/원자재)별 굵기, 호버·단독선택 시 강조/흐림 ── */
 function styleOf(t){
+ if(F.isKey(t)){   /* 핵심선: 세트 굵기 · 항상 진하게(다른 선에 호버·단독 중에도 흐려지는 정도가 약함) */
+  const o=F.kc(F.keySetOf(t).id),c=F.COLORS[t]||"#8899aa",hov=S.hover,solo=F.ui.solo;let w=o.w,a=0.98;
+  if((solo&&solo===t)||(hov&&hov===t))w+=1.2;else if(hov||solo)a=0.42;
+  return {color:rgba(c,a),lineWidth:Math.max(1,Math.round(w*10)/10),pointMarkersVisible:false,pointMarkersRadius:2};
+ }
  const kind=F.kindOf(t),base=F.ui.w[kind]||1.6,c=F.COLORS[t]||"#8899aa";
  const solo=F.ui.solo,hov=S.hover;
  let a=kind==="stock"?0.72:0.95,w=base;
  if(solo&&solo===t){w=base+1.6;a=1;}
  else if(hov&&hov===t){w=base+1.4;a=1;}
  else if(hov||solo){a=kind==="stock"?0.13:0.3;}
- const D=F.ui.ind&&F.ui.ind.dots,dots=!!(D&&D.on&&D.stocks&&S.dotsOK!==false);
- return {color:rgba(c,a),lineWidth:Math.max(1,Math.round(w*10)/10),pointMarkersVisible:dots,pointMarkersRadius:dots?(+D.size||2):2};
+ return {color:rgba(c,a),lineWidth:Math.max(1,Math.round(w*10)/10),pointMarkersVisible:false,pointMarkersRadius:2};   /* 점은 봉마다가 아니라 꺾이는 지점에만 — 오버레이(fxDots)가 그림 */
 }
 /* 선 위 점(마커): 봉 간격이 너무 좁으면(점끼리 겹침) 자동으로 숨김 — S.dotsOK 는 보이는 범위에서 계산 */
-const DOT=()=>{const D=F.ui.ind.dots;return {pointMarkersVisible:!!(D.on&&S.dotsOK!==false),pointMarkersRadius:+D.size||2};};
+const DOT=()=>({pointMarkersVisible:false,pointMarkersRadius:2});
 const restyleNow=()=>{
  if((F.ui.candleMode||"line")==="line")
   Object.keys(S.series).forEach(t=>{const st=styleOf(t),key=st.color+"|"+st.lineWidth+"|"+st.pointMarkersVisible+"|"+st.pointMarkersRadius,sr=S.series[t];if(sr.__k!==key){sr.__k=key;sr.applyOptions(st);}});
  else{const col=CANDLE_COL[F.ui.candleMode]||CANDLE_COL.candle;
-  Object.keys(S.series).forEach(t=>{const dim=!!(S.hover&&S.hover!==t),key=dim?"d":"n",sr=S.series[t];if(sr.__k!==key){sr.__k=key;const a=dim?0.1:1;
+  Object.keys(S.series).forEach(t=>{if(F.isKey(t)){const st=styleOf(t),key=st.color+"|"+st.lineWidth,sr=S.series[t];if(sr.__k!==key){sr.__k=key;sr.applyOptions(st);}return;}   /* 핵심선은 캔들 모드에서도 선 */
+   const dim=!!(S.hover&&S.hover!==t),key=dim?"d":"n",sr=S.series[t];if(sr.__k!==key){sr.__k=key;const a=dim?0.1:1;
    sr.applyOptions({upColor:rgba(col.up,a),downColor:rgba(col.dn,a),borderUpColor:rgba(col.up,a),borderDownColor:rgba(col.dn,a),wickUpColor:rgba(col.up,a),wickDownColor:rgba(col.dn,a)});}});}
  const lw=F.ui.w.line,G=F.ui.ind.gap;
  const dt=DOT();
  rsS&&rsS.applyOptions(Object.assign({lineWidth:lw,visible:F.ui.show.rs},dt));
  kuS&&kuS.applyOptions(Object.assign({lineWidth:lw,visible:F.ui.show.ku},dt));
- mS&&mS.applyOptions(Object.assign({lineWidth:(F.ui.w.mid>0?F.ui.w.mid:lw),visible:F.ui.show.mid!==false},dt));
+ mS&&mS.applyOptions(Object.assign({lineWidth:lw,visible:F.ui.show.mid!==false},dt));
  lowS&&lowS.applyOptions(Object.assign({lineWidth:lw,visible:F.ui.show.low!==false},dt));
  /* 하단 이격뷰 선은 자기 설정(색·굵기·모양)을 따름 — 굵기 0 이면 메인 굵기와 동일 */
  rs2&&rs2.applyOptions({color:G.rs.color,lineWidth:G.rs.w>0?G.rs.w:lw,lineStyle:G.rs.style,visible:!!(F.ui.show.rs&&G.rs.on),pointMarkersVisible:dt.pointMarkersVisible,pointMarkersRadius:dt.pointMarkersRadius});
  ku2&&ku2.applyOptions({color:G.ku.color,lineWidth:G.ku.w>0?G.ku.w:lw,lineStyle:G.ku.style,visible:!!(F.ui.show.ku&&G.ku.on),pointMarkersVisible:dt.pointMarkersVisible,pointMarkersRadius:dt.pointMarkersRadius});
+ mid2&&mid2.applyOptions({color:G.mid.color,lineWidth:G.mid.w>0?G.mid.w:lw,lineStyle:G.mid.style,visible:!!(F.ui.show.mid!==false&&G.mid.on),pointMarkersVisible:false});
+ low2&&low2.applyOptions({color:G.low.color,lineWidth:G.low.w>0?G.low.w:lw,lineStyle:G.low.style,visible:!!(F.ui.show.low!==false&&G.low.on),pointMarkersVisible:false});
  if(histS)histS.applyOptions({visible:!!(F.ui.show.gap&&F.ui.show.rs&&F.ui.show.ku)});
  indStyle();
  fxSchedule();
@@ -134,7 +144,7 @@ function fxSample(){
  const G=S.grid,i0=Math.max(0,Math.floor(lr.from)-1),i1=Math.min(G.length-1,Math.ceil(lr.to)+1);if(i1<i0)return null;
  const step=Math.max(1,Math.ceil((i1-i0)/(F.SHOT?220:1200)));   /* 서버 캡처: 글로우(굵은 둥근 선 여러 겹)는 점이 많을수록 칠하는 비용이 폭증 → 220점으로 */
  const col=(ser,arr)=>{const out=[];for(let i=i0;i<=i1;i+=step){const v=arr[i],x=F.num(v)?ts.timeToCoordinate(G[i]):null,y=F.num(v)?ser.priceToCoordinate(v):null;out.push(x==null||y==null?null:{x,y});}return out;};
- return {ku:col(kuS,S.kuA),low:col(lowS,S.dA),rs:col(rsS,S.rsA)};
+ return {ku:col(kuS,S.kuA),mid:col(mS,S.mA),low:col(lowS,S.dA),rs:col(rsS,S.rsA)};
 }
 function fxPath(c,pts){c.beginPath();let pen=false;pts.forEach(p=>{if(!p){pen=false;return;}if(!pen){c.moveTo(p.x,p.y);pen=true;}else c.lineTo(p.x,p.y);});}
 function fxBand(scope){
@@ -146,10 +156,10 @@ function fxBand(scope){
 }
 function fxLed(scope){
  const I=F.ui.ind.fx;if(!I)return;
- if(!["ku","low","rs"].some(k=>I.led[k].fx!=="off"))return;
+ if(!["ku","mid","low","rs"].some(k=>I.led[k].fx!=="off"))return;
  const d=fxSample();if(!d)return;
  const c=scope.context,T=performance.now()/1000,pr=window.devicePixelRatio||1,lw=F.ui.w.line;
- ["ku","low","rs"].forEach(k=>{
+ ["ku","mid","low","rs"].forEach(k=>{
   const o=I.led[k];if(!o||o.fx==="off"||F.ui.show[k]===false)return;
   const pts=d[k],sp=+o.speed||5,pw=+o.power||6,col=o.color||"#ffd84d",lite=mixW(col,0.6);
   c.save();c.lineCap="round";c.lineJoin=F.SHOT?"bevel":"round";
@@ -169,22 +179,107 @@ function fxLed(scope){
   c.restore();
  });
 }
+/* ── 핵심선 형광(네온) 효과: 블러 없이 굵기가 다른 반투명 선을 겹쳐 번짐을 냄(블러는 선이 11개면 매 프레임 무거움) ──
+   · 세트(F.ui.key.<id>)의 glow(0=끔~14)·굵기를 따르고, 호버·단독 보기 중 다른 선은 약하게 */
+function fxKey(scope){
+ if(!chart||!S.grid.length||!F.KEY_SETS)return;
+ const ts=chart.timeScale(),lr=ts.getVisibleLogicalRange();if(!lr)return;
+ const G=S.grid,i0=Math.max(0,Math.floor(lr.from)-1),i1=Math.min(G.length-1,Math.ceil(lr.to)+1);if(i1<i0)return;
+ const step=Math.max(1,Math.ceil((i1-i0)/(F.SHOT?220:500))),c=scope.context;
+ F.KEY_SETS.forEach(ks=>{
+  const o=F.kc(ks.id);if(!o.on||!(o.glow>0))return;
+  ks.items.forEach(t=>{
+   const sr=S.series[t],P=S.P[t];if(!sr||!P||!F.isVisible(t)||S.seriesMode[t]!=="line")return;
+   const dim=(S.hover&&S.hover!==t)||(F.ui.solo&&F.ui.solo!==t)?0.22:1,col=F.COLORS[t]||"#9aa";
+   const pts=[];for(let i=i0;i<=i1;i+=step){const v=P[i],x=F.num(v)?ts.timeToCoordinate(G[i]):null,y=F.num(v)?sr.priceToCoordinate(v):null;pts.push(x==null||y==null?null:{x,y});}
+   if(pts.filter(Boolean).length<2)return;
+   const g=o.glow,w=o.w,lite=mixW(col,0.55);
+   c.save();c.lineCap="round";c.lineJoin="round";
+   [[w+g*1.7+5,0.06],[w+g*1.0+3,0.11],[w+g*0.5+1.5,0.2]].forEach(([lw,al])=>{c.globalAlpha=al*dim;c.strokeStyle=col;c.lineWidth=lw;fxPath(c,pts);c.stroke();});
+   c.globalAlpha=(0.35+0.04*Math.min(g,10))*dim;c.strokeStyle=lite;c.lineWidth=Math.max(1,w*0.38);fxPath(c,pts);c.stroke();   /* 가운데 밝은 심 */
+   c.restore();
+  });
+ });
+}
+/* ── 꺾이는 지점마다 아주 작은 점 ──
+   봉마다 찍으면 지저분하므로 '화면에서 약 6px 이상 되꺾이는' 고점·저점(지그재그 피벗)만 찍고, 마지막 값에도 하나. 점끼리 4px 안이면 솎아냄.
+   종목선·켈상단/중심/하단선·상대강도선 모두. 크기는 ✨설정의 '점 크기'(기본 1.5px 반지름) */
+function pivotsOf(arr,i0,i1,thr){
+ const out=[];let dir=0,hiI=-1,hiV=-Infinity,loI=-1,loV=Infinity,cI=-1,cV=0;
+ for(let i=i0;i<=i1;i++){const v=arr[i];if(!(v===v))continue;
+  if(dir===0){if(v>hiV){hiV=v;hiI=i;}if(v<loV){loV=v;loI=i;}
+   if(v-loV>=thr){out.push(loI);dir=1;cI=i;cV=v;}else if(hiV-v>=thr){out.push(hiI);dir=-1;cI=i;cV=v;}}
+  else if(dir===1){if(v>=cV){cV=v;cI=i;}else if(cV-v>=thr){out.push(cI);dir=-1;cI=i;cV=v;}}
+  else{if(v<=cV){cV=v;cI=i;}else if(v-cV>=thr){out.push(cI);dir=1;cI=i;cV=v;}}
+ }
+ if(dir!==0)out.push(cI);   /* 마지막 진행 중인 고점/저점도 */
+ return out;
+}
+function fxDots(scope){
+ const D=F.ui.ind&&F.ui.ind.dots;if(!D||!D.on||!chart||!S.grid.length)return;
+ const ts=chart.timeScale(),lr=ts.getVisibleLogicalRange();if(!lr)return;
+ const G=S.grid,i0=Math.max(0,Math.floor(lr.from)-1),i1=Math.min(G.length-1,Math.ceil(lr.to)+1);if(i1<i0)return;
+ const c=scope.context,r=Math.max(0.6,+D.size||1.5),lineMode=(F.ui.candleMode||"line")==="line";
+ const draw=(sr,arr,col,al)=>{
+  if(!sr||!arr)return;
+  const y0=sr.priceToCoordinate(0),y1=sr.priceToCoordinate(1);if(y0==null||y1==null)return;
+  const ppu=Math.abs(y1-y0);if(!(ppu>0))return;
+  const idx=pivotsOf(arr,i0,i1,6/ppu),last=(()=>{for(let i=i1;i>=i0;i--)if(arr[i]===arr[i])return i;return -1;})();
+  if(last>=0&&idx[idx.length-1]!==last)idx.push(last);
+  let lx=-99;c.globalAlpha=al;
+  idx.forEach((i,k)=>{const x=ts.timeToCoordinate(G[i]),y=sr.priceToCoordinate(arr[i]);if(x==null||y==null)return;
+   if(i!==last&&Math.abs(x-lx)<4)return;lx=x;
+   const rr=i===last?r+0.5:r;c.beginPath();c.arc(x,y,rr,0,6.2832);c.fillStyle=col;c.fill();c.lineWidth=0.8;c.strokeStyle="rgba(8,11,17,.85)";c.stroke();});
+ };
+ c.save();
+ const hov=S.hover,solo=F.ui.solo;
+ Object.keys(S.series).forEach(t=>{
+  if(!F.isVisible(t)||S.seriesMode[t]!=="line")return;if(!F.isKey(t)&&!(D.stocks&&F.ui.show.stocks&&lineMode))return;
+  const dim=(hov&&hov!==t)||(solo&&solo!==t);draw(S.series[t],S.P[t],F.COLORS[t]||"#9aa",dim?0.18:0.95);
+ });
+ if(F.ui.show.ku)draw(kuS,S.kuA,"#f5c542",0.95);
+ if(F.ui.show.mid!==false)draw(mS,S.mA,"#4dd9ff",0.95);
+ if(F.ui.show.low!==false)draw(lowS,S.dA,"#f5c542",0.95);
+ if(F.ui.show.rs)draw(rsS,S.rsA,"#ffffff",0.95);
+ c.restore();
+}
 const fxPrim={
  attached(p){fxReq=p.requestUpdate;},detached(){fxReq=null;},updateAllViews(){},
  paneViews(){return [
   {zOrder:()=>"bottom",renderer:()=>({draw:t=>t.useMediaCoordinateSpace(sc=>fxBand(sc))})},
-  {zOrder:()=>"top",renderer:()=>({draw:t=>t.useMediaCoordinateSpace(sc=>fxLed(sc))})}
+  {zOrder:()=>"top",renderer:()=>({draw:t=>t.useMediaCoordinateSpace(sc=>{fxKey(sc);fxLed(sc);fxDots(sc);})})}
  ];}
 };
 /* 움직이는 효과가 하나라도 켜져 있으면 20fps로 갱신 요청, 아니면 타이머 정지 */
 function fxSchedule(){
- const I=F.ui.ind&&F.ui.ind.fx,on=!!(I&&["ku","low","rs"].some(k=>I.led[k].fx==="flow"||I.led[k].fx==="pulse"));
+ const I=F.ui.ind&&F.ui.ind.fx,on=!!(I&&["ku","mid","low","rs"].some(k=>I.led[k].fx==="flow"||I.led[k].fx==="pulse"));
  if(on&&!fxTimer)fxTimer=setInterval(()=>{if(!document.hidden&&fxReq)fxReq();},50);
  else if(!on&&fxTimer){clearInterval(fxTimer);fxTimer=null;}
  fxReq&&fxReq();
 }
 F.fxRefresh=fxSchedule;
 
+/* ── 하단 이격뷰 눈금: 상대강도선 + 하단 EMA 기준 ──
+   켈 상단·중심·하단선을 전부 눈금에 넣으면 선 간격이 넓을 때 상대강도·EMA 가 납작해짐(요청).
+   → 눈금은 보이는 구간의 상대강도·EMA 범위가 정하고, 켈 3선은 그 범위 위·아래 0.75배 폭 안에 들어온 값만 눈금에 보탬.
+   상대강도가 상단선 쪽이면 상단선이, 하단선 쪽이면 하단선이 같이 보이고, 멀리 떨어진 선은 화면 밖으로 빠짐 */
+function gapBand(){
+ if(!chart||!S.rsA||!S.rsA.length)return null;
+ const lr=chart.timeScale().getVisibleLogicalRange();if(!lr)return null;
+ const nn=S.rsA.length,i0=Math.max(0,Math.floor(lr.from)),i1=Math.min(nn-1,Math.ceil(lr.to));if(i1<i0)return null;
+ let lo=Infinity,hi=-Infinity;const add=a=>{if(!a)return;for(let i=i0;i<=i1;i++){const v=a[i];if(v===v){if(v<lo)lo=v;if(v>hi)hi=v;}}};
+ if(F.ui.show.rs)add(S.rsA);
+ if(F.ui.show.maLow&&F.ui.ind&&F.ui.ind.ma)F.ui.ind.ma.lines.forEach((l,i)=>{if(i<5&&l.on)add(S.maA[i]);});
+ if(!(hi>=lo))return null;
+ const m=Math.max(hi-lo,0.05)*0.75;return {i0,i1,min:lo-m,max:hi+m};
+}
+function gapProv(getArr){
+ return b=>{
+  const B=gapBand(),a=getArr();if(!B)return b();if(!a)return null;
+  let mn=Infinity,mx=-Infinity;for(let i=B.i0;i<=B.i1;i++){const v=a[i];if(v===v&&v>=B.min&&v<=B.max){if(v<mn)mn=v;if(v>mx)mx=v;}}
+  return mx>=mn?{priceRange:{minValue:mn,maxValue:mx}}:null;
+ };
+}
 /* ── 차트 생성 ── */
 F.initChart=(stageEl,chartDiv,canvas,pillW)=>{
  stage=stageEl;chartEl=chartDiv;ov=canvas;ctx=ov.getContext("2d");PILL_W=pillW||250;
@@ -227,7 +322,9 @@ F.initChart=(stageEl,chartDiv,canvas,pillW)=>{
   histS=chart.addSeries(LW.HistogramSeries,{priceScaleId:"gapscale",lastValueVisible:false,priceLineVisible:false,priceFormat:{type:"custom",formatter:v=>(v>=0?"+":"")+v.toFixed(3),minMove:0.001}},1);
   chart.priceScale("gapscale",1).applyOptions({scaleMargins:{top:0.72,bottom:0},visible:false});
  }catch(e){console.warn("[흐름] 이격 막대 생성 실패",e);histS=null;}
- ku2=chart.addSeries(LW.LineSeries,Object.assign({},base,{color:"#f5c542",lineWidth:F.ui.w.line}),1);
+ ku2=chart.addSeries(LW.LineSeries,Object.assign({},base,{color:"#f5c542",lineWidth:F.ui.w.line,autoscaleInfoProvider:gapProv(()=>S.kuA)}),1);
+ mid2=chart.addSeries(LW.LineSeries,Object.assign({},base,{color:"#4dd9ff",lineWidth:F.ui.w.line,autoscaleInfoProvider:gapProv(()=>S.mA)}),1);   /* 이격뷰에도 켈 중심선·하단선 — 상단선과의 상대 위치를 보려고 */
+ low2=chart.addSeries(LW.LineSeries,Object.assign({},base,{color:"#f5c542",lineWidth:F.ui.w.line,autoscaleInfoProvider:gapProv(()=>S.dA)}),1);
  rs2=chart.addSeries(LW.LineSeries,Object.assign({},base,{color:"#ffffff",lineWidth:F.ui.w.line}),1);
  mk1=LW.createSeriesMarkers(rsS,[]);mk2=LW.createSeriesMarkers(rs2,[]);
  /* 상단 EMA: 7개 본선 + 이중선용 심선(안쪽 가는 선). 상대강도/켈상단 선 바로 아래에 깔림 */
@@ -378,18 +475,20 @@ function haFrom(raw){const out=[];let po=null,pc=null;
  return out;
 }
 function haPoints(t){const raw=candleRaw(t),out=haFrom(raw);if(out.length)S.haOpen[t]=out[out.length-1].open;return out;}
-function seriesDataFor(t){const mode=F.ui.candleMode||"line";return mode==="line"?tickerPoints(t):mode==="candle"?candlePoints(t):haPoints(t);}
+const modeOf=t=>F.isKey(t)?"line":(F.ui.candleMode||"line");   /* 핵심선(나스닥·코스피·원자재·금리)은 어떤 표시 방식에서도 형광 선 */
+function seriesDataFor(t){const mode=modeOf(t);return mode==="line"?tickerPoints(t):mode==="candle"?candlePoints(t):haPoints(t);}
 function addSeriesFor(t,mode){
  if(mode==="line")return chart.addSeries(LW.LineSeries,Object.assign({priceScaleId:"right",lastValueVisible:false,priceLineVisible:false,crosshairMarkerVisible:false,priceFormat:PF_P,autoscaleInfoProvider:b=>F.ui.show.clip===false?b():null},styleOf(t)),0);
  const col=CANDLE_COL[mode];
  return chart.addSeries(LW.CandlestickSeries,{priceScaleId:"right",lastValueVisible:false,priceLineVisible:false,priceFormat:PF_P,autoscaleInfoProvider:b=>F.ui.show.clip===false?b():null,upColor:col.up,downColor:col.dn,borderUpColor:col.up,borderDownColor:col.dn,wickUpColor:col.up,wickDownColor:col.dn},0);
 }
 function ensureSeries(t){
- const mode=F.ui.candleMode||"line";
+ const mode=modeOf(t);
  if(S.series[t]&&S.seriesMode[t]===mode)return S.series[t];
  if(S.series[t]){try{chart.removeSeries(S.series[t]);}catch(e){}delete S.series[t];}
  S.series[t]=addSeriesFor(t,mode);S.seriesMode[t]=mode;
  topOrder();
+ if(F.isKey(t)){try{S.series[t].setSeriesOrder(8e5);}catch(e){}}
  return S.series[t];
 }
 F.setData=data=>{
@@ -414,7 +513,7 @@ F.setCandleMode=mode=>{
 };
 
 const refreshNow=()=>{
- Object.keys(S.series).forEach(t=>{const s=S.series[t];const on=F.ui.show.stocks&&!!F.isVisible(t);if(s.__v!==on){s.__v=on;s.applyOptions({visible:on});}});
+ Object.keys(S.series).forEach(t=>{const s=S.series[t];const on=(F.ui.show.stocks||F.isKey(t))&&!!F.isVisible(t);if(s.__v!==on){s.__v=on;s.applyOptions({visible:on});}});
  basket();F.redraw();F.onBasket&&F.onBasket();
 };
 let rvQ=false;
@@ -436,7 +535,7 @@ function basket(){
  }
  S.rsA=rs;S.kuA=ku;S.mA=mm;S.dA=dd;
  const pts=a=>G.map((g,i)=>a[i]===a[i]?{time:g,value:a[i]}:{time:g});
- rsS.setData(pts(rs));kuS.setData(pts(ku));mS.setData(pts(mm));lowS.setData(pts(dd));updateClip(vis);rs2.setData(pts(rs));ku2.setData(pts(ku));
+ rsS.setData(pts(rs));kuS.setData(pts(ku));mS.setData(pts(mm));lowS.setData(pts(dd));updateClip(vis);rs2.setData(pts(rs));ku2.setData(pts(ku));mid2.setData(pts(mm));low2.setData(pts(dd));
  indData();
  crosses();
 }
@@ -518,7 +617,7 @@ function ensureWr(){
 }
 /* 보이는 순서: 종목선 < EMA < 켈상단·상대강도 */
 function topOrder(){
- try{maS.forEach((s,i)=>{s.setSeriesOrder(9e5+i*2);maC[i].setSeriesOrder(9e5+i*2+1);});lowS&&lowS.setSeriesOrder(1e6-1);mS&&mS.setSeriesOrder(1e6);kuS.setSeriesOrder(1e6+1);rsS.setSeriesOrder(1e6+2);if(ku2)ku2.setSeriesOrder(1e6+3);if(rs2)rs2.setSeriesOrder(1e6+4);}catch(e){}   /* 하단 이격뷰에서도 상대강도·켈상단이 EMA 위에 */
+ try{maS.forEach((s,i)=>{s.setSeriesOrder(9e5+i*2);maC[i].setSeriesOrder(9e5+i*2+1);});lowS&&lowS.setSeriesOrder(1e6-1);mS&&mS.setSeriesOrder(1e6);kuS.setSeriesOrder(1e6+1);rsS.setSeriesOrder(1e6+2);if(ku2)ku2.setSeriesOrder(1e6+3);if(mid2)mid2.setSeriesOrder(1e6+2);if(low2)low2.setSeriesOrder(1e6+1);if(rs2)rs2.setSeriesOrder(1e6+4);}catch(e){}   /* 하단 이격뷰에서도 상대강도·켈상단이 EMA 위에 */
 }
 /* 설정(색·굵기·모양·표시)만 반영 — 데이터 재계산 없음 */
 function indStyle(){
@@ -593,7 +692,7 @@ F.live=mids=>{
    S.O[t].push(lc);S.H[t].push(lc);S.L[t].push(lc);S.barFresh[t]=false;});
   S.rsA.push(S.rsA[S.rsA.length-1]);S.kuA.push(S.kuA[S.kuA.length-1]);S.mA.push(S.mA[S.mA.length-1]);S.dA.push(S.dA[S.dA.length-1]);
  }
- const li=G.length-1,tm=G[li],mode=F.ui.candleMode||"line";
+ const li=G.length-1,tm=G[li];
  /* 새 봉이 시작됐으면, 방금 마감된 봉의 확정 OHLC로 하이킨아시 시가(다음 봉의 시가)를 한 번만 갱신해 둠(모드와 무관하게 유지) */
  if(newBar)Object.keys(S.haOpen).forEach(t=>{const i=li-1,pO=S.O[t][i];if(pO===pO)S.haOpen[t]=(S.haOpen[t]+(pO+S.H[t][i]+S.L[t][i]+S.P[t][i])/4)/2;});
  Object.keys(S.data).forEach(t=>{
@@ -602,7 +701,7 @@ F.live=mids=>{
   if(!S.barFresh[t]){S.O[t][li]=pct;S.H[t][li]=pct;S.L[t][li]=pct;S.barFresh[t]=true;}
   else{if(pct>S.H[t][li])S.H[t][li]=pct;if(pct<S.L[t][li])S.L[t][li]=pct;}
   S.P[t][li]=pct;n++;
-  const s=S.series[t];if(!s)return;
+  const s=S.series[t];if(!s)return;const mode=modeOf(t);
   if(mode==="line")s.update({time:tm,value:pct});
   else if(mode==="candle")s.update({time:tm,open:S.O[t][li],high:S.H[t][li],low:S.L[t][li],close:pct});
   else{
@@ -614,7 +713,7 @@ F.live=mids=>{
  const vis=F.TICKERS.filter(t=>S.P[t]&&F.isVisible(t));let sw=0,sp=0,su=0,sm=0,sd=0;
  vis.forEach(t=>{const p=S.P[t][li];if(p===p){const w=F.ui.weight==="eq"?1:F.weightOf(t);sw+=w;sp+=w*p;su+=w*S.U[t][li];sm+=w*S.M[t][li];sd+=w*S.DN[t][li];}});
  if(sw){const rs=sp/sw,ku=su/sw,mc=sm/sw,dc=sd/sw;S.rsA[li]=rs;S.kuA[li]=ku;S.mA[li]=mc;S.dA[li]=dc;
-  rsS.update({time:tm,value:rs});kuS.update({time:tm,value:ku});mS.update(F.num(mc)?{time:tm,value:mc}:{time:tm});lowS.update(F.num(dc)?{time:tm,value:dc}:{time:tm});rs2.update({time:tm,value:rs});ku2.update({time:tm,value:ku});
+  rsS.update({time:tm,value:rs});kuS.update({time:tm,value:ku});mS.update(F.num(mc)?{time:tm,value:mc}:{time:tm});lowS.update(F.num(dc)?{time:tm,value:dc}:{time:tm});rs2.update({time:tm,value:rs});ku2.update({time:tm,value:ku});mid2.update(F.num(mc)?{time:tm,value:mc}:{time:tm});low2.update(F.num(dc)?{time:tm,value:dc}:{time:tm});
   if(histS)histS.update({time:tm,value:+(rs-ku).toFixed(4),color:histColor(rs-ku)});
   liveInd(li,tm);
   crosses();}
@@ -676,7 +775,7 @@ F.toggleLock=i=>{
 F.resetView=()=>{S.fitted=false;S.userMoved=false;if(S.grid.length>2){fitAll();autoAll();scaleSync();}};
 F.fit=()=>{S.userMoved=false;fitAll();autoAll();scaleSync();};
 F.clearData=()=>{S.userMoved=false;S.data={};S.grid=[];S.P={};S.U={};S.M={};S.DN={};S.O={};S.H={};S.L={};S.haOpen={};S.barFresh={};S.crosses=[];S.crossesM=[];S.rsA=[];S.kuA=[];S.mA=[];S.dA=[];S.maA=[];S.wrA=[];S.fitted=false;
- Object.keys(S.series).forEach(t=>S.series[t].setData([]));[rsS,kuS,mS,lowS,anchS,rs2,ku2,wrAnchor].concat(maS,maC,wrS).forEach(s=>s&&s.setData([]));if(histS)histS.setData([]);mk1&&mk1.setMarkers([]);mk2&&mk2.setMarkers([]);F.redraw();};
+ Object.keys(S.series).forEach(t=>S.series[t].setData([]));[rsS,kuS,mS,lowS,anchS,rs2,ku2,mid2,low2,wrAnchor].concat(maS,maC,wrS).forEach(s=>s&&s.setData([]));if(histS)histS.setData([]);mk1&&mk1.setMarkers([]);mk2&&mk2.setMarkers([]);F.redraw();};
 F.applyFont=()=>{if(!chart)return;chart.applyOptions({layout:{fontSize:Math.round(12*F.scale())}});F.redraw();};
 
 /* ═════════════ 오버레이 ═════════════ */
@@ -923,11 +1022,13 @@ const ZONE_COL={1:"#31d67b",2:"#ffc233",3:"#ff8a3d",4:"#ff3b6b"},ZONE_TXT={1:"�
    · 종목 알약 왼쪽 색띠 = 그 종목 자신의 밴드 위치(초록=상단 위 / 노랑=중심~상단 / 빨강=중심 아래) */
 /* 마지막 봉의 가로 위치(선 끝) — 라벨과 이어 주는 가는 선의 시작점 */
 function lastX(){const G=S.grid;if(!G.length)return 0;const x=xOf(G[G.length-1]);return x==null?0:x;}
+/* 알약 글자색: 배경이 어두운 색(파랑·보라 등)이면 흰 글씨, 밝으면 검정 — 어떤 선 색에서도 글자가 또렷하게 */
+function pillFg(col){const h=String(col||"").replace("#","");if(h.length!==6)return "#0a0e15";const n=parseInt(h,16),L=(0.299*(n>>16&255)+0.587*(n>>8&255)+0.114*(n&255))/255;return L>0.52?"#0a0e15":"#ffffff";}
 function drawPills(p0,plotR){
  const sc=F.scale(),h=22*sc,gap=3,items=[];
  const cnt={1:0,2:0,3:0,4:0};
- F.TICKERS.forEach(t=>{if(!S.series[t]||!F.isVisible(t)||!F.ui.show.stocks)return;const v=F.lastValue(t);if(!(v===v))return;
-  const z=zoneOf(t);if(z)cnt[z]++;
+ F.TICKERS.forEach(t=>{if(!S.series[t]||!F.isVisible(t)||!(F.ui.show.stocks||F.isKey(t)))return;const v=F.lastValue(t);if(!(v===v))return;   /* 종목선을 꺼도 핵심선(지수·원자재·금리)은 선이 남으니 설명 알약도 유지 */
+  const z=zoneOf(t);if(z&&F.ui.show.stocks)cnt[z]++;
   const y=S.series[t].priceToCoordinate(v);if(y==null||y<-20||y>p0.h+20)return;
   if(F.SHOT&&(+F.ui.vz||100)>100&&(y<34*sc||y>p0.h-10*sc))return;   /* 세로 확대로 범위 밖에 나간 종목은 가장자리에 걸친 라벨을 아예 숨김 */
   items.push({t,v,z,y:p0.top+y,col:F.COLORS[t]||"#9aa",label:(F.NAME_KO[t]||t)+" "+F.fmtP(v)+" · "+F.fmtEok(F.ntl[F.ALIAS[t]||t]||0),kind:F.kindOf(t)});});
@@ -938,13 +1039,35 @@ function drawPills(p0,plotR){
  if(F.ui.show.low!==false&&F.num(lastD)){const y=lowS.priceToCoordinate(lastD);if(y!=null)spec.push({t:"__LOW",v:lastD,y:p0.top+y,col:"#f5c542",label:"하단선 "+F.fmtP(lastD)+" ▼"+cnt[4],spec:1});}
  if(F.ui.show.rs&&F.num(lastRS)){const y=rsS.priceToCoordinate(lastRS);if(y!=null)spec.push({t:"__RS",v:lastRS,y:p0.top+y,col:"#ffffff",label:"상대강도 "+F.fmtP(lastRS),spec:1});}
  const maxN=Math.max(4,Math.floor((p0.h-8)/(h+gap)));
- if(F.mode()==="kel")items.sort((a,b)=>F.weightOf(b.t)-F.weightOf(a.t));else items.sort((a,b)=>Math.abs(b.v)-Math.abs(a.v));
+ /* 알약 자리가 모자라면 우선순위: ① 핵심선(지수·원자재·금리) ② 켈상단 위 종목(주로 만지는 구간) ③ 나머지 — 각 묶음 안에서는 기존 정렬 */
+ const rank=q=>F.isKey(q.t)?0:(q.z===1?1:2);
+ if(F.mode()==="kel")items.sort((a,b)=>rank(a)-rank(b)||F.weightOf(b.t)-F.weightOf(a.t));else items.sort((a,b)=>rank(a)-rank(b)||Math.abs(b.v)-Math.abs(a.v));
  const keep=items.slice(0,Math.max(0,maxN-spec.length));
  const all=keep.concat(spec).sort((a,b)=>a.y-b.y);
  /* 위→아래로 겹침 해소 후, 아래에서 다시 위로 눌러 경계 안에 넣음 */
  for(let i=0;i<all.length;i++){const py=i?all[i-1].py:-1e9;all[i].py=Math.max(all[i].y,py+h+gap);}
  const lim=p0.top+p0.h-h/2-2;for(let i=all.length-1;i>=0;i--){const nx=i<all.length-1?all[i+1].py-h-gap:lim;all[i].py=Math.min(all[i].py,nx);}
  const colW=pillCol(),x0=plotR-colW,xe=Math.min(lastX(),x0-8);
+ /* ── 켈상단선 띠 위쪽 종목 = 한 박스로 묶어 음영(주로 만지는 구간이라 한눈에): 초록 계열 반투명 박스 + 왼쪽 강조띠 + '상단 위 N' 태그 ── */
+ {const ki=all.findIndex(q=>q.t==="__KU");
+  if(ki>0){const grp=all.slice(0,ki),cntG=grp.filter(q=>!q.spec).length;
+   if(cntG>0){
+    const bx=x0-5*sc,bw2=Math.max(60,colW-4)+7*sc,top=grp[0].py-h/2-7*sc,bot=all[ki].py-h/2-3,bh2=bot-top;
+    if(bh2>8){
+     const GC=ZONE_COL[1];
+     ctx.save();
+     const gr=ctx.createLinearGradient(0,top,0,bot);gr.addColorStop(0,rgba(GC,.05));gr.addColorStop(1,rgba(GC,.2));
+     ctx.shadowColor=rgba(GC,.35);ctx.shadowBlur=14*sc;ctx.fillStyle=gr;roundRect(ctx,bx,top,bw2,bh2,9*sc);ctx.fill();
+     ctx.shadowBlur=0;ctx.lineWidth=1.2;ctx.strokeStyle=rgba(GC,.55);roundRect(ctx,bx,top,bw2,bh2,9*sc);ctx.stroke();
+     ctx.fillStyle=rgba(GC,.9);roundRect(ctx,bx,top+6*sc,3*sc,Math.max(6,bh2-12*sc),1.5*sc);ctx.fill();   /* 왼쪽 강조띠 */
+     const tag="▲ 켈상단 위 "+cntG,fs=10.5*sc;ctx.font="800 "+fs+"px "+FONT;ctx.textBaseline="middle";ctx.textAlign="right";
+     const tw=ctx.measureText(tag).width+12*sc,ty=top-1*sc;   /* 태그: 박스 윗변에 걸친 알약 */
+     if(ty-fs>p0.top){ctx.fillStyle="rgba(10,14,21,.96)";roundRect(ctx,bx+bw2-tw-6*sc,ty-fs*.7,tw,fs*1.4,fs*.7);ctx.fill();ctx.lineWidth=1;ctx.strokeStyle=rgba(GC,.7);ctx.stroke();ctx.fillStyle=GC;ctx.fillText(tag,bx+bw2-12*sc,ty);}
+     ctx.restore();
+    }
+   }
+  }
+ }
  all.forEach(p=>{
   ctx.lineWidth=1;ctx.strokeStyle=rgba(p.col,.5);ctx.beginPath();ctx.moveTo(xe,p.y);ctx.lineTo(x0-2,p.py);ctx.stroke();
   ctx.fillStyle=p.col;ctx.beginPath();ctx.arc(xe,p.y,2.4,0,6.283);ctx.fill();   /* 선 끝 점 */
@@ -960,8 +1083,12 @@ function drawPills(p0,plotR){
   const big=p.kind!=="stock";
   const hv=S.hover===p.t,dimmed=!!S.hover&&!hv;
   let lab=p.label;{const fs0=(big?12.5:11.5)*sc;ctx.font="700 "+fs0+"px "+FONT;while(lab.length>6&&ctx.measureText(lab).width>colW-22*sc)lab=lab.slice(0,-1);}   /* 열 폭을 넘으면 뒤를 자름 */
-  const r=chip(ctx,lab,x0+5*sc,p.py,{mid:true,fs:(big?12.5:11.5)+(hv?1:0),bold:true,bg:rgba(p.col,hv?1:(dimmed?.4:.88)),fg:"#0a0e15",bd:hv?"#ffffff":(big?"rgba(255,255,255,.55)":null)});
+  const r=chip(ctx,lab,x0+5*sc,p.py,{mid:true,fs:(big?12.5:11.5)+(hv?1:0),bold:true,bg:rgba(p.col,hv?1:(dimmed?.4:(F.isKey(p.t)?.96:.88))),fg:pillFg(p.col),bd:hv?"#ffffff":(big?"rgba(255,255,255,.55)":null)});
   S.pills.push({t:p.t,x:r.x,y:r.y,w:r.w,h:r.h});
+  if(F.isKey(p.t)&&!dimmed){   /* 핵심선 설명 박스: 선의 형광과 어울리게 박스 뒤로 은은한 빛(글자 위로는 안 올라옴 — destination-over) */
+   const o=F.kc(F.keySetOf(p.t).id);
+   if(o.glow>0){ctx.save();ctx.globalCompositeOperation="destination-over";ctx.shadowColor=rgba(p.col,.9);ctx.shadowBlur=(4+o.glow*1.2)*sc;ctx.fillStyle=rgba(p.col,.55);roundRect(ctx,r.x,r.y,r.w,r.h,r.h/4);ctx.fill();ctx.restore();}
+  }
   if(p.z){ctx.fillStyle=ZONE_COL[p.z];roundRect(ctx,x0,r.y,4*sc,r.h,2*sc);ctx.fill();}   /* 왼쪽 색띠 = 자기 밴드 위치 */
  });
 }

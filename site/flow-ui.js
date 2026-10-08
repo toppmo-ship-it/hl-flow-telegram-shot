@@ -13,11 +13,12 @@ const name=t=>F.NAME_KO[t]||t;
 const price=t=>{const d=S.data[t],p=F.lastValue(t);return d&&p===p?d.base*(1+p/100):NaN;};
 
 /* ═════════════ 설정 저장/복원 ═════════════ */
-const SHOT=F.SHOT,TEST=/[?&]test=/.test(location.search)||SHOT,LSK=TEST?"flow_ui_test":"flow_ui_v2",SBKEY=TEST?"flow_ui_test":"flow_ui_v2";   /* ?test=1 은 개발 검증용 별도 저장 키(사용자 설정 보호) */
+let warmN=0;   /* 미리 갱신(?warm=1): 뒤에서 도는 수집 작업 수 — 0이 되면 실행기가 끝냄 */
+const SHOT=F.SHOT,WARM=/[?&]warm=1/.test(location.search),wk=p=>{if(WARM&&p&&p.then){warmN++;p.then(()=>warmN--,()=>warmN--);}return p;},TEST=/[?&]test=/.test(location.search)||SHOT,LSK=TEST?"flow_ui_test":"flow_ui_v2",SBKEY=TEST?"flow_ui_test":"flow_ui_v2";   /* ?test=1 은 개발 검증용 별도 저장 키(사용자 설정 보호) */
 function merge(dst,src){Object.keys(src||{}).forEach(k=>{const v=src[k];if(v&&typeof v==="object"&&!Array.isArray(v)&&dst[k]&&typeof dst[k]==="object")merge(dst[k],v);else dst[k]=v;});return dst;}
 let saveT=null;
 F.saveUI=()=>{
- if(SHOT)return;   /* 촬영 화면은 설정을 어디에도 저장하지 않음(사용자 설정 보호) */
+ if(SHOT||WARM)return;   /* 촬영·미리 갱신 화면은 설정을 어디에도 저장하지 않음(사용자 설정 보호) */
  F.ui.updated=Date.now();
  try{localStorage.setItem(LSK,JSON.stringify(F.ui));}catch(e){}
  clearTimeout(saveT);saveT=setTimeout(()=>F.sbSet(SBKEY,F.ui),1500);
@@ -66,6 +67,7 @@ F.isVisible=t=>vis.has(t);
 function hideReason(t){
  if(!S.data[t])return F.coinOf(t)?{k:"load",text:"데이터 받는 중"}:{k:"none",text:"하이퍼리퀴드에 없는 종목"};
  if(F.ui.checks[t]===false)return {k:"off",text:"체크 해제됨"};
+ if(F.isKey(t))return F.kc(F.keySetOf(t).id).on?null:{k:"off",text:"핵심선 세트 꺼짐 (위 버튼)"};   /* 핵심선은 조건검색·단독 보기와 무관하게 항상 표시 */
  if(F.ui.solo&&F.ui.solo!==t)return {k:"solo",text:"단독 보기 중 ("+name(F.ui.solo)+")"};
  if(F.kindOf(t)==="stock")for(const g of FACETS){const st=g.st(t),f=F.ui.fs[g.id];
   if(st!=null&&f&&f[st]===false){const lab=(g.opts.find(o=>o[0]===st)||[])[1]||st;return {k:"filter",text:"조건검색 제외 · "+g.title+" ▸ "+lab};}}
@@ -75,6 +77,7 @@ F.recalcVis=()=>{
  const nv=new Set();
  F.TICKERS.forEach(t=>{
   if(!S.data[t]||F.ui.checks[t]===false)return;
+  if(F.isKey(t)){if(F.kc(F.keySetOf(t).id).on)nv.add(t);return;}   /* 핵심선(나스닥·코스피·원자재·금리): 조건검색·단독 보기와 무관하게 항상 */
   if(F.ui.solo&&F.ui.solo!==t)return;
   if(F.kindOf(t)==="stock"){for(const g of FACETS){const st=g.st(t),f=F.ui.fs[g.id];if(st!=null&&f&&f[st]===false)return;}}   /* 조건검색은 종목만: 지수·원자재(코스피·닛케이·금·원유 등)는 조건과 무관하게 체크하면 보임 */
   nv.add(t);
@@ -296,7 +299,7 @@ async function loadFrame(force){
  if(!stale){F.tk.d("shared","생략 (저장본이 최신)");F.tk.d("frame","생략 (저장본이 최신)");afterLoad(tok);return;}
  /* 2) 서버 공유 스냅샷(다른 기기·이전 접속이 받아 둔 것) */
  if(!force){
-  F.tk.b("shared");const sh=SHOT?null:await F.loadFrameShared(f,tickers);   /* 촬영은 남이 저장한 스냅샷이 아니라 내 원본 캔들 저장본으로 그림 */if(tok!==loadTok)return;F.tk.d("shared",sh?"공유본 있음 · "+ago(sh.t):"공유본 없음");
+  F.tk.b("shared");const sh=(SHOT||WARM)?null:await F.loadFrameShared(f,tickers);   /* 촬영은 남이 저장한 스냅샷이 아니라 내 원본 캔들 저장본으로 그림 */if(tok!==loadTok)return;F.tk.d("shared",sh?"공유본 있음 · "+ago(sh.t):"공유본 없음");
   if(sh&&(!hit||sh.t>hit.t+30000)){const rec=commit(sh.data,"서버 공유캐시 · "+ago(sh.t),sh.t);F.idbSet(key,rec);loading=false;progress(1,1);F.tk.d("frame","서버 공유본 사용");afterLoad(tok);return;}
   if(hit){afterLoad(tok);}   /* 공유본이 더 새롭지 않으면 캐시 그대로 두고 아래에서 조용히 갱신 */
  }
@@ -338,18 +341,19 @@ async function loadDirect(tok,f,tickers,hit){
 }
 function afterLoad(tok){
  if(SHOT){fillMissing();if(!shotWs&&!/[?&]nolive=1/.test(location.search)){shotWs=true;F.startWS(onMids);}return;}   /* 실시간 가격은 그린 뒤에 시작 */   /* 촬영: 조건검색용 부가 수집(일봉 켈 공유·4h 중심선·3일 거래대금)·미리받기 없음 → HL 호출 최소 */
- F.loadDaily().then(()=>{
+ wk(F.loadDaily()).then(()=>{
   if(tok!==loadTok)return;
   F.recalcVis();F.refreshVisibility();updateFacetCounts();updateList();
   F.onDaily=()=>{if(tok===loadTok){F.recalcVis();F.refreshVisibility();updateFacetCounts();updateList();}};
-  F.fillMissingDaily(allTickers(),()=>tok!==loadTok?"abort":loading).catch(()=>{});
+  wk(F.fillMissingDaily(allTickers(),()=>tok!==loadTok?"abort":loading).catch(()=>{}));
  });
  F.onK4=()=>{if(tok===loadTok){if(F.recalcVis())F.refreshVisibility();updateFacetCounts();updateList();}};
- F.loadK4(allTickers(),()=>tok!==loadTok?"abort":loading).catch(()=>{});
+ wk(F.loadK4(allTickers(),()=>tok!==loadTok?"abort":loading).catch(()=>{}));
  F.onVol3d=()=>{if(tok===loadTok){F.recalcVis();F.refreshVisibility();updateFacetCounts();updateList();}};
- F.loadVol3d(allTickers(),()=>tok!==loadTok?"abort":loading).catch(()=>{});
- fillMissing();
- if(!TEST||/[?&]prefetch=1/.test(location.search))setTimeout(prefetchOthers,1200);   /* 검증(?test=1) 중에는 미리받기 끔 — 로컬 IP 한도 보호 */
+ wk(F.loadVol3d(allTickers(),()=>tok!==loadTok?"abort":loading).catch(()=>{}));
+ wk(fillMissing());
+ if(WARM){if(!/[?&]pre=0/.test(location.search))wk(new Promise(r=>setTimeout(r,1200)).then(prefetchOthers));}   /* 미리 갱신: 다른 프레임도 이 실행에서 받아 서버에 저장 */
+ else if(!TEST||/[?&]prefetch=1/.test(location.search))setTimeout(prefetchOthers,1200);   /* 검증(?test=1) 중에는 미리받기 끔 — 로컬 IP 한도 보호 */
 }
 /* 다른 프레임 미리 받기(현재 프레임과 가까운 순) → 전환 시 IndexedDB에서 즉시 */
 async function prefetchOthers(){
@@ -367,7 +371,7 @@ async function prefetchOthers(){
    const c=F.mem[f.key]||await F.idbGet(f.key);
    if(c&&Date.now()-c.t<F.staleMs(f))continue;
    const tickers=allTickers();
-   const sh=await F.loadFrameShared(f,tickers);
+   const sh=WARM?null:await F.loadFrameShared(f,tickers);   /* 미리 갱신은 남이 저장한 공유본을 믿지 않고 새로 받아 저장 */
    if(sh){F.idbSet(f.key,{data:sh.data,t:sh.t});continue;}
    const res=await F.fetchFast(f,tickers,null,2,"bg").catch(()=>null);
    if(res&&Object.keys(res.data).length>=Math.ceil(tickers.length*0.5)){F.idbSet(f.key,{data:res.data,t:Date.now()});if(enough(Object.keys(res.data).length,res.total))F.saveFrame(f,res.data);}
@@ -431,23 +435,25 @@ function resume(){
 F.on429=()=>{$("foot").innerHTML='<b style="color:var(--dn)">하이퍼리퀴드 속도제한(429)</b> — 잠시 대기 후 자동 재시도합니다';};
 
 /* ═════════════ 상단/도구/범례 ═════════════ */
-function buildFrames(){
- const nav=$("frames");nav.innerHTML="";
+function buildFrames(){buildFramesInto($("frames"));buildFramesInto($("fsFrames"));}   /* 헤더 + 전체화면 바에 같은 버튼 한 벌씩 */
+function buildFramesInto(nav){
+ if(!nav)return;nav.innerHTML="";
  F.FRAME_GROUPS.forEach(g=>{
   const box=document.createElement("div");box.className="fgrp";
   const cap=document.createElement("small");cap.textContent=g.label;box.appendChild(cap);
   F.FRAMES.filter(f=>f.g===g.g).forEach(f=>{
    const b=document.createElement("button");b.className="fbtn"+(F.ui.frame===f.k?" on":"");b.textContent=f.k;b.dataset.k=f.k;
    b.title=f.k+" 기간 · 기본 "+f.iv+"봉"+(f.tick?" + 실시간 틱":"");
-   b.onclick=()=>{if(F.ui.frame===f.k)return;F.ui.frame=f.k;if(F.ui.iv!=="auto"&&!F.ivStatus(f.k,F.ui.iv).ok)F.ui.iv="auto";nav.querySelectorAll(".fbtn").forEach(x=>x.classList.toggle("on",x.dataset.k===f.k));refreshIvBar();F.saveUI();loadFrame(false);};
+   b.onclick=()=>{if(F.ui.frame===f.k)return;F.ui.frame=f.k;if(F.ui.iv!=="auto"&&!F.ivStatus(f.k,F.ui.iv).ok)F.ui.iv="auto";refreshIvBar();F.saveUI();loadFrame(false);};
    box.appendChild(b);
   });
   nav.appendChild(box);
  });
 }
 /* ── 아랫줄: 봉 간격(CANDLE). AUTO=기간 기본값. 20D + 15m 처럼 위 기간을 이 간격의 봉으로 그림 ── */
-function buildIvBar(){
- const bar=$("ivbar");bar.innerHTML="";
+function buildIvBar(){buildIvInto($("ivbar"));buildIvInto($("fsIv"));}
+function buildIvInto(bar){
+ if(!bar)return;bar.innerHTML="";
  const box=document.createElement("div");box.className="fgrp ivgrp";
  const cap=document.createElement("small");cap.textContent="CANDLE";box.appendChild(cap);
  const mk=(iv,label,title)=>{const b=document.createElement("button");b.className="fbtn ibtn";b.dataset.iv=iv;b.textContent=label;b.title=title||"";
@@ -455,12 +461,13 @@ function buildIvBar(){
  mk("auto","AUTO","기간에 맞는 기본 봉 간격");
  F.IVS.forEach(x=>mk(x.iv,x.label,x.label+" 봉"));
  bar.appendChild(box);
- const info=document.createElement("div");info.id="ivinfo";bar.appendChild(info);
+ const info=document.createElement("div");info.id=bar.id==="ivbar"?"ivinfo":"";info.className="ivinfo";bar.appendChild(info);
  refreshIvBar();
 }
 function refreshIvBar(){
  const fr=F.FRAMES.find(f=>f.k===F.ui.frame)||F.FRAMES[3];
- document.querySelectorAll("#ivbar .ibtn").forEach(b=>{
+ document.querySelectorAll(".fbtn[data-k]").forEach(x=>x.classList.toggle("on",x.dataset.k===F.ui.frame));   /* 헤더·전체화면 바 기간 버튼 동시 갱신 */
+ document.querySelectorAll(".ibtn").forEach(b=>{
   const iv=b.dataset.iv;
   if(iv==="auto"){b.classList.toggle("on",F.ui.iv==="auto");b.disabled=false;b.title="기본: "+fr.iv+"봉";return;}
   const st=F.ivStatus(fr.k,iv);
@@ -470,7 +477,7 @@ function refreshIvBar(){
   b.title=iv+" 봉 · "+(st.ok?(st.clamped?"⚠ "+F.MAXBARS+"봉까지만 — 최근 구간만 표시":st.bars+"개 봉"):"이 기간엔 봉이 너무 적어 선택 불가");
  });
  const f=F.frameOf(F.ui.frame,F.ui.iv),st=F.ivStatus(f.k,f.iv);
- const info=$("ivinfo");if(info)info.textContent=f.k+" 기간 · "+f.iv+" 봉"+(f.auto?" (자동)":"")+" · "+(st.clamped?"최대 "+F.MAXBARS+"봉 → 최근 "+(F.windowOf(f).shownDays<1?Math.round(F.windowOf(f).shownDays*24*10)/10+"시간":Math.round(F.windowOf(f).shownDays*10)/10+"일")+"만":st.bars+"개 봉");
+ document.querySelectorAll(".ivinfo").forEach(info=>info.textContent=f.k+" 기간 · "+f.iv+" 봉"+(f.auto?" (자동)":"")+" · "+(st.clamped?"최대 "+F.MAXBARS+"봉 → 최근 "+(F.windowOf(f).shownDays<1?Math.round(F.windowOf(f).shownDays*24*10)/10+"시간":Math.round(F.windowOf(f).shownDays*10)/10+"일")+"만":st.bars+"개 봉"));
 }
 
 const TOOLS=[["cursor","✥","이동·확대 (기본)"],["line","／","선 — 등락률 실측"],["rect","▭","사각형 음영 — 등락률"],["ellipse","◯","원 음영 — 등락률"],["erase","⌫","지우개 (도형 클릭)"]];
@@ -500,6 +507,7 @@ function syncChips(){
  const w=$("chipW");if(w){w.textContent="가중: "+(F.ui.weight==="ntl"?"거래대금":"균등");}
  document.querySelectorAll('#list .tk.line input').forEach(cb=>{const dp=cb.closest(".tk").dataset.p,k=dp==="__KU"?"ku":(dp==="__MID"?"mid":(dp==="__LOW"?"low":"rs"));cb.checked=F.ui.show[k]!==false&&!!F.ui.show[k];});
  const tk=$("toggleKu"),tr=$("toggleRs"),tm=$("toggleMid"),tl=$("toggleLow");if(tk)tk.classList.toggle("on",!!F.ui.show.ku);if(tr)tr.classList.toggle("on",!!F.ui.show.rs);if(tm)tm.classList.toggle("on",F.ui.show.mid!==false);if(tl)tl.classList.toggle("on",F.ui.show.low!==false);
+ F.KEY_SETS.forEach(ks=>{const b=$("toggleKey_"+ks.id);if(b)b.classList.toggle("on",F.kc(ks.id).on);});
 }
 function updateInfo(){
  const f=F.frameObj();
@@ -517,10 +525,14 @@ function applyFont(){
 }
 function buildWidths(){
  const p=$("wPop");
- if(!(F.ui.w.mid>0))F.ui.w.mid=F.ui.w.line;   /* 켈 중심선 굵기: 처음엔 켈상단·하단선과 같게 */
- const rows=[["stock","종목선",1,8,"#9db2d6"],["index","지수선",1,10,"#a5fde5"],["commodity","원자재선",1,10,"#ffd54a"],["line","켈상단·하단·상대강도",1.5,12,"#f5c542"],["mid","켈 중심선",1.5,12,"#4dd9ff"]];
+ const rows=[["stock","종목선",1,8,"#9db2d6"],["index","지수선",1,10,"#a5fde5"],["line","켈상단·중심·하단·상대강도",1.5,12,"#f5c542"],["mid","켈 중심선",1.5,12,"#4dd9ff"]]
  p.innerHTML="<h4>선 굵기 <span style='font-weight:500;color:var(--mute);font-size:.7rem'>각각 따로 조절 · 자동저장</span></h4>"+rows.map(([k,l,mn,mx,c])=>'<div class="row"><span>'+l+'</span><input type="range" data-k="'+k+'" min="'+mn+'" max="'+mx+'" step="0.2" value="'+F.ui.w[k]+'"><b id="wv_'+k+'">'+(+F.ui.w[k]).toFixed(1)+'</b></div><div class="prev" id="wp_'+k+'" style="background:'+c+';height:'+F.ui.w[k]+'px"></div>').join("");
- p.querySelectorAll("input").forEach(inp=>inp.oninput=()=>{const k=inp.dataset.k,v=+inp.value;F.ui.w[k]=v;$("wv_"+k).textContent=v.toFixed(1);$("wp_"+k).style.height=v+"px";F.restyle();F.saveUI();});
+ /* 핵심선 세트: 굵기 + 형광 세기(0=끔) */
+ p.insertAdjacentHTML("beforeend","<h4 style='margin-top:.7rem'>◆ 핵심선 <span style='font-weight:500;color:var(--mute);font-size:.7rem'>세트별 · 항상 표시</span></h4>"+F.KEY_SETS.map(ks=>{const o=F.kc(ks.id),c=ks.id==="ndq"?"#a5fde5":"#ffd54a";
+  return '<div class="row"><span>'+ks.name+' 굵기</span><input type="range" data-ks="'+ks.id+'" data-kp="w" min="1.5" max="10" step="0.2" value="'+o.w+'"><b id="kv_'+ks.id+'_w">'+o.w.toFixed(1)+'</b></div>'
+   +'<div class="row"><span>'+ks.name+' 형광</span><input type="range" data-ks="'+ks.id+'" data-kp="glow" min="0" max="14" step="1" value="'+o.glow+'"><b id="kv_'+ks.id+'_glow">'+o.glow+'</b></div>';}).join(""));
+ p.querySelectorAll("input[data-k]").forEach(inp=>inp.oninput=()=>{const k=inp.dataset.k,v=+inp.value;F.ui.w[k]=v;$("wv_"+k).textContent=v.toFixed(1);$("wp_"+k).style.height=v+"px";F.restyle();F.saveUI();});
+ p.querySelectorAll("input[data-ks]").forEach(inp=>inp.oninput=()=>{const o=F.kc(inp.dataset.ks),v=+inp.value;o[inp.dataset.kp]=v;$("kv_"+inp.dataset.ks+"_"+inp.dataset.kp).textContent=inp.dataset.kp==="w"?v.toFixed(1):v;F.restyle();F.saveUI();});
 }
 /* ── 종목선 표시 방식(선/캔들/하이킨아시) 버튼 라벨 — 데이터는 그대로, 그리는 방식만 즉시 전환 ── */
 const STYLE_LABEL={line:"표시: 선",candle:"표시: 캔들",heikin:"표시: 하이킨아시"};
@@ -664,10 +676,10 @@ const IND={
   const FXO=[["off","끔"],["glow","네온 글로우"],["flow","흐르는 LED"],["pulse","맥동(숨쉬기)"]];
   let h='<div class="isec">음영 — 켈 상단선과 하단선 사이 (선·종목선보다 뒤에 깔림)</div>';
   h+='<div class="ir">'+iChk("fx.shade.on","음영 켜기")+'<span class="nm"></span><label>색'+iCol("fx.shade.color",getPath("fx.shade.color"))+'</label><label>진하기'+iRange("fx.shade.a",0.02,0.6,0.02)+'</label></div>';
-  h+='<div class="isec">선 위 점 — 꺾이는 봉마다 작은 동그라미 (봉이 너무 촘촘하면 자동으로 숨김)</div>';
+  h+='<div class="isec">선 위 점 — 꺾이는 지점(고점·저점)마다 아주 작은 점 · 마지막 값에도 하나 (너무 촘촘한 꺾임은 자동으로 솎아냄)</div>';
   h+='<div class="ir">'+iChk("dots.on","점 표시")+'<span class="nm"></span><label>점 크기'+iRange("dots.size",0.5,6,0.5)+'</label>'+iChk("dots.stocks","종목선에도 표시")+'</div>';
   h+='<div class="isec">LED 효과 — 선마다 다르게 (움직이는 효과는 켠 동안만 부하가 생겨요)</div>';
-  [["ku","켈 상단선"],["low","켈 하단선"],["rs","상대강도선"]].forEach(([k,nm])=>{const b="fx.led."+k;
+  [["ku","켈 상단선"],["mid","켈 중심선"],["low","켈 하단선"],["rs","상대강도선"]].forEach(([k,nm])=>{const b="fx.led."+k;
    h+='<div class="ir"><span class="nm">'+nm+'</span>'+iSel(b+".fx",FXO)+'<label>빛 색'+iCol(b+".color",getPath(b+".color"))+'</label><label>속도'+iRange(b+".speed",1,10,1)+'</label><label>세기'+iRange(b+".power",1,14,1)+'</label></div>';});
   h+='<div class="note"><b>네온 글로우</b> = 선 둘레가 은은히 빛남 · <b>흐르는 LED</b> = 밝은 불빛이 선을 따라 흘러감 · <b>맥동</b> = 빛이 숨쉬듯 커졌다 작아짐. 속도는 흐름·맥동에만 적용돼요.</div>';
   return h;}},
@@ -681,8 +693,8 @@ const IND={
   h+='<div class="note">현재 프레임 <b>'+nb+'봉</b>. EMA 기간이 봉 수보다 길면 값이 충분히 쌓이기 전이라 <b>근사값</b>입니다(TradingView는 그 구간을 비워 둠). 정확한 값만 보려면 위의 「첫 값부터 계산」을 끄세요. 상단 차트의 선 굵기·색은 여기서, 캔들 표시는 상단 「표시」 버튼에서 바꿉니다.</div>';
   return h;}},
  gap:{title:"⚙ 이격 확대뷰 · 하단 지표",gear:"gearGap",place:"top",w:"35rem",body:()=>{
-  let h='<div class="isec">선 — 상대강도 × 켈트너 상단 (굵기를 비우면 메인과 동일)</div>';
-  h+=lineRow("상대강도","gap.rs")+lineRow("켈트너 상단","gap.ku");
+  let h='<div class="isec">선 — 상대강도 × 켈트너 상단·중심선·하단 (굵기를 비우면 메인과 동일)</div>';
+  h+=lineRow("상대강도","gap.rs")+lineRow("켈트너 상단","gap.ku")+lineRow("켈트너 중심선","gap.mid")+lineRow("켈트너 하단","gap.low");
   h+='<div class="isec">이격 막대 (상대강도 − 켈상단)</div><div class="ir">'+iChk("@show.gap","막대 표시")+'<span class="nm"></span><label>상대강도가 위'+iCol("gap.hist.up",getPath("gap.hist.up"))+'</label><label>아래'+iCol("gap.hist.dn",getPath("gap.hist.dn"))+'</label><label>진하기'+iRange("gap.hist.a",0.1,1,0.05)+'</label><label>막대 높이'+iRange("gap.hist.h",0.1,0.7,0.02)+'</label></div>';
   h+='<div class="isec">표시</div><div class="ir">'+iChk("@show.crossBottom","하단 골든/데드 표시(화살표·날짜)")+iChk("@show.maLow","하단 EMA(상대강도 기준 5·10·20·60·120)")+'</div>';
   h+='<div class="note">이 패널은 두 선의 벌어짐을 확대해서 보여주는 자체 스케일 화면입니다. 골든 = 상대강도가 켈상단을 아래→위로 교차.</div>';
@@ -857,7 +869,7 @@ function applyShot(){
  const I=F.ui.ind;
  I.ma.lo=1;   /* 촬영은 쿼리가 정함: 차트 EMA 기본 끔(&ma=1 로 켬) · 하단 EMA 기본 켬(&malow=0 으로 끔) */
  I.fx.shade={on:true,color:"#f5c542",a:0.17};
- I.fx.led.ku={fx:"glow",color:"#ffd84d",speed:5,power:8};I.fx.led.low={fx:"glow",color:"#ffd84d",speed:5,power:8};I.fx.led.rs={fx:"glow",color:"#7fe9ff",speed:5,power:9};
+ I.fx.led.ku={fx:"glow",color:"#ffd84d",speed:5,power:8};I.fx.led.low={fx:"glow",color:"#ffd84d",speed:5,power:8};I.fx.led.mid={fx:"glow",color:"#4dd9ff",speed:5,power:8};I.fx.led.rs={fx:"glow",color:"#7fe9ff",speed:5,power:9};
  I.dots={on:true,size:2.2,stocks:false};
  const f=F.frameOf(F.ui.frame,F.ui.iv);
  F.ui.vz=Math.min(300,Math.max(100,+q.get("vz")||100));   /* 세로 확대 % (100=기본) */
@@ -955,6 +967,7 @@ async function init(){
  if(canFs){$("btnFs").onclick=fsToggle;document.addEventListener("fullscreenchange",fsRefresh);document.addEventListener("webkitfullscreenchange",fsRefresh);}else $("btnFs").style.display="none";
  const toggleShow=k=>{F.ui.show[k]=!F.ui.show[k];syncChips();F.restyle();F.refreshVisibility();F.saveUI();};
  $("toggleKu").onclick=()=>toggleShow("ku");$("toggleLow").onclick=()=>{F.ui.show.low=F.ui.show.low===false;syncChips();F.restyle();F.refreshVisibility();F.saveUI();};
+ F.KEY_SETS.forEach(ks=>{const b=$("toggleKey_"+ks.id);if(b)b.onclick=()=>{const o=F.kc(ks.id);o.on=!o.on;syncChips();F.recalcVis();F.refreshVisibility();F.restyle();updateList();F.saveUI();};});
  $("toggleMid").onclick=()=>{F.ui.show.mid=F.ui.show.mid===false;syncChips();F.restyle();F.refreshVisibility();F.saveUI();};$("toggleRs").onclick=()=>toggleShow("rs");
  document.addEventListener("keydown",e=>{if((e.key==="f"||e.key==="F")&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&!/^(INPUT|TEXTAREA|SELECT)$/.test((e.target&&e.target.tagName)||"")&&canFs)fsToggle();});
  $("fAll").onclick=()=>setAllFacets(true);$("fNone").onclick=()=>setAllFacets(false);
@@ -965,10 +978,11 @@ async function init(){
  document.addEventListener("visibilitychange",resume);window.addEventListener("pageshow",resume);window.addEventListener("focus",resume);window.addEventListener("online",resume);
  updateList();updateInfo();
  loadFrame(false);
- if(!SHOT)F.startWS(onMids);
+ if(!SHOT&&!WARM)F.startWS(onMids);
  setInterval(()=>{if(!document.hidden&&!loading)fillMissing();},45000);   /* 받지 못한 종목 자동 재시도 */
  setInterval(()=>{updateInfo();liveFallback();if(!S.grid.length&&!loading&&!document.hidden)loadFrame(false);},5000);   /* 워치독: 화면이 비어 있으면 다시 시도 */
  window.__flow=F;   /* 원격 점검용 */
+ window.__warmInfo=()=>({loading,pre:prefetching,bg:warmN,grid:S.grid.length,n:Object.keys(cur).length,src:dataSrc});
 }
 init().catch(e=>{console.error("[흐름] 초기화 실패",e);document.body.insertAdjacentHTML("beforeend",'<pre style="position:fixed;left:10px;bottom:10px;color:#ff8c9a;background:#120a0c;padding:10px;border-radius:8px;z-index:99">초기화 실패: '+esc(e&&e.stack||e)+'</pre>');});
 })();

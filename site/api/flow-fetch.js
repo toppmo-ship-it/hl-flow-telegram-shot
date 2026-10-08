@@ -10,8 +10,9 @@ const IV = new Set(["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "8h", "12h
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* st = 이 요청 안에서의 측정값(하이퍼리퀴드 호출 수·합계 시간·429/5xx 횟수) — 응답의 t 필드로 돌려줘서 화면에서 병목(지연 vs 한도)을 보게 함 */
-async function hl(body, st) {
-  for (let a = 0; a < 6; a++) {   /* 429는 짧게 연타하지 않고 간격을 점점 벌려 6번까지(최대 약 12초) — 끝내 못 받은 코인은 miss 로 알려 화면이 속도를 낮춘 뒤 다시 요청 */
+async function hl(body, st, dl) {   /* dl = 이 시각(ms)을 넘기면 재시도를 접고 null — 함수 제한 시간(30초)에 통째로 죽지 않고 받은 것만 돌려주려고 */
+  for (let a = 0; a < 6; a++) {
+    if (dl && Date.now() > dl) return null;   /* 429는 짧게 연타하지 않고 간격을 점점 벌려 6번까지(최대 약 12초) — 끝내 못 받은 코인은 miss 로 알려 화면이 속도를 낮춘 뒤 다시 요청 */
     const t0 = Date.now();
     try {
       const r = await fetch(HL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -20,7 +21,9 @@ async function hl(body, st) {
       if (st) { if (r.status === 429) st.r429++; else if (r.status >= 500) st.r5xx++; }
       if (r.status !== 429 && r.status < 500) return null;
     } catch (e) { if (st) st.err++; /* 네트워크 오류 → 재시도 */ }
-    await sleep([500, 1000, 2000, 3500, 5000, 5000][a] + Math.random() * 300);
+    const wait = [500, 1000, 2000, 3500, 5000, 5000][a] + Math.random() * 300;
+    if (dl && Date.now() + wait > dl) return null;
+    await sleep(wait);
   }
   return null;
 }
@@ -62,9 +65,10 @@ export default async function handler(req, res) {
     const iv = String(q.iv || "1h");
     const start = Math.floor(+q.start), end = Math.floor(+q.end);
     if (!coins.length || !IV.has(iv) || !(start > 0) || !(end > start)) return res.status(400).json({ ok: false, error: "bad params" });
-    const d = {}, miss = [];
-    await pool(coins, 3, async (coin) => {   /* 하이퍼리퀴드 응답이 수십 ms라 동시 7개가 필요 없음 — 한 요청 안에서도 3개씩만 */
-      const k = await hl({ type: "candleSnapshot", req: { coin, interval: iv, startTime: start, endTime: end } }, st);
+    const d = {}, miss = [], DL = T0 + 22000;   /* 22초 안에 못 받은 종목은 누락(miss)으로 돌려줘서 화면이 한도 대기 후 다시 요청 — 30초 타임아웃으로 받은 것까지 버리지 않게 */
+    await pool(coins, 3, async (coin) => {
+      if (Date.now() > DL || st.r429 >= 10) { miss.push(coin); return; }   /* 한도(429)가 계속이면 남은 종목은 시도조차 않고 바로 누락 처리 */   /* 하이퍼리퀴드 응답이 수십 ms라 동시 7개가 필요 없음 — 한 요청 안에서도 3개씩만 */
+      const k = await hl({ type: "candleSnapshot", req: { coin, interval: iv, startTime: start, endTime: end } }, st, DL);
       if (Array.isArray(k) && k.length) d[coin] = k.map((c) => [+c.t, +c.h, +c.l, +c.c, +c.o, +c.v]);
       else miss.push(coin);
     });

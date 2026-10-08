@@ -1,0 +1,29 @@
+name: flow-warm
+
+# 흐름차트 "미리 갱신": 사람이 사이트를 안 열어도 서버 저장본(Supabase)이 항상 최신이도록 주기적으로 대신 열어 둠.
+# 며칠 만에 열어도 데이터를 새로 받느라 기다리지 않게 하려는 목적. 텔레그램 발송(shot.yml)과는 별개.
+on:
+  schedule:
+    - cron: "*/20 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: flow-warm
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: 흐름차트 미리 갱신
+        run: node warm.mjs
