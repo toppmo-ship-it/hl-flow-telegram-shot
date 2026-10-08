@@ -199,9 +199,9 @@ export async function buildReport({ cfg, info, uni, fx, cacheDir, log, deadline,
       { label: "양W +2", value: w2, color: "#7dffb4" }, { label: "스퀴즈 3", value: sq, color: "#ffcf7a" }, { label: "30분 내 진입", value: recent30, color: C.mark } ] };
   };
   const sections = blocks.map((b) => (sec[b] ? sec[b]() : null)).filter(Boolean);
-  const header = { title: "TM 하이퍼 · " + hm(now) + " 리포트",
+  const header = { title: "TM Daily Report · " + hm(now),
     sub: mdhm(now) + " · " + pass.length + "종목 (수집 " + rows.length + ") · 1$=" + Math.round(fx).toLocaleString("en-US") + "원 환산 · 억원=한화 · 등락=전일대비 · {o}=충족 · {F}=4H 켈트너 상단 위(발산)" };
   const foot = "데이터: 하이퍼리퀴드 캔들(일봉 = 한국 09:00 기준) · 거래대금은 하이퍼리퀴드 체결 기준 · 지표 정의는 TM Matrix Screener v48.9 와 동일 · 진입은 리포트를 만들 때마다 직전과 비교";
-  const caption = "📋 TM 하이퍼 리포트 · " + hm(now) + " · " + pass.length + "종목 (수집 " + rows.length + ") · ★핵심 " + core.length + (S2.log.length ? " · 최근 진입 " + S2.log[0].k : "");
+  const caption = "📋 TM Daily Report · " + hm(now) + " · " + pass.length + "종목 (수집 " + rows.length + ") · ★핵심 " + core.length + (S2.log.length ? " · 최근 진입 " + S2.log[0].k : "");
   return { sections, header, foot, caption, meta: Object.assign(meta, { pass: pass.length, core: core.length }) };
 }
