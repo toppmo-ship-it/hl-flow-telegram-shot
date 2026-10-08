@@ -88,7 +88,7 @@ const CAT = {
     "<code>sk하이닉스 일봉</code> → 일봉 " + (c.dailyDays || 60) + "개 (설정값)",
     "봉: 15분 · 30분 · 1시간 · 2시간 · 4시간 · 8시간 · 일봉",
     "",
-    "카드 밑 버튼(15분·1시간·4시간·일봉)을 눌러도 바로 바뀌어요",
+    "카드 밑 버튼(15분·30분·1시간·2시간·4시간·일봉)을 눌러도 바로 바뀌어요",
   ].join("\n"),
   sector: () => [
     "🗂 <b>섹터·테마</b>",
@@ -197,7 +197,7 @@ export function sectorButtons(info, custom) {
   return { inline_keyboard: rows };
 }
 /* 카드 밑 '봉 바꾸기' 버튼 */
-export const cardButtons = (tk, cur) => ({ inline_keyboard: [[["15m", "15분"], ["1h", "1시간"], ["4h", "4시간"], ["8h", "8시간"], ["1d", "일봉"]].map(([iv, t]) => ({ text: (iv === cur ? "● " : "") + t, callback_data: "z:" + tk + ":" + iv }))] });
+export const cardButtons = (tk, cur) => { const b = [["15m", "15분"], ["30m", "30분"], ["1h", "1시간"], ["2h", "2시간"], ["4h", "4시간"], ["1d", "일봉"]].map(([iv, t]) => ({ text: (iv === cur ? "● " : "") + t, callback_data: "z:" + tk + ":" + iv })); return { inline_keyboard: [b.slice(0, 3), b.slice(3)] }; };
 
 /* ───────── 설정·상태 글 ───────── */
 const RESN = { fcover: "폴드 접힘(세로)", fwide: "폴드 펼침(가로)", pcxl: "PC 16:9" };
