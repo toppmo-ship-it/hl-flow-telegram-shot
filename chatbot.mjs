@@ -266,10 +266,23 @@ async function doRank() {
     const texts = [];
     const weekly = await buildWeeklyTexts({ uni: C.uni, info: C.info, fx: C.fx, cacheDir: CACHE, log: () => {} }); texts.push(...weekly.texts);
     texts.push(...await buildSurgeText({ uni: C.uni, info: C.info, fx: C.fx, log: () => {}, cacheDir: CACHE }));
-    if (cfg.rankPattern !== false && process.env.PATTERN_RANK_JSON) texts.push(...await buildPatternRankText({ uni: C.uni, info: C.info, log: () => {}, cacheDir: CACHE, tf0: String(cfg.cardIv || "4h"), scanN: 50 }));
     flushCardCache(CACHE);
     for (const t of texts) { await say(F.esc(t).replace(/\n/g, "\n")); }
     if (!texts.length) await say("순위로 보여줄 내용이 없어요");
+  } finally { C.busy--; await delMsg(prog); }
+}
+/* 패턴 셋업 리포트 (패턴 확률 순위 글) */
+async function doPattern() {
+  const cfg = await cfgGet();
+  if (!process.env.PATTERN_RANK_JSON && !DRY) return say("⚠️ 패턴 순위 데이터(비밀값)가 이 봇에 없어 만들 수 없어요");
+  const prog = await say("⏳ 패턴 셋업 리포트 만드는 중… (종목 스캔, 1분 안팎)");
+  C.busy++;
+  try {
+    await loadCtx();
+    const tx = await buildPatternRankText({ uni: C.uni, info: C.info, log: () => {}, cacheDir: CACHE, tf0: String(cfg.cardIv || "4h"), scanN: 50 });
+    flushCardCache(CACHE);
+    for (const t of tx) await say(F.esc(t));
+    if (!tx.length) await say("패턴 셋업으로 보여줄 내용이 없어요");
   } finally { C.busy--; await delMsg(prog); }
 }
 /* 가격흐름 사진 — shot.mjs 를 따로 실행 */
@@ -419,7 +432,7 @@ async function doStatus() {
 }
 async function doConfig() { const [cfg, mute] = await Promise.all([cfgGet(), sbGet("tg_bot_mute")]); await loadCtx(); await say(F.configText(cfg, mute, C.themes)); }
 
-const EVERY_LABEL = { report: "📋 리포트", flow: "📈 가격흐름", cards: "🃏 카드", rank: "📑 순위글" };
+const EVERY_LABEL = { report: "📋 리포트", flow: "📈 가격흐름", cards: "🃏 카드", rank: "📑 순위글", pattern: "🧩 패턴 셋업 리포트" };
 async function doEvery(target, value) {
   let backup = null;
   if (target === "cards") backup = await sbGet("tg_bot_cards_backup");
@@ -432,14 +445,21 @@ async function doEvery(target, value) {
       c.cardEvery = snapEvery(value); return everyKo(c.cardEvery) + "마다";
     }
     if (target === "rank") {
-      if (value === "off") { c.rankWeekly = false; c.rankSurge = false; c.rankPattern = false; return "끔"; }
-      if (value === "on") { c.rankPattern = true; return "패턴확률 켬"; }
-      c.rankEvery = snapEvery(value); c.rankPatEvery = snapEvery(value); return everyKo(c.rankEvery) + "마다";
+      if (value === "off") { c.rankWeekly = false; c.rankSurge = false; return "끔 (거래대금·급증 순위)"; }
+      if (value === "on") { c.rankWeekly = true; c.rankSurge = true; return "켬 (거래대금·급증 순위)"; }
+      c.rankEvery = snapEvery(value); return everyKo(c.rankEvery) + "마다";
+    }
+    if (target === "pattern") {
+      if (value === "off") { c.rankPattern = false; return "끔"; }
+      if (value === "on") { c.rankPattern = true; return "켬 (" + everyKo(c.rankPatEvery != null ? +c.rankPatEvery : 60) + "마다)"; }
+      const v = [0, 60, 240, 1440].reduce((b, x) => (Math.abs(x - value) < Math.abs(b - value) ? x : b));   /* 설정 페이지의 선택지와 같게 */
+      c.rankPattern = true; c.rankPatEvery = v; return everyKo(v) + "마다";
     }
   });
   if (target === "cards") { if (backup && backup.length) await W("tg_bot_cards_backup", backup); }
   const note2 = typeof note === "string" ? note : "";
-  const adj = typeof value === "number" && value !== snapEvery(value) ? "\n<i>(" + value + "분은 선택지에 없어 가장 가까운 " + everyKo(snapEvery(value)) + "로 맞췄어요 — 가능: 매번·10분·15분·30분·1시간·4시간·하루)</i>" : "";
+  const sn = typeof value === "number" ? (target === "pattern" ? [0, 60, 240, 1440].reduce((b, x) => (Math.abs(x - value) < Math.abs(b - value) ? x : b)) : snapEvery(value)) : null;
+  const adj = sn != null && value !== sn ? "\n<i>(" + value + "분은 선택지에 없어 가장 가까운 " + everyKo(sn) + "로 맞췄어요 — 가능: " + (target === "pattern" ? "매번·1시간·4시간·하루" : "매번·10분·15분·30분·1시간·4시간·하루") + ")</i>" : "";
   return say("✅ " + EVERY_LABEL[target] + " → <b>" + F.esc(note2) + "</b>" + adj + "\n<i>다음 발송부터 적용돼요 · 설정 페이지에도 반영돼요</i>");
 }
 async function doSetting(cmd, arg) {
@@ -534,6 +554,7 @@ async function handleText(text, from) {
       case "flow": return doFlow();
       case "cards": return doCards();
       case "rank": return doRank();
+      case "pattern": return doPattern();
       case "status": return doStatus();
       case "config": return doConfig();
       case "mute": return doMute(cmd.arg);

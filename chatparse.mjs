@@ -54,6 +54,7 @@ const CMDS = [
   ["flow", /^(흐름|흐름차트|가격흐름|flow)$/],
   ["cards", /^(카드|카드전체|카드보내기|cards?)$/],
   ["rank", /^(순위|순위글|rank)$/],
+  ["pattern", /^(패턴|패턴리포트|패턴셋업|패턴셋업리포트|셋업|pattern)$/],
   ["status", /^(상태|status|현황)$/],
   ["config", /^(설정|설정보기|설정확인|config|settings?)$/],
   ["mute", /^(조용히|조용|mute|쉿|알림끄기)$/],
@@ -86,7 +87,7 @@ const CMDS = [
   ["themeAdd", /^(테마추가|테마만들기|테마저장|themeadd)$/],
   ["themeDel", /^(테마삭제|테마제거|themedel)$/],
 ];
-const INTERVAL_OWNERS = { report: "report", flow: "flow", cards: "cards", rank: "rank" };
+const INTERVAL_OWNERS = { report: "report", flow: "flow", cards: "cards", rank: "rank", pattern: "pattern" };
 export function parseCommand(text) {
   let t = String(text || "").trim().replace(/^\/+/, "").replace(/@\w+/g, " ").replace(/[\p{Extended_Pictographic}️‍]/gu, " ").trim();
   if (!t) return null;

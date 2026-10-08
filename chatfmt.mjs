@@ -127,7 +127,8 @@ const CAT = {
     "<code>리포트</code> TM Daily Report",
     "<code>흐름</code> 가격흐름 사진",
     "<code>카드</code> 설정해 둔 종목 카드 전부",
-    "<code>순위</code> 순위 글",
+    "<code>순위</code> 순위 글(거래대금·급증)",
+    "<code>패턴</code> 패턴 셋업 리포트",
     "<code>지금</code> 위의 모든 사진 + 주기를 지금부터 새로 시작",
     "",
     "<code>상태</code> 마지막 발송·다음 발송",
@@ -141,6 +142,7 @@ const CAT = {
     "<b>보내는 주기</b>  (끄기 · 10분 · 15분 · 30분 · 1시간 · 4시간 · 하루)",
     "<code>리포트 30분</code>   <code>리포트 끄기</code>",
     "<code>카드 1시간</code>   <code>흐름 4시간</code>   <code>순위 하루</code>",
+    "<code>패턴 1시간</code>   <code>패턴 끄기</code>   <code>패턴 켜기</code>  (패턴은 매번·1시간·4시간·하루)",
     "",
     "<b>사진 모양</b>",
     "<code>해상도 폴드</code> · <code>펼침</code> · <code>PC</code>",
@@ -172,7 +174,7 @@ export const helpBack = () => ({ inline_keyboard: [[{ text: "◀ 처음으로", 
 export const replyKeyboard = () => ({ keyboard: [["📋 리포트", "📈 흐름", "🃏 카드"], ["🔥 핵심", "🌐 매크로", "🗂 섹터"], ["📤 지금", "📊 상태", "❓ 도움말"]], resize_keyboard: true, is_persistent: true, input_field_placeholder: "종목 이름을 쓰세요  예) 메타 4시간" });
 /* 텔레그램 '/' 메뉴 */
 export const MENU = [
-  ["help", "도움말 · 명령어 안내"], ["sectors", "섹터·테마 목록"], ["report", "리포트 사진 받기"], ["flow", "가격흐름 사진 받기"], ["cards", "설정한 종목 카드 받기"], ["rank", "순위 글 받기"],
+  ["help", "도움말 · 명령어 안내"], ["sectors", "섹터·테마 목록"], ["report", "리포트 사진 받기"], ["flow", "가격흐름 사진 받기"], ["cards", "설정한 종목 카드 받기"], ["rank", "순위 글 받기"], ["pattern", "패턴 셋업 리포트 받기"],
   ["now", "설정된 사진 전부 지금 받기"], ["core", "★핵심 종목"], ["hx", "4H 발산 종목"], ["macro", "지수·원자재·금리"], ["entries", "최근 진입"], ["surge", "급변동 TOP"], ["fx", "환율"],
   ["status", "마지막·다음 발송 상태"], ["config", "현재 설정 보기"], ["mute", "조용히 (주기 발송 잠깐 쉬기)"], ["unmute", "다시 켜기"],
 ];
@@ -207,7 +209,8 @@ export function configText(c, mute, themes) {
     "📈 가격흐름: <b>" + everyKo(c.flowEvery != null ? +c.flowEvery : 0) + "</b>마다 · " + (c.frame || "20D") + " · " + (c.iv || "15m") + "봉",
     "🃏 카드: " + (cards.length ? "<b>" + cards.length + "장</b> (" + esc(cards.slice(0, 8).join(", ")) + (cards.length > 8 ? " …" : "") + ")" : "<b>없음</b>") + " · " + everyKo(c.cardEvery != null ? +c.cardEvery : 0) + "마다",
     "     기본 " + (IV_KO[c.cardIv || "4h"] || c.cardIv) + "봉 · " + (c.cardDays || 60) + "일 · 일봉 미니 " + (c.cardDaily === false ? "끔" : "켬(" + (c.cardDailyBars || 60) + "개)"),
-    "📑 순위글: " + (rankOn.length ? esc(rankOn.join("+")) : "끔") + " · " + everyKo(c.rankEvery != null ? +c.rankEvery : 0),
+    "📑 순위글: " + ((c.rankWeekly || c.rankSurge) ? esc([c.rankWeekly ? "거래대금" : "", c.rankSurge ? "급증" : ""].filter(Boolean).join("+")) + " · " + everyKo(c.rankEvery != null ? +c.rankEvery : 0) + "마다" : "끔"),
+    "🧩 패턴 셋업 리포트: " + (c.rankPattern !== false ? "<b>" + everyKo(c.rankPatEvery != null ? +c.rankPatEvery : 60) + "</b>마다" : "<b>끔</b>"),
     "🖼 해상도: " + (RESN[c.res] || RESN.fwide) + " · 원본 파일 " + (c.doc === false ? "끔" : "함께"),
     "🔕 조용히: " + (mute && +mute.until > Date.now() ? "<b>" + mdhm(+mute.until) + " KST 까지</b>" : "아님"),
   ];
@@ -226,6 +229,7 @@ export function statusText({ last, st, cfg, mute, up, snapAge, bars }) {
     L.push(row("📈 흐름", last.flow, +cfg.flowEvery || 5));
     L.push(row("🃏 카드", last.cards, +cfg.cardEvery || 5));
     L.push(row("📑 순위", last.rank, +cfg.rankEvery || 0));
+    L.push(row("🧩 패턴", last.pat, cfg.rankPattern === false ? 0 : (cfg.rankPatEvery != null ? +cfg.rankPatEvery : 60)) + (cfg.rankPattern === false ? " (끔)" : ""));
   } else L.push("발송 기록이 아직 없어요");
   if (st && st.done) L.push("", "⛓ 사슬 마지막 실행: " + (st.state === "error" ? "❌ 오류" : "✅ 정상") + " · " + hm(st.done) + " (" + ago(st.done) + ") · #" + esc(st.run));
   L.push("🔕 조용히: " + (mute && +mute.until > Date.now() ? "<b>" + mdhm(+mute.until) + " KST 까지</b>" : "아님"));
