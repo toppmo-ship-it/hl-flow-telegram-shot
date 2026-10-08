@@ -61,6 +61,9 @@ const COLS = {
 };
 const isCore = (v) => v.w >= 2 && v.kc === 1 && v.h4m === 1;
 const GOLD_ROW = "rgba(245,197,66,0.20)";
+/* 요즘 중요한 매크로 6종 — 지수·원자재 박스에서 줄 전체에 은은한 보랏빛 음영(★핵심의 금색과 구분, 너무 튀지 않게) */
+const MACRO = new Set(["XYZ100", "SP500", "KR200", "10Y", "CL", "BRENTOIL"]);
+const MACRO_ROW = "rgba(150,130,255,0.17)";
 
 /* ───────── 한 줄(종목) 만들기 ───────── */
 function wcut(s, w) { let o = "", n = 0; for (const ch of String(s)) { const c = /[ᄀ-ᇿ　-鿿가-힯＀-￯]/.test(ch) ? 2 : 1; if (n + c > w) break; o += ch; n += c; } return o; }
@@ -175,7 +178,7 @@ export async function buildReport({ cfg, info, uni, fx, cacheDir, log, deadline,
     const rest = non.filter((r) => !FIXED_INDEX.includes(r.tk)).sort(byEok).slice(0, 4), l = fixed.concat(rest);
     const ids = ["px"].concat(colIds.filter((c) => c !== "px"));
     const cols = [["#", "c"], ["종목", "l"], ["이름", "l"], ["섹터", "l"]].concat(ids.map((id) => [COLS[id][0], COLS[id][1], COLS[id][2]]));
-    return { index: true, title: "지수 · 원자재", sub: "시장 기준 (고정) · 가격 포함 · 미국10년물은 금리(%)·등락은 bp", empty: "— 없음 —", cols, rows: l.map((r, i) => [cell(i + 1, "#9fb3d9"), cell(r.tk, "#dce6f7", true), cell(nameOf(r), "#dce6f7"), cell(wcut(r.sec, 14), C.sub)].concat(ids.map((id) => COLS[id][3](r.v, r)))) };
+    return { index: true, title: "지수 · 원자재", sub: "시장 기준 (고정) · 가격 포함 · 미국10년물은 금리(%)·등락은 bp · 보랏빛 줄 = 핵심 매크로 6종", empty: "— 없음 —", cols, rowbg: l.map((r) => (MACRO.has(r.tk) ? MACRO_ROW : null)), rows: l.map((r, i) => [cell(i + 1, "#9fb3d9"), cell(r.tk, "#dce6f7", true), cell(nameOf(r), "#dce6f7"), cell(wcut(r.sec, 14), C.sub)].concat(ids.map((id) => COLS[id][3](r.v, r)))) };
   };
   sec.all = () => {
     const l = pass.filter((r) => r.stock).sort((a, b) => (b.v.w - a.v.w) || byEok(a, b)), s = l.slice(0, allRows);
