@@ -129,7 +129,7 @@ export function calcCoin(e, now) {
   const prev = n >= 2 ? dc[i - 1] : null;
   const volDay = dv[i];
   return {
-    px, chg: prev ? (px - prev) / prev * 100 : null, usd: volDay * px, pwr: Math.round(pwr(i)),
+    px, prev, chg: prev ? (px - prev) / prev * 100 : null, usd: volDay * px, pwr: Math.round(pwr(i)),
     kc: above[i] ? 1 : 0, gap: kcGap == null ? null : Math.round(kcGap * 10) / 10, w, h4m, h4u, h4g: h4g == null ? null : Math.round(h4g * 10) / 10,
     sqz, g3: g3 == null ? null : Math.round(g3 * 10) / 10, g5: g5 == null ? null : Math.round(g5 * 10) / 10, rv: rvz,
     d15s, d15, d30, vwap: vw, cumT, jb, kelu: above[i] ? hold : 0, days: n, asOf: e.tm || 0,
@@ -169,11 +169,16 @@ function needs(e, now) {
   const out = [];
   if (e.bad && now - e.bad < 3 * 3600e3) return out;
   const cur15 = Math.floor(now / M15) * M15, td = Math.floor(now / D1) * D1, c4 = Math.floor(now / H4) * H4;
-  if (!e.m || (e.m.length < 400 && !e.mHist)) out.push({ k: "m", full: true, pri: 0 });
+  /* 데이터가 하나도 없는 상태(빈 배열 포함)면 처음부터, 이미 '더 받을 게 없다(Hist)'고 확인된 종목은 건너뜀 */
+  const have = (a) => Array.isArray(a) && a.length > 0;
+  if (!have(e.m)) { if (!e.mHist) out.push({ k: "m", full: true, pri: 0 }); }
+  else if (e.m.length < 400 && !e.mHist) out.push({ k: "m", full: true, pri: 0 });
   else if ((e.tm || 0) < cur15) out.push({ k: "m", full: false, pri: 1 });
-  if (!e.d || (e.d.length < 60 && !e.dHist)) out.push({ k: "d", full: true, pri: 0 });
+  if (!have(e.d)) { if (!e.dHist) out.push({ k: "d", full: true, pri: 0 }); }
+  else if (e.d.length < 60 && !e.dHist) out.push({ k: "d", full: true, pri: 0 });
   else if (e.d[e.d.length - 1][0] < td - D1) out.push({ k: "d", full: false, pri: 2 });
-  if (!e.h4 || (e.h4.length < 80 && !e.hHist)) out.push({ k: "h4", full: true, pri: 0 });
+  if (!have(e.h4)) { if (!e.hHist) out.push({ k: "h4", full: true, pri: 0 }); }
+  else if (e.h4.length < 80 && !e.hHist) out.push({ k: "h4", full: true, pri: 0 });
   else if (e.h4[e.h4.length - 1][0] + H4 < c4) out.push({ k: "h4", full: false, pri: 2 });
   return out;
 }

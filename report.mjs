@@ -8,7 +8,7 @@ import { splitKo, isStock, FIXED_INDEX } from "./repnames.mjs";
 import { loadBars, saveBars, ensureBars, patchLive, fetchMids, calcCoin, changeOver } from "./repcalc.mjs";
 
 export const BLOCK_IDS = ["sum", "core", "index", "all", "topVol", "topChg", "topKel", "topStreak", "recent", "surge"];
-export const COL_IDS = ["chg", "ntl", "kel", "gap", "pwr", "w", "h4", "g3", "g5", "d15s", "d15", "d30", "vwap", "sqz", "jb", "rv", "kelu", "cumT"];
+export const COL_IDS = ["px", "chg", "ntl", "kel", "gap", "pwr", "w", "h4", "g3", "g5", "d15s", "d15", "d30", "vwap", "sqz", "jb", "rv", "kelu", "cumT"];
 const KST = 9 * 3600e3, p2 = (n) => String(n).padStart(2, "0");
 const kd = (ms) => new Date(ms + KST);
 const hm = (ms) => { const d = kd(ms); return p2(d.getUTCHours()) + ":" + p2(d.getUTCMinutes()); };
@@ -23,6 +23,9 @@ const dash = (sz) => cell("–", C.no, false, null, sz);
 const nul = (x) => x == null || Number.isNaN(x);
 const pct = (x) => (nul(x) ? cell("-", C.sub) : cell((x > 0 ? "+" : "") + x.toFixed(2) + "%", x > 0 ? C.up : x < 0 ? C.dn : C.txt, true));
 const signed = (x, suffix) => (nul(x) ? cell("-", C.sub) : cell((x > 0 ? "+" : "") + (Number.isInteger(x) ? x : x.toFixed(1)) + (suffix || ""), x > 0 ? C.up : x < 0 ? C.dn : C.txt, true));
+/* 가격 표시: 크기에 맞춰 자리수 조정. 미국 10년물은 금리(%) — 등락은 bp(0.01%p)로 */
+const fmtPx = (p) => (nul(p) ? "-" : p >= 10000 ? Math.round(p).toLocaleString("en-US") : p >= 1000 ? p.toLocaleString("en-US", { maximumFractionDigits: 1 }) : p >= 10 ? p.toFixed(2) : p >= 1 ? p.toFixed(3) : p.toPrecision(3));
+const bpCell = (px, prev) => { if (nul(px) || nul(prev)) return cell("-", C.sub); const bp = (px - prev) * 100; return cell((bp > 0 ? "+" : "") + bp.toFixed(1) + "bp", bp > 0 ? C.up : bp < 0 ? C.dn : C.txt, true); };
 const rel2 = (x) => (nul(x) ? cell("-", C.sub) : cell((x > 0 ? "+" : "") + x.toFixed(2) + "%p", x > 0 ? C.up : x < 0 ? C.dn : C.txt, true));
 const plain = (x) => (nul(x) ? cell("-", C.sub) : cell(Number.isInteger(x) ? String(x) : x.toFixed(1)));
 const WC = { 2: ["#1e7d4a", "#7dffb4"], 1: ["#8a5a12", "#ffcf7a"], 0: ["#3a3d46", "#c7ccd6"], "-1": ["#1c4a86", "#9ec6ff"], "-2": ["#14306b", "#7ea6ff"] };
@@ -36,7 +39,8 @@ const eokText = (e, sign) => { if (nul(e)) return "-"; const a = Math.abs(e); re
 const H = { px: "#ffffff", tr: "#6ee7a8", ov: "#ffb066", au: "#8fd6d0", sp: "#f0a7c0" };
 /* 표 칸 정의 — repCols 로 켜고 끔. 순서는 스크리너 화면 순서 그대로 */
 const COLS = {
-  chg: ["등락", "r", H.px, (v) => pct(v.chg)],
+  px: ["가격", "r", H.px, (v, r) => cell(r && r.tk === "10Y" ? (nul(v.px) ? "-" : v.px.toFixed(3) + "%") : fmtPx(v.px), null, true)],
+  chg: ["등락", "r", H.px, (v, r) => (r && r.tk === "10Y" ? bpCell(v.px, v.prev) : pct(v.chg))],
   ntl: ["억원", "r", H.px, (v) => cell(eokText(v.eok), null, true)],
   kel: ["켈", "c", H.tr, (v) => cKel(v.kc)],
   gap: ["이격도", "r", H.ov, (v) => cGap(v.gap)],
@@ -96,6 +100,12 @@ function entryCell(kinds) {
 }
 
 /* ───────── 메인: 데이터 → 섹션 ───────── */
+/* 이름이 같은 종목이 여러 거래소에 있으면 xyz 우선, 아니면 거래대금 큰 쪽(거래가 적은 종목도 놓치지 않게). 없으면 기존 방식 */
+function pickCoin(uni, t, info) {
+  const a = (info.alias && info.alias[t]) || t, c = uni.filter((r) => r.short === a);
+  if (c.length) return c.find((r) => r.dex === "xyz") || c.sort((x, y) => y.dayNtl - x.dayNtl)[0];
+  return pickRow(uni, t, info);
+}
 /* 메인 거래소 perp 이름 + 현물(USDC) 페어 이름(@번호) — KNTQ 처럼 perp 가 아니라 현물인 종목 연결용. 12시간마다 갱신 */
 async function resolveRef(S, log) {
   const now = Date.now(); if (S.ref && now - S.ref.t < 12 * 3600e3) return S.ref;
@@ -111,12 +121,12 @@ export async function buildReport({ cfg, info, uni, fx, cacheDir, log, deadline,
   const order = (Array.isArray(cfg.repOrder) ? cfg.repOrder : BLOCK_IDS).filter((b, i, arr) => BLOCK_IDS.includes(b) && arr.indexOf(b) === i);
   BLOCK_IDS.forEach((b) => { if (!order.includes(b)) order.push(b); });
   const off = new Set(Array.isArray(cfg.repOff) ? cfg.repOff : []), blocks = order.filter((b) => !off.has(b));   /* repOrder = 전체 순서, repOff = 끈 항목 */
-  const colIds = (Array.isArray(cfg.repCols) ? cfg.repCols : COL_IDS).filter((c) => COL_IDS.includes(c));
+  const colIds = (Array.isArray(cfg.repCols) ? cfg.repCols : COL_IDS.filter((c) => c !== "px")).filter((c) => COL_IDS.includes(c));   /* 가격 칸은 기본 꺼짐(지수·원자재 박스에는 항상 들어감) */
   const allRows = Math.min(100, Math.max(10, +cfg.repRows || 45)), surgeMin = [5, 15, 30, 60].includes(+cfg.repSurge) ? +cfg.repSurge : 15;
   /* 대상 종목: 사이트 관심종목 전부(코인·지수·원자재 포함). 10Y(금리)는 제외 */
-  const tickers = []; info.watch.forEach(([, items]) => items.split(",").forEach((t) => { if (t && t !== "10Y" && !tickers.includes(t)) tickers.push(t); }));
+  const tickers = []; info.watch.forEach(([, items]) => items.split(",").forEach((t) => { if (t && !tickers.includes(t)) tickers.push(t); }));
   const S = loadBars(cacheDir), ref = await resolveRef(S, log);
-  let coins = tickers.filter((t) => !only || only.includes(t)).map((t) => { const r = pickRow(uni, t, info); if (!r) return null; let full = r.full; if (r.dex === "코인" && ref.perps.length && !ref.perps.includes(full) && ref.spot[full]) full = ref.spot[full]; return { tk: t, full }; }).filter(Boolean);
+  let coins = tickers.filter((t) => !only || only.includes(t)).map((t) => { const r = pickCoin(uni, t, info); if (!r) return null; let full = r.full; if (r.dex === "코인" && ref.perps.length && !ref.perps.includes(full) && ref.spot[full]) full = ref.spot[full]; return { tk: t, full }; }).filter(Boolean);
   const seen = new Set(); coins = coins.filter((c) => (seen.has(c.full) ? false : (seen.add(c.full), true)));
   if (limit) coins = coins.slice(0, limit);
   /* 캔들 받기(예산 안에서) → 저장 → 지금 가격 끼우기 */
@@ -149,9 +159,9 @@ export async function buildReport({ cfg, info, uni, fx, cacheDir, log, deadline,
 
   /* ── 섹션들 ── */
   const indCols = colIds.map((id) => [COLS[id][0], COLS[id][1], COLS[id][2]]);
-  const indCells = (v) => colIds.map((id) => COLS[id][3](v));
+  const indCells = (v, r) => colIds.map((id) => COLS[id][3](v, r));
   const bigCols = [["#", "c"], ["종목", "l"], ["이름", "l"], ["섹터", "l"]].concat(indCols);
-  const bigRow = (r, i, star) => [cell(i + 1, star ? C.gold : C.sub, star), cell((star ? "{S}" : "") + r.tk, star ? "#ffffff" : null, true), cell(nameOf(r), star ? "#ffffff" : null), cell(wcut(r.sec, 14), C.sub)].concat(indCells(r.v));
+  const bigRow = (r, i, star) => [cell(i + 1, star ? C.gold : C.sub, star), cell((star ? "{S}" : "") + r.tk, star ? "#ffffff" : null, true), cell(nameOf(r), star ? "#ffffff" : null), cell(wcut(r.sec, 14), C.sub)].concat(indCells(r.v, r));
   const mini = [["#", "c"], ["종목", "l"], ["이름", "l"], ["등락", "r"], ["억원", "r"], ["양W", "c"], ["켈", "c"], ["4H", "c"]];
   const miniRow = (r, i) => [cell(i + 1, C.sub), cell(r.tk, null, true), cell(nameOf(r)), pct(r.v.chg), cell(eokText(r.v.eok)), cW(r.v.w), cKel(r.v.kc), c4H(r.v)];
   const goldBg = (list) => list.map((r) => (isCore(r.v) ? GOLD_ROW : null));
@@ -160,9 +170,12 @@ export async function buildReport({ cfg, info, uni, fx, cacheDir, log, deadline,
 
   sec.core = () => { const l = core.slice().sort(byEok), s = l.slice(0, 5); return { feature: true, title: "{S} 핵심 · 켈상단 + 4H켈중심", sub: l.length + "종목 중 · 양W +2 + 켈상단 + 4H켈중심", empty: "— 지금 조건 충족 종목 없음 —", cols: bigCols, rowbg: undefined, rows: s.map((r, i) => bigRow(r, i, true)) }; };
   sec.index = () => {
+    /* 지수 5 + 원자재 8 은 거래대금과 무관하게 항상(고정), 그 밖의 비주식은 거래대금 큰 순으로 뒤에. 가격 칸은 항상 맨 앞 — 코스피·금리 수준을 바로 보게 */
     const non = rows.filter((r) => !r.stock), fixed = FIXED_INDEX.map((t) => non.find((r) => r.tk === t)).filter(Boolean);
-    const rest = non.filter((r) => !FIXED_INDEX.includes(r.tk)).sort(byEok).slice(0, 6), l = fixed.concat(rest);
-    return { index: true, title: "지수 · 원자재", sub: "시장 기준 (고정)", empty: "— 없음 —", cols: bigCols, rows: l.map((r, i) => [cell(i + 1, "#9fb3d9"), cell(r.tk, "#dce6f7", true), cell(nameOf(r), "#dce6f7"), cell(wcut(r.sec, 14), C.sub)].concat(indCells(r.v))) };
+    const rest = non.filter((r) => !FIXED_INDEX.includes(r.tk)).sort(byEok).slice(0, 4), l = fixed.concat(rest);
+    const ids = ["px"].concat(colIds.filter((c) => c !== "px"));
+    const cols = [["#", "c"], ["종목", "l"], ["이름", "l"], ["섹터", "l"]].concat(ids.map((id) => [COLS[id][0], COLS[id][1], COLS[id][2]]));
+    return { index: true, title: "지수 · 원자재", sub: "시장 기준 (고정) · 가격 포함 · 미국10년물은 금리(%)·등락은 bp", empty: "— 없음 —", cols, rows: l.map((r, i) => [cell(i + 1, "#9fb3d9"), cell(r.tk, "#dce6f7", true), cell(nameOf(r), "#dce6f7"), cell(wcut(r.sec, 14), C.sub)].concat(ids.map((id) => COLS[id][3](r.v, r)))) };
   };
   sec.all = () => {
     const l = pass.filter((r) => r.stock).sort((a, b) => (b.v.w - a.v.w) || byEok(a, b)), s = l.slice(0, allRows);

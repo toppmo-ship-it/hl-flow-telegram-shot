@@ -38,7 +38,7 @@ export const KO = {
   CVX: "셰브론 · 석유메이저", XOM: "엑슨모빌 · 석유메이저", JPM: "JP모건 · 은행", GS: "골드만삭스 · 투자은행",
   V: "비자 · 결제", MA: "마스터카드 · 결제", WMT: "월마트 · 유통", DIS: "디즈니 · 미디어", BA: "보잉 · 항공",
   // 지수
-  SP500: "S&P500 · 美 지수", XYZ100: "나스닥100(XYZ100) · 美 기술지수", NIFTY: "니프티50 · 인도 지수",
+  "10Y": "美 10년물 금리 · 금리", SP500: "S&P500 · 美 지수", XYZ100: "나스닥100(XYZ100) · 美 기술지수", NIFTY: "니프티50 · 인도 지수",
   IBOV: "보베스파 · 브라질 지수", JP225: "닛케이225 · 일본 지수", KR200: "코스피200 · 한국 지수", VIX: "VIX · 공포지수",
   // ETF
   SMH: "반도체 ETF(SMH)", SOXL: "반도체 3배 ETF(SOXL)", EWY: "한국 ETF(EWY)", KORU: "한국 3배 ETF(KORU)",
@@ -61,8 +61,9 @@ export const KO = {
 };
 
 /* 개별주가 아닌 것(지수·원자재·ETF·환율·곡물) — 전종목 표에서는 빼고 '지수·원자재' 박스로 */
-export const FIXED_INDEX = ["XYZ100", "SP500", "CL", "BRENTOIL"];   /* 지수·원자재 박스 맨 위 고정 순서 */
-const NON_STOCK = new Set([...FIXED_INDEX, "GOLD", "SILVER", "PLATINUM", "PALLADIUM", "COPPER", "ALUMINIUM", "NATGAS", "TTF", "URANIUM",
+/* 지수·원자재 박스에 항상 넣는 종목(이 순서): 지수 5개(나스닥100·S&P500·코스피200·닛케이·미국10년물 금리) + 원자재 8개. 거래대금이 작아도 빠지지 않게 고정 */
+export const FIXED_INDEX = ["XYZ100", "SP500", "KR200", "JP225", "10Y", "CL", "BRENTOIL", "NATGAS", "GOLD", "SILVER", "COPPER", "PLATINUM", "PALLADIUM"];
+const NON_STOCK = new Set([...FIXED_INDEX, "ALUMINIUM", "TTF", "URANIUM",
   "WHEAT", "CORN", "KR200", "JP225", "NIFTY", "IBOV", "VIX", "DXY", "EUR", "JPY", "GBP", "KRW"]);
 const NON_KEYWORDS = ["지수", "원자재", "ETF", "환율", "곡물"];
 /* ETF지만 전종목(개별주) 표에서 같이 보고 싶은 티커 */
