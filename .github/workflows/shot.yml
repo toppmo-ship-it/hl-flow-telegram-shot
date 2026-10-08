@@ -82,12 +82,11 @@ jobs:
         run: node shot.mjs
 
       # 캡처가 실패·시간초과여도 반드시 실행(always). 시험용 dry 실행은 이어가지 않음.
-      - name: 다음 5분 경계까지 대기 후 재실행
+      - name: 다음 5분 칸까지 대기(지금 보내기 요청이 오면 즉시) 후 재실행
         if: ${{ always() && steps.guard.outputs.skip != 'true' && github.event.inputs.dry != 'true' }}
         run: |
-          now=$(date +%s); next=$(( (now / 300 + 1) * 300 )); wait=$(( next - now ))
-          [ "$wait" -lt 20 ] && wait=$(( wait + 300 ))
-          echo "대기 ${wait}초 후 다시 시작"; sleep "$wait"
+          # 기준(anchor) 5분 격자의 다음 칸까지 기다리되, 설정 페이지의 '지금 보내기' 요청이 오면 바로 끝냄
+          node waitnext.mjs
           for i in 1 2 3 4 5; do
             if gh workflow run shot.yml --repo "${{ github.repository }}" --ref "${{ github.ref_name }}"; then echo "다음 실행 예약 OK (시도 $i)"; exit 0; fi
             echo "예약 실패 $i/5 — 20초 뒤 재시도"; sleep 20

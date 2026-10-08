@@ -341,6 +341,10 @@ async function main() {
   const q = Object.fromEntries(new URLSearchParams(process.env.SHOT_OVERRIDES || ""));   /* 수동 실행 시 한 번만 덮어쓰기: 예) res=pc&vz=200 */
   stage(3, "설정 읽는 중");
   const cfg0 = Object.assign({}, DEF_CFG, (await sbRead(CFG_KEY)) || {});
+  /* 설정 페이지의 「지금 보내기」: 새 요청이면 설정된 사진을 전부 바로 보냄(주기 무시). 처리하면 그 시각부터 모든 주기를 새로 시작 */
+  const sendCmd = process.env.SHOT_CMD ? JSON.parse(process.env.SHOT_CMD) : await sbRead("tg_shot_cmd");
+  const manual = !!(sendCmd && sendCmd.id && sendCmd.id !== loadState().lastCmd);
+  if (manual) { q.force = "1"; const s0 = loadState(); s0.lastCmd = sendCmd.id; saveState(s0); log("📤 「지금 보내기」 요청 — 설정된 사진을 모두 바로 보냅니다 (" + (sendCmd.at || "") + ")"); }
   const wantFlow = q.force === "1" || due(loadState().lastFlow, cfg0.flowEvery != null ? +cfg0.flowEvery : 0);   /* 가격흐름 사진 보내는 주기(0 = 매번 5분) */
   const list = (v, def) => (v == null ? def : String(v).split(",").map((x) => x.replace(/[^0-9a-z]/g, "")).filter(Boolean));
   const frame = String(q.frame || cfg0.frame).replace(/[^0-9A-Za-z]/g, ""), iv = String(q.iv || cfg0.iv).replace(/[^0-9a-z]/g, "");
@@ -436,6 +440,12 @@ async function main() {
   } finally {
     try { if (browser) await browser.close(); } catch (e) {}
     server.close();
+  }
+  if (manual) {   /* 누른 시각을 새 기준으로: 모든 주기가 그 시각부터 다시 시작, 5분 격자도 그 시각에 맞춤 */
+    const T = Date.parse(sendCmd.at) || T0, s = loadState();
+    Object.assign(s, { lastFlow: T, lastCards: T, lastRep: T, lastRank: T, lastPat: T }); saveState(s);
+    try { fs.mkdirSync(CACHE, { recursive: true }); fs.writeFileSync(path.join(CACHE, "anchor.json"), JSON.stringify({ t: T })); } catch (e) {}
+    log("주기 기준을 " + new Date(T + 9 * 3600e3).toISOString().slice(11, 19) + " KST 로 새로 시작");
   }
   log("끝", Math.round((Date.now() - T0) / 1000) + "초");
   ST.state = "done"; ST.pct = 100; ST.label = "완료"; ST.done = Date.now(); stLine("✅ 모두 끝 (" + Math.round((Date.now() - T0) / 1000) + "초)");

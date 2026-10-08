@@ -33,3 +33,6 @@ Actions 탭 → telegram-chart → **Run workflow** (`dry=true` 면 캡처만, �
 - `repnames.mjs` : 한글 이름·섹터 사전
 - 설정(`tg_shot_cfg`): `rep`(켬/끔) · `repEvery`(분) · `repOrder`/`repOff`(항목 순서·끔) · `repCols`(표 칸) · `repRows` · `repSurge`, 그리고 가격흐름 사진 주기 `flowEvery`
 - 시험(전송 없음): `SHOT_DRY=1 SB_OFF=1 REP_LIMIT=30 HL_BUDGET=600 SHOT_SAVE_REPORT=out.png node shot.mjs`
+
+## 「지금 보내기」 (설정 페이지)
+설정 페이지의 「📤 지금 보내기」는 설정을 저장한 뒤 Supabase `hlgrid_settings` 의 `tg_shot_cmd`({id, at}) 에 요청을 남깁니다. 사슬의 대기 단계(`waitnext.mjs`)가 8초마다 이 요청을 확인해 새 요청이면 바로 다음 실행을 시작하고, `shot.mjs` 가 주기를 무시(force)하고 설정된 사진·글을 모두 보낸 뒤 모든 `last*` 와 `.cache/anchor.json`(5분 격자 기준)을 누른 시각으로 바꿉니다 → 그 시각부터 주기가 새로 시작. 처리한 요청 id 는 `state.json` 의 `lastCmd`.
