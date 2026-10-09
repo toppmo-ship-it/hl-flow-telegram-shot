@@ -14,7 +14,7 @@ import { loadSiteInfo, loadUniverse, usdKrw, pickRow, buildCardData, renderCard,
 import { buildReport, buildListReport, collectRows, refreshBars } from "./report.mjs";
 import { loadBars, saveBars, stripLive, changeOver } from "./repcalc.mjs";
 import { FIXED_INDEX, KO } from "./repnames.mjs";
-import { sbGet as sbGetRaw, sbPut } from "./sb.mjs";
+import { sbGet as sbGetRaw, sbPut, sbUpdate } from "./sb.mjs";
 import { makeAlerts } from "./chatalert.mjs";
 import { getMcap } from "./mcap.mjs";
 import { norm, secName, parseCommand, parseRequest, parseEvery, snapEvery, everyKo, buildIndex, resolveSectors, IV_KO, MAX_CARDS, MAX_TABLE } from "./chatparse.mjs";
@@ -158,10 +158,10 @@ const resKeyOf = (cfg) => (["fcover", "fwide", "pcxl"].includes(cfg.res) ? cfg.r
 
 /* 설정(tg_shot_cfg) 읽고-고치고-쓰기 */
 async function patchCfg(fn) {
-  const cfg = await cfgGet();
-  const note = fn(cfg);
-  await W("tg_shot_cfg", cfg);
-  return { cfg, note };
+  if (DRY) { const cfg = await cfgGet(); const note = fn(cfg); await W("tg_shot_cfg", cfg); return { cfg, note }; }
+  /* 읽은 뒤 서버 값이 안 바뀌었을 때만 씀 + 서버에 있던 다른 칸은 보존 → 설정 페이지·다른 기기와 동시에 바꿔도 서로 덮어쓰지 않음 */
+  const r = await sbUpdate("tg_shot_cfg", fn, "텔레그램 봇");
+  return { cfg: r.value, note: r.note };
 }
 
 /* ───────────────── 명령 처리 ───────────────── */
