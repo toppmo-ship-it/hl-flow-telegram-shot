@@ -16,6 +16,7 @@ import { loadBars, saveBars, stripLive, changeOver } from "./repcalc.mjs";
 import { FIXED_INDEX, KO } from "./repnames.mjs";
 import { sbGet as sbGetRaw, sbPut } from "./sb.mjs";
 import { makeAlerts } from "./chatalert.mjs";
+import { getMcap } from "./mcap.mjs";
 import { norm, secName, parseCommand, parseRequest, parseEvery, snapEvery, everyKo, buildIndex, resolveSectors, IV_KO, MAX_CARDS, MAX_TABLE } from "./chatparse.mjs";
 import * as F from "./chatfmt.mjs";
 
@@ -248,7 +249,8 @@ async function doReport() {
   C.busy++;
   try {
     await loadCtx(); action("upload_photo");
-    const out = await buildReport({ cfg, info: C.info, uni: C.uni, fx: C.fx, cacheDir: CACHE, log: () => {}, deadline: Date.now() + 25000, bars: C.bars, stateIO: { read: () => sbGet("tg_rep_state"), write: (s) => W("tg_rep_state", s) } });
+    const mcap = await getMcap({ info: C.info, uni: C.uni, log: () => {}, noWrite: DRY }).catch(() => ({}));
+    const out = await buildReport({ cfg, info: C.info, uni: C.uni, fx: C.fx, cacheDir: CACHE, log: () => {}, deadline: Date.now() + 25000, bars: C.bars, mcap, stateIO: { read: () => sbGet("tg_rep_state"), write: (s) => W("tg_rep_state", s) } });
     if (out.skip) { await delMsg(prog); return say("⏳ " + F.esc(out.skip) + "\n잠시 뒤 다시 시도해 주세요"); }
     const png = await drawReportPng(out, resKeyOf(cfg));
     const mid = await photo(png, out.caption);

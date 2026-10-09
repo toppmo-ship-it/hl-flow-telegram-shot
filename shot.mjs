@@ -13,6 +13,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadSiteInfo, loadUniverse, usdKrw, buildWeeklyTexts, buildSurgeText, pickRow, buildCardData, renderCard, flushCardCache, buildPatternRankText, applyCardCfg } from "./extras.mjs";
 import { buildReport } from "./report.mjs";
 import { sbPut } from "./sb.mjs";
+import { getMcap } from "./mcap.mjs";
 const ONLY = new Set(String(process.env.SHOT_ONLY || "").split(",").filter(Boolean));   /* 챗봇이 '흐름'만 따로 보낼 때: SHOT_ONLY=flow (설정 주기·지금보내기·진행상황 기록은 건드리지 않음) */
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -232,7 +233,8 @@ async function runReport({ cfg0, q, dry }) {
   if (!(force || due(st0.lastRep, every))) { log("하이퍼 리포트: 아직 보낼 주기가 아님"); return; }
   stage(90, "하이퍼 리포트 데이터 모으는 중");
   const info = loadSiteInfo(SITE), uni = await getUni(), fx = await getFx();
-  const out = await buildReport({ cfg: cfg0, info, uni, fx, cacheDir: CACHE, log, stateIO: { read: () => sbRead("tg_rep_state"), write: (s) => sbPut("tg_rep_state", s) }, deadline: Date.now() + (+process.env.REP_MS || 130000), limit: +process.env.REP_LIMIT || 0 });
+  const mcap = await getMcap({ info, uni, log }).catch((e) => { log("시총 오류(칸은 – 로 표시):", String((e && e.message) || e).slice(0, 100)); return {}; });   /* 본주 시총·ETF 순자산·코인 시총(하루 2번만 받음) */
+  const out = await buildReport({ cfg: cfg0, info, uni, fx, cacheDir: CACHE, log, mcap, stateIO: { read: () => sbRead("tg_rep_state"), write: (s) => sbPut("tg_rep_state", s) }, deadline: Date.now() + (+process.env.REP_MS || 130000), limit: +process.env.REP_LIMIT || 0 });
   if (out.skip) { log("하이퍼 리포트:", out.skip); return; }
   log("하이퍼 리포트 데이터 OK", JSON.stringify(out.meta));
   stage(95, "하이퍼 리포트 그리는 중");
