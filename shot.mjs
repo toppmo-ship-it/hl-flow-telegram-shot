@@ -366,7 +366,7 @@ async function main() {
   const list = (v, def) => (v == null ? def : String(v).split(",").map((x) => x.replace(/[^0-9a-z]/g, "")).filter(Boolean));
   const frame = String(q.frame || cfg0.frame).replace(/[^0-9A-Za-z]/g, ""), iv = String(q.iv || cfg0.iv).replace(/[^0-9a-z]/g, "");
   const vol = list(q.vol, cfg0.vol), kel = list(q.kel, cfg0.kel);
-  const R = RES[normRes(String(q.res || cfg0.res || "fwide"))];
+  const R = RES[normRes(String(q.res || cfg0.fres || cfg0.res || "fwide"))];   /* 가격흐름 사진만 따로 지정한 해상도(fres)가 있으면 그걸, 없으면 공통(res) */
   const tk = (v, def) => (v == null ? def : String(v).split(",").map((x) => x.replace(/[^0-9A-Za-z]/g, "")).filter(Boolean).slice(0, 20));
   const idx = tk(q.idx, Array.isArray(cfg0.idx) ? cfg0.idx : DEF_CFG.idx), cmd = tk(q.cmd, Array.isArray(cfg0.cmd) ? cfg0.cmd : DEF_CFG.cmd);
   const lvl = (qv, cv, d) => Math.min(5, Math.max(1, Math.round(+(qv != null ? qv : cv) || d)));
