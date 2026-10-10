@@ -613,7 +613,8 @@ function ensureWr(){
   if(chart.panes().length>2){try{chart.removePane(2);}catch(e){}}
  }
  if(S.focus){S.focus=false;S.focusSave=null;try{chart.applyOptions({layout:{panes:{enableResize:true}}});}catch(e){}}   /* 지표 패널을 늘리거나 줄이면 숨김 상태를 풀고 새 구성으로 */
- const ps=chart.panes();ps[0].setStretchFactor((ps.length>=3?3:2)*(F.SHOT?Math.max(1,(+F.ui.vz||100)/100):1));   /* 촬영 세로 확대: 메인 차트 높이를 N배로(범위는 그대로라 선이 전부 보임) */if(ps[1])ps[1].setStretchFactor(1);if(ps[2])ps[2].setStretchFactor(1);
+ const ps=chart.panes();const mpm=F.SHOT&&+F.ui.mp>0&&ps.length>1?(ps.length-1)*(+F.ui.mp)/(100-(+F.ui.mp)):0;   /* 촬영: 메인 비중(mp%) 지정 시 아래 패널 각 1 기준으로 메인 비율을 계산 */
+ ps[0].setStretchFactor(mpm||((ps.length>=3?3:2)*(F.SHOT?Math.max(1,(+F.ui.vz||100)/100):1)));   /* 촬영 세로 확대: 메인 차트 높이를 N배로(범위는 그대로라 선이 전부 보임) */if(ps[1])ps[1].setStretchFactor(1);if(ps[2])ps[2].setStretchFactor(1);
 }
 /* 보이는 순서: 종목선 < EMA < 켈상단·상대강도 */
 function topOrder(){

@@ -402,7 +402,7 @@ async function main() {
     page.on("pageerror", (e) => log("페이지 오류:", String(e.message).slice(0, 160)));
     await page.goto(base + "/robots.txt", { waitUntil: "domcontentloaded", timeout: 20000 });
     if (store) await page.evaluate(seedInPage, store, iv);
-    const url = base + "/flow.html?shot=1&frame=" + frame + "&iv=" + iv + "&vol=" + vol.join(",") + "&kel=" + kel.join(",") + "&lead=" + (lead ? 1 : 0) + "&alt=" + (alt ? 1 : 0) + "&vz=" + (R.fixed ? 100 : vz) + "&sw=" + sw + "&swi=" + swi + "&swc=" + swc + "&idx=" + idx.join(",") + "&cmd=" + cmd.join(",") + (sectors.length ? "&sec=" + encodeURIComponent(sectors.join(",")) : "") + (q.nolive ? "&nolive=1" : "");
+    const url = base + "/flow.html?shot=1&frame=" + frame + "&iv=" + iv + "&vol=" + vol.join(",") + "&kel=" + kel.join(",") + "&lead=" + (lead ? 1 : 0) + "&alt=" + (alt ? 1 : 0) + "&vz=" + (R.fixed ? 100 : vz) + "&mp=" + ([70, 80, 85].includes(+(q.mp != null ? q.mp : cfg0.mp)) ? +(q.mp != null ? q.mp : cfg0.mp) : 0) + "&sw=" + sw + "&swi=" + swi + "&swc=" + swc + "&idx=" + idx.join(",") + "&cmd=" + cmd.join(",") + (sectors.length ? "&sec=" + encodeURIComponent(sectors.join(",")) : "") + (q.nolive ? "&nolive=1" : "");
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
     let info = null, readyAt = 0, lastLog = 0;
     const needLive = !q.nolive;

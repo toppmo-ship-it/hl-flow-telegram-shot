@@ -872,7 +872,8 @@ function applyShot(){
  I.fx.led.ku={fx:"glow",color:"#ffd84d",speed:5,power:8};I.fx.led.low={fx:"glow",color:"#ffd84d",speed:5,power:8};I.fx.led.mid={fx:"glow",color:"#4dd9ff",speed:5,power:8};I.fx.led.rs={fx:"glow",color:"#7fe9ff",speed:5,power:9};
  I.dots={on:true,size:2.2,stocks:false};
  const f=F.frameOf(F.ui.frame,F.ui.iv);
- F.ui.vz=Math.min(300,Math.max(100,+q.get("vz")||100));   /* 세로 확대 % (100=기본) */
+ F.ui.vz=Math.min(300,Math.max(100,+q.get("vz")||100));
+ F.ui.mp=(m=>m>=65&&m<=90?m:0)(Math.round(+q.get("mp")||0));   /* 메인 차트가 차지하는 세로 비율 % (0=기본 약 60%) — 아래 이격뷰·윌리엄스 패널을 줄여 종목선 세로를 키움 */   /* 세로 확대 % (100=기본) */
  /* 종목선 굵기 1~5 (3 = 예전 기본 굵기 1.6, 기본값은 2) */
  const lv=(k,d)=>Math.min(5,Math.max(1,Math.round(+q.get(k)||d)));
  F.ui.w.stock=[0.8,1.1,1.6,2.2,3.0][lv("sw",2)-1];           /* 종목선 */
