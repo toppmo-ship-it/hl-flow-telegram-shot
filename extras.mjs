@@ -474,7 +474,7 @@ export async function buildPatternRankText({ uni, info, log, cacheDir, tf0, scan
 
 export function pickRow(uni, ticker, info) {
   const alias = info.alias[ticker] || ticker;
-  return uni.find((r) => r.short === alias && r.dex === "xyz") || uni.find((r) => r.short === alias && r.dayNtl > 1e5) || (/^[A-Z0-9]{2,8}$/.test(ticker) ? { full: ticker, short: ticker, dex: "코인" } : null);
+  return uni.find((r) => r.short === alias && r.dex === "xyz") || uni.find((r) => r.short === alias && r.dayNtl > 1e5) || (/^k?[A-Z0-9]{2,8}$/.test(ticker) ? { full: ticker, short: ticker, dex: "코인" } : null);
 }
 /* 카드 이미지 렌더(site/card.html) */
 export async function renderCard(page, base, data) {

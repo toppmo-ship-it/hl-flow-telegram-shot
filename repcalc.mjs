@@ -57,9 +57,10 @@ function sqzmom(h, l, c) {
   return [sqzOn, sqzOff, val != null && val > 0 && val > (prev == null ? 0 : prev)];
 }
 
+export const IND = { sma, ema, rma, trOf, wScore, hiN, loN };
 /* ───────────────── 봉 만들기 ───────────────── */
 /* 15분봉 → 더 큰 봉(30분·4시간·일)으로 묶기. 행: [t,h,l,c,v] */
-function agg(rows, ms) {
+export function agg(rows, ms) {
   const out = []; let cur = null;
   for (const r of rows) {
     const t = Math.floor(r[0] / ms) * ms;
@@ -69,16 +70,9 @@ function agg(rows, ms) {
   return out;
 }
 
-/* ───────────────── 종목 하나의 모든 컬럼 계산 ───────────────── */
-export function calcCoin(e, now) {
-  const m15 = e.m || [], dDone = (e.d || []).filter((b) => b[0] + D1 <= now + 1000), h4Done = e.h4 || [];
-  if (m15.length < 130 || dDone.length < 5) return null;
-  const todayStart = Math.floor(now / D1) * D1, h4Start = Math.floor(now / H4) * H4;
-  /* 일봉 = 완결 일봉 + 오늘(15분봉 합) */
-  const todayRows = m15.filter((r) => r[0] >= todayStart);
-  const D = dDone.filter((b) => b[0] < todayStart).slice(-N1D);
-  if (todayRows.length) { const a = agg(todayRows, D1)[0]; D.push(a); }
-  if (D.length < 12) return null;   /* 상장 직후(일봉 12개~)도 계산 — 모자라는 지표는 파인과 같이 0/없음 */
+/* ───────────────── 공용: 일봉 배열 → 일봉 기준 지표 (주식 리포트 calcCoin · 코인 리포트가 같이 씀) ─────────────────
+   D 행: [t,h,l,c,v] (마지막 행 = 오늘 진행 중). 켈트너 상단 = EMA20 + ATR10×1.5 · 켈유 · 양W(%R 14/48) · RV구간 · SQZMOM 스퀴즈 */
+export function dailyCore(D) {
   const dh = D.map((b) => b[1]), dl = D.map((b) => b[2]), dc = D.map((b) => b[3]), dv = D.map((b) => b[4] || 0);
   const n = D.length, i = n - 1, px = dc[i];
   /* 일봉 켈트너 상단 = EMA20 + ATR10 × 1.5, 켈유 = 상단 위 종가 연속 일수 */
@@ -88,18 +82,6 @@ export function calcCoin(e, now) {
   let hold = 0; for (let j = i; j >= 0 && above[j]; j--) hold++;
   const kcGap = up[i] != null ? (px - up[i]) / Math.max(up[i], 0.001) * 100 : null;
   const pwr = (j) => (dc[j] - dl[j]) / Math.max(dh[j] - dl[j], 0.001) * 100;
-  /* 4시간 켈트너(EMA40/ATR10/×2.5) — 완결 4시간봉 + 지금 4시간봉(15분봉 합) */
-  const H = h4Done.filter((b) => b[0] + H4 <= now + 1000 && b[0] < h4Start).slice(-N4H);
-  const curRows = m15.filter((r) => r[0] >= h4Start); if (curRows.length) H.push(agg(curRows, H4)[0]);
-  let h4m = null, h4u = null, h4g = null;
-  if (H.length >= 50) {
-    const hc = H.map((b) => b[3]), hh = H.map((b) => b[1]), hl_ = H.map((b) => b[2]);
-    const basis = ema(hc, 40), rng = rma(trOf(hh, hl_, hc), 10), k = H.length - 1;
-    if (basis[k] != null && rng[k] != null) { const upper = basis[k] + rng[k] * 2.5; h4m = hc[k] > basis[k] ? 1 : 0; h4u = hc[k] > upper ? 1 : 0; h4g = (hc[k] - upper) / Math.max(upper, 0.001) * 100; }
-  }
-  /* 15분 이평(3격=60선·5격=120선) */
-  const c15 = m15.map((r) => r[3]), s60 = sma(c15, 60), s120 = sma(c15, 120), L = m15.length - 1;
-  const g3 = s60[L] != null ? (px - s60[L]) / s60[L] * 100 : null, g5 = s120[L] != null ? (px - s120[L]) / s120[L] * 100 : null;
   /* 일봉 W%R 듀얼 · RV구간 · 스퀴즈 */
   const w = wScore(dh, dl, dc, i, 14, 48);
   let rvz = 0;
@@ -112,6 +94,37 @@ export function calcCoin(e, now) {
   }
   const [sqOn, sqOff, hist] = sqzmom(dh, dl, dc);
   const sqz = sqOff && hist && above[i] ? 3 : sqOff && hist ? 2 : sqOn && hist ? 1 : 0;
+  return { dh, dl, dc, dv, n, i, px, above, hold, kcGap, pwr, w, rvz, sqz };
+}
+/* 공용: 4시간 봉 배열 H([t,h,l,c,v]) → 4H 켈트너(EMA40/ATR10/×2.5) 중심 위·상단 위(발산)·상단 이격 */
+export function h4Core(H) {
+  let h4m = null, h4u = null, h4g = null;
+  if (H.length >= 50) {
+    const hc = H.map((b) => b[3]), hh = H.map((b) => b[1]), hl_ = H.map((b) => b[2]);
+    const basis = ema(hc, 40), rng = rma(trOf(hh, hl_, hc), 10), k = H.length - 1;
+    if (basis[k] != null && rng[k] != null) { const upper = basis[k] + rng[k] * 2.5; h4m = hc[k] > basis[k] ? 1 : 0; h4u = hc[k] > upper ? 1 : 0; h4g = (hc[k] - upper) / Math.max(upper, 0.001) * 100; }
+  }
+  return { h4m, h4u, h4g };
+}
+
+/* ───────────────── 종목 하나의 모든 컬럼 계산 ───────────────── */
+export function calcCoin(e, now) {
+  const m15 = e.m || [], dDone = (e.d || []).filter((b) => b[0] + D1 <= now + 1000), h4Done = e.h4 || [];
+  if (m15.length < 130 || dDone.length < 5) return null;
+  const todayStart = Math.floor(now / D1) * D1, h4Start = Math.floor(now / H4) * H4;
+  /* 일봉 = 완결 일봉 + 오늘(15분봉 합) */
+  const todayRows = m15.filter((r) => r[0] >= todayStart);
+  const D = dDone.filter((b) => b[0] < todayStart).slice(-N1D);
+  if (todayRows.length) { const a = agg(todayRows, D1)[0]; D.push(a); }
+  if (D.length < 12) return null;   /* 상장 직후(일봉 12개~)도 계산 — 모자라는 지표는 파인과 같이 0/없음 */
+  const { dh, dl, dc, dv, n, i, px, above, hold, kcGap, pwr, w, rvz, sqz } = dailyCore(D);
+  /* 4시간 켈트너(EMA40/ATR10/×2.5) — 완결 4시간봉 + 지금 4시간봉(15분봉 합) */
+  const H = h4Done.filter((b) => b[0] + H4 <= now + 1000 && b[0] < h4Start).slice(-N4H);
+  const curRows = m15.filter((r) => r[0] >= h4Start); if (curRows.length) H.push(agg(curRows, H4)[0]);
+  const { h4m, h4u, h4g } = h4Core(H);
+  /* 15분 이평(3격=60선·5격=120선) */
+  const c15 = m15.map((r) => r[3]), s60 = sma(c15, 60), s120 = sma(c15, 120), L = m15.length - 1;
+  const g3 = s60[L] != null ? (px - s60[L]) / s60[L] * 100 : null, g5 = s120[L] != null ? (px - s120[L]) / s120[L] * 100 : null;
   /* 현재T·누적T(최근 6일 합)·종배 */
   const tru = D.map((b, j) => (b[4] || 0) * dc[j] / 1e8), trSma = sma(tru, 5);
   const ma60At = (end) => { let k = -1; for (let j = m15.length - 1; j >= 0; j--) if (m15[j][0] < end) { k = j; break; } return k >= 59 ? s60[k] : null; };

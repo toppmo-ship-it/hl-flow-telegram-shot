@@ -7,9 +7,9 @@
 (function () {
   const FONT = '"Malgun Gothic","맑은 고딕","Apple SD Gothic Neo","Noto Sans KR","NanumGothic","Nanum Gothic",sans-serif';
   const font = (px, b) => (b ? "bold " : "") + px + "px " + FONT;
-  const IC = { bg: "#17181c", box: "#24262c", row2: "#292b32", head: "#32353e", line: "#3c3f48", txt: "#e6e8ec", sub: "#969ba5",
+  const IC0 = { bg: "#17181c", box: "#24262c", row2: "#292b32", head: "#32353e", line: "#3c3f48", txt: "#e6e8ec", sub: "#969ba5",
     title: "#ffffff", mark: "#e8a0b0", up: "#ff6363", dn: "#5496ff", ok: "#3ddc84", no: "#5f636e", acc: "#8ab4f8" };
-  const GOLD = "#f5c542", GOLDBG = "#3a3218", GOLDHEAD = "#5a4a1a";
+  const GOLD0 = "#f5c542", GOLDBG0 = "#3a3218", GOLDHEAD0 = "#5a4a1a";
   const TOK = /(\{[FodS>]\})/;
 
   /* ── 토큰이 섞인 글자의 폭 재기·그리기 ── */
@@ -57,6 +57,9 @@
   const fillRR = (g, x, y, w, h, r, c) => { g.fillStyle = c; rr(g, x, y, w, h, r); g.fill(); };
 
   window.drawReport = function (spec) {
+    /* 테마(spec.theme): 코인 리포트처럼 색을 바꿔 쓸 때. 없으면 주식 리포트의 원래 색 */
+    const T = spec.theme || {}, IC = Object.assign({}, IC0, T.ic || {}), GOLD = T.feat || GOLD0, GOLDBG = T.featBg || GOLDBG0, GOLDHEAD = T.featHead || GOLDHEAD0, FRGB = T.featRGB || "245,197,66", BAND = T.band || "245,197,66";
+    const IDX = Object.assign({ bg: "#1b2331", head: "#25324a", line: "#4f6ea8", acc: "#7fa8e8", title: "#bcd3f7" }, T.idx || {});
     const F = 24, FH = 23, ROW = 38, HEAD = 32, PAD = 10, GAPX = 16, GAPY = 18, TITLE = 40, NOTE = 28, M = 16, SUMH = 54;
     const mc = document.createElement("canvas").getContext("2d");
     const W = (t, px, b) => meas(mc, t, px, b);
@@ -102,7 +105,7 @@
     let y = M;
     if (spec.header) {
       /* 위쪽 가는 금빛 띠 + 제목 */
-      const bg = g.createLinearGradient(M, 0, Wl - M, 0); bg.addColorStop(0, "rgba(245,197,66,0.9)"); bg.addColorStop(0.5, "rgba(245,197,66,0.25)"); bg.addColorStop(1, "rgba(245,197,66,0)");
+      const bg = g.createLinearGradient(M, 0, Wl - M, 0); bg.addColorStop(0, "rgba(" + BAND + ",0.9)"); bg.addColorStop(0.5, "rgba(" + BAND + ",0.25)"); bg.addColorStop(1, "rgba(" + BAND + ",0)");
       g.fillStyle = bg; g.fillRect(M, y + 2, Wl - M * 2, 3);
       const x1 = text(g, spec.header.title, M, y + 30, 32, true, IC.title);
       g.font = font(18, false); if (spec.header.sub) { const subW = Wl - M * 2 - (x1 - M) - 24; let px = 18; while (px > 13 && W(spec.header.sub, px) > subW) px--; text(g, spec.header.sub, x1 + 18, y + 33, px, false, IC.sub); }
@@ -126,26 +129,26 @@
       ln.forEach((s) => {
         const feat = !!s.feature, idx = !!s.index, x0 = x; let yy = y;
         if (feat) { fillRR(g, x0, yy + 5, 64, 28, 6, GOLD); text(g, "{S}핵심", x0 + 6, yy + 20, 18, true, "#1a1a1a"); }
-        else { g.fillStyle = idx ? "#7fa8e8" : IC.mark; g.fillRect(x0, yy + 11, 16, 16); }
+        else { g.fillStyle = idx ? IDX.acc : IC.mark; g.fillRect(x0, yy + 11, 16, 16); }
         const tx = x0 + (feat ? 74 : 24);
-        const tEnd = text(g, s.title, tx, yy + 20, 26, true, feat ? GOLD : idx ? "#bcd3f7" : IC.title);
+        const tEnd = text(g, s.title, tx, yy + 20, 26, true, feat ? GOLD : idx ? IDX.title : IC.title);
         if (s.sub) { let px = 18; const room = x0 + s._w - tEnd - 18; while (px > 12 && W(s.sub, px) > room) px--; text(g, s.sub, tEnd + 10, yy + 22, px, false, IC.sub); }
         yy += TITLE;
         const bh = HEAD + ROW * s._rn + 4;
-        fillRR(g, x0, yy, s._w, bh, 9, feat ? GOLDBG : idx ? "#1b2331" : IC.box);
-        if (s.cols) { const hc = feat ? GOLDHEAD : idx ? "#25324a" : IC.head; fillRR(g, x0, yy, s._w, HEAD, 9, hc); g.fillStyle = hc; g.fillRect(x0, yy + HEAD - 9, s._w, 9); }
-        g.fillStyle = feat ? GOLD : idx ? "#7fa8e8" : IC.acc; g.fillRect(x0, yy, 4, bh);
+        fillRR(g, x0, yy, s._w, bh, 9, feat ? GOLDBG : idx ? IDX.bg : IC.box);
+        if (s.cols) { const hc = feat ? GOLDHEAD : idx ? IDX.head : IC.head; fillRR(g, x0, yy, s._w, HEAD, 9, hc); g.fillStyle = hc; g.fillRect(x0, yy + HEAD - 9, s._w, 9); }
+        g.fillStyle = feat ? GOLD : idx ? IDX.acc : IC.acc; g.fillRect(x0, yy, 4, bh);
         const rows = s.rows || [];
         for (let ri = 0; ri < s._rn; ri++) {
           const ry = yy + HEAD + ri * ROW, sp = s.rowbg && s.rowbg[ri];
           if (sp) { g.fillStyle = sp; g.fillRect(x0 + 5, ry, s._w - 5, ROW); g.fillStyle = String(sp).replace(/[\d.]+\)\s*$/, "0.9)"); g.fillRect(x0 + 5, ry, 3, ROW); }
-          else if (ri % 2) { g.fillStyle = feat ? "rgba(245,197,66,0.07)" : IC.row2; g.fillRect(x0 + 5, ry, s._w - 5, ROW); }
-          if (ri) { g.fillStyle = feat ? "rgba(245,197,66,0.18)" : IC.line; g.fillRect(x0 + 5, ry, s._w - 5, 1); }
+          else if (ri % 2) { g.fillStyle = feat ? "rgba(" + FRGB + ",0.07)" : IC.row2; g.fillRect(x0 + 5, ry, s._w - 5, ROW); }
+          if (ri) { g.fillStyle = feat ? "rgba(" + FRGB + ",0.18)" : IC.line; g.fillRect(x0 + 5, ry, s._w - 5, 1); }
         }
         if (s.cols && rows.length) {
           let cx = x0 + 6;
           s.cols.forEach(([hn, al, hcol], i) => {
-            if (i) { g.fillStyle = feat ? "rgba(245,197,66,0.18)" : IC.line; g.fillRect(cx, yy + 5, 1, bh - 10); }
+            if (i) { g.fillStyle = feat ? "rgba(" + FRGB + ",0.18)" : IC.line; g.fillRect(cx, yy + 5, 1, bh - 10); }
             const put = (t, ty, px, b, fill) => { const w = W(t, px, b), pxl = al === "l" ? cx + PAD : al === "r" ? cx + s._wd[i] - PAD - w : cx + (s._wd[i] - w) / 2; text(g, t, pxl, ty, px, b, fill); };
             put(hn, yy + HEAD / 2 + 1, FH, true, hcol || (feat ? GOLD : IC.sub));
             rows.forEach((r, ri) => {
@@ -160,7 +163,7 @@
           text(g, s.empty || "— 해당 없음 —", x0 + 16, yy + HEAD + ROW / 2, F, false, IC.sub);
         }
         if (feat) { g.strokeStyle = GOLD; g.lineWidth = 2; rr(g, x0 + 1, yy + 1, s._w - 2, bh - 2, 9); g.stroke(); }
-        if (idx) { g.strokeStyle = "#4f6ea8"; g.lineWidth = 2; rr(g, x0 + 1, yy + 1, s._w - 2, bh - 2, 9); g.stroke(); }
+        if (idx) { g.strokeStyle = IDX.line; g.lineWidth = 2; rr(g, x0 + 1, yy + 1, s._w - 2, bh - 2, 9); g.stroke(); }
         yy += bh;
         (s.notes || []).forEach((n) => { text(g, n, x0 + 6, yy + NOTE / 2 + 3, 18, false, IC.sub); yy += NOTE; });
         x += s._w + GAPX;

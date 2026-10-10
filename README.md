@@ -52,3 +52,11 @@ Actions 탭 → telegram-chart → **Run workflow** (`dry=true` 면 캡처만, �
 - 보안: 설정된 방(TG_CHAT_ID) 글만 처리. 처리한 update 번호는 `tg_bot_offset` 에 저장(재시작해도 중복 처리 없음)
 - 시험: `BOT_DRY=1 BOT_INPUT=in.txt node chatbot.mjs` (줄마다 한 글, `@h:chart` 처럼 `@` 로 시작하면 버튼) — 전송·저장 없이 화면 출력 + `out_chat/*.png`
 - **알림**(chatalert.mjs): `알림 메타 700` · `알림 메타 +3%` · `알림목록` · `알림삭제` · `진입알림 켜기/전체/끄기` · `급변동알림 3% 30분` — tg_bot_alerts, 가격은 30초·진입/급변동은 5분마다 감시
+
+## 코인 전용 리포트·알림 (coin.yml · coinjob.mjs) — TM Coin Daily Report
+하이퍼리퀴드 메인 거래소 코인(무기한 선물) 전체를 시총 순 상위 N종(기본 100, 설정으로 전부 178까지)으로 보는 별도 서버 작업. 5분 사슬·챗봇과 서버·호출 한도가 따로.
+- 구성: `coindata.mjs`(전 코인 시세 1회 호출 + 일봉150·4시간봉300 이어받기 + 스냅샷 + 시총·도미넌스·공포탐욕) · `coincalc.mjs`(지표·시장 국면) · `coinpipe.mjs`(한 바퀴) · `coinreport.mjs`(2장 조립) · `coinjob.mjs`(10분 틱: 알림, 설정 주기: 리포트) · `coinset.mjs`(한글 이름·분야·설명) · `coincfg.mjs`(설정 정규화)
+- 지표는 주식 리포트와 같은 함수(`repcalc.mjs` dailyCore·h4Core)·같은 셀/색/진입 감지(`report.mjs` K)·같은 그리기(`rep-render.js`, spec.theme 로 색만 교체) — 한 곳을 고치면 둘 다 바뀜. 전송·카드 그리기는 `kit.mjs` 를 챗봇과 같이 씀
+- 설정: Supabase `tg_coin_cfg`(설정 페이지 맨 오른쪽 🪙 구역 · 챗봇 `코인리포트/코인개수/코인알림`) · 수동 요청 `tg_coin_cmd`
+- 시험: `TOP=40 node test-coin.mjs` (전송·저장 없음, 사진 out_coin/) · `BOT_DRY=1 COIN_ONCE=1 COIN_CACHE=.tcache_coin node coinjob.mjs`
+- 새로 상장한 코인은 `coinset.mjs` 에 한 줄 추가(없으면 분야 '기타'·CG 이름으로 표시)

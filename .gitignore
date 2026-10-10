@@ -14,3 +14,5 @@ pattern_rank.json
 strategies/
 
 out_chat/
+out_coin/
+.tcache_coin/

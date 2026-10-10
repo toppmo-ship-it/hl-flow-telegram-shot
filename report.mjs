@@ -105,6 +105,9 @@ function entryCell(kinds) {
   return hx ? cell(txt, "#ffffff", true, "#0fb36b") : cell(txt, col, true);
 }
 
+/* 코인 리포트(coinreport.mjs)가 같은 모양의 셀·색·진입 감지를 쓰도록 내보냄 */
+export const K = { C, H, cell, dash, nul, pct, signed, fmtPx, rel2, plain, cW, cStage, c4H, cKel, cGap, cT, eokText, wcut, WC, mdhm, hm, short, flagsOf, transitions, entryCell, isCore, GOLD_ROW, bpCell };
+
 /* ───────── 메인: 데이터 → 섹션 ───────── */
 /* 이름이 같은 종목이 여러 거래소에 있으면 xyz 우선, 아니면 거래대금 큰 쪽(거래가 적은 종목도 놓치지 않게). 없으면 기존 방식 */
 function pickCoin(uni, t, info) {

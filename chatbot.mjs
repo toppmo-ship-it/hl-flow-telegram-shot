@@ -14,9 +14,11 @@ import { loadSiteInfo, loadUniverse, usdKrw, pickRow, buildCardData, renderCard,
 import { buildReport, buildListReport, collectRows, refreshBars } from "./report.mjs";
 import { loadBars, saveBars, stripLive, changeOver } from "./repcalc.mjs";
 import { FIXED_INDEX, KO } from "./repnames.mjs";
+import { createKit, resKeyOf } from "./kit.mjs";
 import { sbGet as sbGetRaw, sbPut, sbUpdate } from "./sb.mjs";
 import { makeAlerts } from "./chatalert.mjs";
 import { getMcap } from "./mcap.mjs";
+import { normCoinCfg, EVERY as C_EVERY, TOPS as C_TOPS, ROWS as C_ROWS, COIN_KINDS } from "./coincfg.mjs";
 import { norm, secName, parseCommand, parseRequest, parseEvery, snapEvery, everyKo, buildIndex, resolveSectors, IV_KO, MAX_CARDS, MAX_TABLE } from "./chatparse.mjs";
 import * as F from "./chatfmt.mjs";
 
@@ -30,45 +32,6 @@ const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 const MEM = new Map();   /* 시험 모드에서는 운영 DB에 쓰지 않고 메모리에만 저장(같은 실행 안에서는 읽힘) */
 const W = async (k, v) => { if (DRY) { MEM.set(k, JSON.parse(JSON.stringify(v))); log("[dry] 저장 생략(메모리에만)", k, JSON.stringify(v).slice(0, 100)); return true; } return sbPut(k, v); };
 const sbGet = async (k) => (DRY && MEM.has(k) ? MEM.get(k) : sbGetRaw(k));
-
-/* ───────────────── 텔레그램 입출력 ───────────────── */
-let outN = 0;
-const OUT = path.join(ROOT, "out_chat");
-async function tg(method, payload, isForm) {
-  if (DRY) return { ok: true, result: { message_id: ++outN } };
-  for (let a = 0; a < 3; a++) {
-    try {
-      const sig = AbortSignal.timeout(method === "getUpdates" ? 70000 : 60000);
-      const r = await fetch("https://api.telegram.org/bot" + TOKEN + "/" + method, isForm ? { method: "POST", body: payload, signal: sig } : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload || {}), signal: sig });
-      const j = await r.json().catch(() => ({}));
-      if (r.status === 429) { const w = Math.min(60, +(j.parameters && j.parameters.retry_after) || 5); log("텔레그램 429 — " + w + "초 대기"); await sleep((w + 1) * 1000); if (isForm) return { ok: false, description: "429" }; continue; }
-      return j;
-    } catch (e) { if (a === 2) return { ok: false, description: String((e && e.message) || e) }; await sleep(1500); }
-  }
-  return { ok: false };
-}
-async function say(text, extra) {
-  const chunks = []; let cur = "";
-  for (const ln of String(text).split("\n")) { if ((cur + "\n" + ln).length > 3800) { chunks.push(cur); cur = ln; } else cur = cur ? cur + "\n" + ln : ln; }
-  if (cur) chunks.push(cur);
-  let last = null;
-  for (let i = 0; i < chunks.length; i++) {
-    if (DRY) { console.log("\n┌─ 봇 답장 ─────────────\n" + chunks[i].replace(/<\/?[a-z]+[^>]*>/g, "") + (extra && i === chunks.length - 1 ? "\n└─ [버튼] " + JSON.stringify(extra).slice(0, 200) : "\n└──────────────")); outN++; continue; }
-    last = await tg("sendMessage", { chat_id: CHAT, text: chunks[i], parse_mode: "HTML", disable_web_page_preview: true, ...(i === chunks.length - 1 && extra ? { reply_markup: extra } : {}) });
-    if (!last.ok) { log("전송 실패", last.description); last = await tg("sendMessage", { chat_id: CHAT, text: chunks[i].replace(/<\/?[a-z]+[^>]*>/g, ""), disable_web_page_preview: true }); }   /* HTML 오류면 태그 없이 다시 */
-  }
-  return last && last.result && last.result.message_id;
-}
-async function photo(buf, caption, markup, html) {
-  if (DRY) { fs.mkdirSync(OUT, { recursive: true }); const f = path.join(OUT, String(++outN).padStart(2, "0") + ".png"); fs.writeFileSync(f, buf); console.log("\n┌─ 봇 사진 ─ " + f + " (" + Math.round(buf.length / 1024) + "KB)\n" + String(caption || "").replace(/<\/?[a-z]+[^>]*>/g, "") + "\n└──────────────"); return outN; }
-  const send = async (asDoc) => { const f = new FormData(); f.append("chat_id", CHAT); if (caption) { f.append("caption", String(caption).slice(0, 1000)); if (html) f.append("parse_mode", "HTML"); } if (markup) f.append("reply_markup", JSON.stringify(markup)); f.append(asDoc ? "document" : "photo", new Blob([buf], { type: "image/png" }), asDoc ? "chart.png" : "chart.png"); return tg(asDoc ? "sendDocument" : "sendPhoto", f, true); };
-  let j = await send(false);
-  if (!j.ok && /429|Too Many/i.test(String(j.description))) { await sleep(8000); j = await send(false); }
-  if (!j.ok) { log("사진 전송 실패", j.description); throw new Error("사진 전송 실패: " + j.description); }
-  return j.result.message_id;
-}
-const action = (a) => (DRY ? null : tg("sendChatAction", { chat_id: CHAT, action: a || "upload_photo" }));
-const delMsg = (id) => (DRY || !id ? null : tg("deleteMessage", { chat_id: CHAT, message_id: id }));
 
 /* ───────────────── 공용 자료 (시작할 때 한 번 + 주기 갱신) ───────────────── */
 const C = { info: null, uni: [], fx: 1350, idx: null, bars: null, uniAt: 0, fxAt: 0, themes: {}, snap: null, snapAt: 0, busy: 0, up: Date.now() };
@@ -100,61 +63,9 @@ async function snapshot(maxAgeMs, waitMs) {
 }
 const rowsByTk = (rows) => Object.fromEntries(rows.map((r) => [r.tk, r]));
 
-/* ───────────────── 그리기 (크롬 한 개를 계속 씀, 10분 놀면 닫음) ───────────────── */
-let SRV = null, BR = null, brUse = 0, brIdle = null;
-async function server() {
-  if (SRV) return SRV;
-  const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json", ".png": "image/png", ".txt": "text/plain" };
-  const s = http.createServer((q, r) => { try { const f = path.resolve(path.join(SITE, decodeURIComponent(new URL(q.url, "http://x").pathname))); if (!f.startsWith(SITE) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { r.writeHead(404); return r.end(); } r.writeHead(200, { "Content-Type": MIME[path.extname(f)] || "application/octet-stream", "Cache-Control": "no-store" }); fs.createReadStream(f).pipe(r); } catch (e) { r.writeHead(500); r.end(); } });
-  await new Promise((ok) => s.listen(0, "127.0.0.1", ok));
-  SRV = { s, base: "http://127.0.0.1:" + s.address().port };
-  return SRV;
-}
-async function browser() {
-  clearTimeout(brIdle);
-  if (BR && (!BR.connected || brUse >= 60)) { try { await BR.close(); } catch (e) {} BR = null; brUse = 0; }
-  if (!BR) {
-    let err;
-    for (let i = 0; i < 3 && !BR; i++) { try { BR = await puppeteer.launch({ executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome", headless: true, args: ["--no-sandbox", "--hide-scrollbars", "--disable-dev-shm-usage"], defaultViewport: { width: 1200, height: 1100, deviceScaleFactor: 2 }, timeout: 60000 }); } catch (e) { err = e; await sleep(2500); } }
-    if (!BR) throw err;
-  }
-  brUse++;
-  brIdle = setTimeout(async () => { try { if (BR) await BR.close(); } catch (e) {} BR = null; brUse = 0; }, 10 * 60000);
-  return BR;
-}
-/* 카드 한 장 → { png, caption } */
-async function makeCard(tk, iv, days, cfg, resKey) {
-  C.busy++;
-  try {
-    await loadCtx();
-    const row = pickRow(C.uni, tk, C.info);
-    if (!row) return null;
-    if (process.env.BOT_VERBOSE) log("카드 데이터 받는 중", tk, iv, days);
-    const d = await buildCardData({ row, ticker: tk, info: C.info, iv, days, fx: C.fx, log: () => {}, cacheDir: CACHE, mode: cfg.mode });
-    if (!d) return null;
-    if (process.env.BOT_VERBOSE) log("카드 그리는 중", tk);
-    applyCardCfg(d, cfg, resKey || cfg.res || cfg.cardRes, { noMini: iv === "1d" });   /* 일봉 카드에는 일봉 미니차트가 중복이라 뺌 */
-    const { base } = await server(), b = await browser(), page = await b.newPage();
-    try { page.on("pageerror", () => {}); const png = await renderCard(page, base, d); flushCardCache(CACHE); return { png: Buffer.from(png), caption: d.caption, detail: d.detail }; }
-    finally { await page.close().catch(() => {}); }
-  } finally { C.busy--; }
-}
-const REP_W = { fcover: 1360, fwide: 2184, pcxl: 3200 };
-async function drawReportPng(out, resKey) {
-  const b = await browser(), page = await b.newPage();
-  try {
-    await page.setContent("<html><body style='margin:0;background:#17181c'></body></html>");
-    await page.addScriptTag({ content: fs.readFileSync(path.join(ROOT, "rep-render.js"), "utf8") });
-    let buf = null;
-    for (let k = 0, w = REP_W[resKey] || 2184; k < 3; k++, w = Math.round(w * 0.78)) {   /* 텔레그램 사진 10MB 한도 */
-      const r = await page.evaluate((spec) => window.drawReport(spec), { header: out.header, sections: out.sections, foot: out.foot, outW: w });
-      buf = Buffer.from(r.url.split(",")[1], "base64");
-      if (buf.length < 9.5e6) break;
-    }
-    return buf;
-  } finally { await page.close().catch(() => {}); }
-}
-const resKeyOf = (cfg) => (["fcover", "fwide", "pcxl"].includes(cfg.res) ? cfg.res : "fwide");
+/* 텔레그램 보내기·사진 그리기는 공용 도구(kit.mjs) — 코인 리포트와 같은 코드를 씀 */
+const KIT = createKit({ dry: DRY, token: TOKEN, chat: CHAT, root: ROOT, site: SITE, cache: CACHE, log, getCtx: async () => { await loadCtx(); return C; }, busy: (d) => { C.busy += d; } });
+const { tg, say, photo, action, delMsg, makeCard, drawReportPng } = KIT;
 
 /* 설정(tg_shot_cfg) 읽고-고치고-쓰기 */
 async function patchCfg(fn) {
@@ -172,7 +83,7 @@ class UserErr extends Error {}
 async function doHelp(arg, withKeyboard) {
   const cfg = await cfgGet();
   const k = norm((arg || [])[0] || "");
-  const map = { 차트: "chart", 종목: "chart", 섹터: "sector", 테마: "sector", 조회: "query", 보내기: "send", 설정: "set", 알림: "alert" };
+  const map = { 코인: "coin", 코인리포트: "coin", 차트: "chart", 종목: "chart", 섹터: "sector", 테마: "sector", 조회: "query", 보내기: "send", 설정: "set", 알림: "alert" };
   if (map[k]) return say(F.helpCat(map[k], cfg), F.helpBack());
   if (withKeyboard) await say("⌨️ 아래 키보드 버튼으로도 바로 쓸 수 있어요", F.replyKeyboard());
   return say(F.helpMain(cfg), F.helpButtons());
@@ -544,6 +455,43 @@ async function doTheme(cmd, arg) {
   const t = { ...C.themes }; delete t[key]; C.themes = t; await W("tg_bot_themes", t);
   return say("🗑 내 테마 <b>" + F.esc(key) + "</b> 를 지웠어요");
 }
+/* ── 코인 리포트·코인 알림 (설정은 tg_coin_cfg — 설정 페이지와 같은 값, 보내기는 별도 서버 coinjob.mjs) ── */
+async function patchCoinCfg(fn) {
+  const wrap = (raw) => { const n = normCoinCfg(raw), note = fn(n); Object.keys(raw).forEach((k) => delete raw[k]); Object.assign(raw, n); return note; };
+  if (DRY) { const raw = (await sbGet("tg_coin_cfg")) || {}, note = wrap(raw); await W("tg_coin_cfg", raw); return { cfg: raw, note }; }
+  const r = await sbUpdate("tg_coin_cfg", wrap, "텔레그램 봇");
+  return { cfg: r.value, note: r.note };
+}
+const nearest = (arr, v) => arr.reduce((b, x) => (Math.abs(x - v) < Math.abs(b - v) ? x : b));
+async function doCoinNow() {
+  const id = Date.now() + "-" + Math.random().toString(36).slice(2, 5), ok = await W("tg_coin_cmd", { id, at: new Date().toISOString(), by: "텔레그램" });
+  return say(ok ? "🪙 <b>코인 리포트</b> 요청을 접수했어요\n사진 2장이 1~2분 안에 도착해요 (코인 작업은 별도 서버라 주식 리포트와 상관없이 와요)" : "⚠️ 요청을 저장하지 못했어요. 잠시 뒤 다시 시도해 주세요");
+}
+async function doCoinEvery(value) {
+  const { cfg } = await patchCoinCfg((c) => { if (value === "off") c.on = false; else if (value === "on") c.on = true; else { c.on = true; c.every = nearest(C_EVERY, value); } });
+  const lab = (m) => (m >= 1440 ? "하루 1번" : m >= 60 ? m / 60 + "시간" : m + "분");
+  return say("✅ 🪙 코인 리포트 → <b>" + (cfg.on === false ? "끔" : lab(cfg.every) + "마다") + "</b>" + (typeof value === "number" && value !== cfg.every ? "\n<i>(" + value + "분은 선택지에 없어 가장 가까운 " + lab(cfg.every) + "로 맞췄어요 — 가능: 30분·1시간·2시간·4시간·하루)</i>" : "") + "\n<i>설정 페이지의 🪙 코인 구역과 같은 값이에요</i>");
+}
+async function doCoinSetting(cmd, arg) {
+  const w = norm((arg || []).join(""));
+  if (cmd === "coinTop") {
+    const m = /^(전부|전체|all)$/.test(w) ? 300 : (/(\d+)/.exec(w) || [])[1]; need(m, "예) <code>코인개수 100</code> · <code>코인개수 150</code> · <code>코인개수 전부</code> (50·100·150·전부)");
+    const { cfg } = await patchCoinCfg((c) => { c.top = nearest(C_TOPS, +m); });
+    return say("✅ 🪙 코인 종목 수(시총 큰 순) → <b>" + (cfg.top >= 300 ? "전부(178종)" : cfg.top + "종") + "</b>\n<i>다음 리포트부터 적용돼요 · 늘리면 처음 한두 번은 캔들을 모으느라 늦을 수 있어요</i>");
+  }
+  const m = /(\d+)/.exec(w); need(m, "예) <code>코인줄 70</code> (30·50·70·100)");
+  const { cfg } = await patchCoinCfg((c) => { c.rows = nearest(C_ROWS, +m[1]); });
+  return say("✅ 🪙 코인 전종목 표 줄 수 → <b>" + cfg.rows + "줄</b>");
+}
+async function doCoinAlert(arg) {
+  const e = parseEvery((arg || [])[0] || "");
+  if (e === "on" || e === "off") { const { cfg } = await patchCoinCfg((c) => { c.alerts.on = e === "on"; }); return say("🔔 🪙 코인 알림 <b>" + (cfg.alerts.on ? "켬" : "끔") + "</b>"); }
+  const raw = (await sbGet("tg_coin_cfg")) || {}, c = normCoinCfg(raw), A = c.alerts;
+  const L = ["🪙 <b>코인 알림</b> — 전체 코인 감시(10분마다) <b>" + (A.on ? "켬" : "끔") + "</b> · 사진 " + (A.photo ? "일봉 차트" : "글만") + " · 24h 거래대금 " + (A.minEok ? A.minEok + "억 이상" : "제한 없음"), ""];
+  COIN_KINDS.forEach(([id, nm]) => { const k = A[id]; L.push((k.on ? "✅ " : "▫️ ") + nm + (k.on && id === "vol" ? "  <i>×" + k.mult + "</i>" : "") + (k.on && id === "surge" ? "  <i>" + k.mins + "분 ±" + k.pct + "%p</i>" : "") + (k.on && id === "fund" ? "  <i>±" + k.apr + "%</i>" : "") + (k.on && id === "oi" ? "  <i>±" + k.pct + "%</i>" : "")); });
+  L.push("", "<code>코인알림 켜기</code> · <code>코인알림 끄기</code>", "항목별 켜고 끄기·기준은 <b>설정 페이지 맨 오른쪽 🪙 코인 구역</b>에서 바꿔요 (같은 값)");
+  return say(L.join("\n"));
+}
 /* 조용히 / 재개 */
 async function doMute(arg) {
   let min = 60;
@@ -595,7 +543,10 @@ async function handleText(text, from) {
       case "funding": return doFunding(cmd.arg);
       case "fundRank": return doFundRank();
       case "oiRank": return doOiRank();
-      case "every": return doEvery(cmd.target, cmd.value);
+      case "every": return cmd.target === "coin" ? doCoinEvery(cmd.value) : doEvery(cmd.target, cmd.value);
+      case "coinRep": return doCoinNow();
+      case "coinTop": case "coinRows": return doCoinSetting(cmd.cmd, cmd.arg);
+      case "coinAlert": return doCoinAlert(cmd.arg);
       case "dailySet": case "resSet": case "miniSet": case "ivSet": case "daysSet": case "docSet": case "rowsSet": case "surgeSet": return doSetting(cmd.cmd, cmd.arg);
       case "cardAdd": case "cardDel": case "cardList": case "cardClear": return doCardList(cmd.cmd, cmd.arg);
       case "themeAdd": case "themeDel": return doTheme(cmd.cmd, cmd.arg);

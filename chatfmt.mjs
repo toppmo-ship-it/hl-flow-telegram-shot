@@ -123,6 +123,19 @@ const CAT = {
     "<code>환율</code>",
     "<code>펀딩 BTC</code>  <code>펀딩순위</code>  <code>OI순위</code>",
   ].join("\n"),
+  coin: () => [
+    "🪙 <b>코인 리포트</b> (TM Coin Daily Report · 코인 전용 별도 서버)",
+    "<code>코인리포트</code> — 지금 받기 (사진 2장: 시장 국면·★핵심·전종목 / TOP·분야별·진입)",
+    "<code>코인리포트 1시간</code>   <code>코인리포트 끄기</code>   <code>코인리포트 켜기</code>  (30분·1시간·2시간·4시간·하루)",
+    "<code>코인개수 100</code>  <code>코인개수 전부</code>  (시총 큰 순 · 50·100·150·전부)",
+    "<code>코인줄 70</code>  (전종목 표 줄 수)",
+    "",
+    "<b>코인 알림</b> — 전체 코인 감시",
+    "<code>코인알림</code> 현재 설정 보기 · <code>코인알림 켜기</code> / <code>코인알림 끄기</code>",
+    "항목별 설정은 설정 페이지 맨 오른쪽 🪙 구역",
+    "",
+    "<b>코인 1개 차트</b>는 그냥 이름을 쓰세요: <code>비트코인 일봉</code> · <code>이더 4시간</code>",
+  ].join("\n"),
   alert: () => [
     "🔔 <b>알림</b> — 조건이 맞으면 <b>일봉 차트 사진</b>과 함께 와요",
     "",
@@ -185,13 +198,14 @@ export const helpButtons = () => ({ inline_keyboard: [
   [{ text: "📈 차트 보기", callback_data: "h:chart" }, { text: "🗂 섹터·테마", callback_data: "h:sector" }],
   [{ text: "🔎 조회", callback_data: "h:query" }, { text: "📤 보내기", callback_data: "h:send" }],
   [{ text: "🔔 알림", callback_data: "h:alert" }, { text: "⚙️ 설정 바꾸기", callback_data: "h:set" }],
+  [{ text: "🪙 코인 리포트", callback_data: "h:coin" }],
 ] });
 export const helpBack = () => ({ inline_keyboard: [[{ text: "◀ 처음으로", callback_data: "h:main" }]] });
 /* 화면 아래 고정 키보드(한 번 누르면 바로 실행) */
 export const replyKeyboard = () => ({ keyboard: [["📋 리포트", "📈 흐름", "🃏 카드"], ["🔥 핵심", "🌐 매크로", "🗂 섹터"], ["📤 지금", "📊 상태", "❓ 도움말"]], resize_keyboard: true, is_persistent: true, input_field_placeholder: "종목 이름을 쓰세요  예) 메타 4시간" });
 /* 텔레그램 '/' 메뉴 */
 export const MENU = [
-  ["help", "도움말 · 명령어 안내"], ["sectors", "섹터·테마 목록"], ["report", "리포트 사진 받기"], ["flow", "가격흐름 사진 받기"], ["cards", "설정한 종목 카드 받기"], ["rank", "순위 글 받기"], ["pattern", "패턴 셋업 리포트 받기"],
+  ["help", "도움말 · 명령어 안내"], ["sectors", "섹터·테마 목록"], ["report", "리포트 사진 받기"], ["flow", "가격흐름 사진 받기"], ["cards", "설정한 종목 카드 받기"], ["rank", "순위 글 받기"], ["coinreport", "🪙 코인 리포트 받기"], ["pattern", "패턴 셋업 리포트 받기"],
   ["now", "설정된 사진 전부 지금 받기"], ["core", "★핵심 종목"], ["hx", "4H 발산 종목"], ["macro", "지수·원자재·금리"], ["entries", "최근 진입"], ["surge", "급변동 TOP"], ["fx", "환율"],
   ["status", "마지막·다음 발송 상태"], ["config", "현재 설정 보기"], ["alerts", "알림 목록·등록"], ["mute", "조용히 (주기 발송 잠깐 쉬기)"], ["unmute", "다시 켜기"],
 ];
