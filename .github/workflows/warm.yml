@@ -2,22 +2,34 @@ name: flow-warm
 
 # 흐름차트 "미리 갱신": 사람이 사이트를 안 열어도 서버 저장본(Supabase)이 항상 최신이도록 주기적으로 대신 열어 둠.
 # 며칠 만에 열어도 데이터를 새로 받느라 기다리지 않게 하려는 목적. 텔레그램 발송(shot.yml)과는 별개.
+# 프레임을 4개 작업으로 나눠 동시에 돌림(각각 다른 서버 = 다른 IP → HL 한도 분산, 한 작업이 8분 안에 끝남).
+#   frames 는 "기간:봉" 목록. 비어 있으면 사용자가 마지막에 쓴 프레임 + 3·15·30분 + 가까운 프레임(예전 방식)
+# 실행 시각은 정각을 피해 15분마다(7·22·37·52분) — GitHub 예약 실행은 정각 근처가 가장 많이 밀림
 on:
   schedule:
-    - cron: "*/20 * * * *"
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
-
-concurrency:
-  group: flow-warm
-  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
   warm:
+    name: warm (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: "a", name: "3D·5m", frames: "3D:5m" }
+          - { id: "b", name: "5D·15m+30m", frames: "5D:15m,5D:30m" }
+          - { id: "c", name: "20D·1h", frames: "20D:1h" }
+          - { id: "d", name: "마지막 프레임", frames: "" }
+    # 같은 조각이 이전 실행과 겹치면 대기(최대 1개만 대기) — 뒤늦게 쌓이지 않게
+    concurrency:
+      group: flow-warm-${{ matrix.id }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,4 +38,6 @@ jobs:
           cache: npm
       - run: npm ci
       - name: 흐름차트 미리 갱신
+        env:
+          WARM_FRAMES: ${{ matrix.frames }}
         run: node warm.mjs

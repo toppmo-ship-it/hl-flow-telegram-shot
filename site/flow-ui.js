@@ -352,8 +352,31 @@ function afterLoad(tok){
  F.onVol3d=()=>{if(tok===loadTok){F.recalcVis();F.refreshVisibility();updateFacetCounts();updateList();}};
  wk(F.loadVol3d(allTickers(),()=>tok!==loadTok?"abort":loading).catch(()=>{}));
  wk(fillMissing());
- if(WARM){if(!/[?&]pre=0/.test(location.search))wk(new Promise(r=>setTimeout(r,1200)).then(prefetchOthers));}   /* 미리 갱신: 다른 프레임도 이 실행에서 받아 서버에 저장 */
+ if(WARM){const wf=warmList();if(wf.length){if(wf.length>1)wk(new Promise(r=>setTimeout(r,1200)).then(()=>warmFrames(wf.slice(1))));}   /* 지정한 프레임만 */
+  else if(!/[?&]pre=0/.test(location.search))wk(new Promise(r=>setTimeout(r,1200)).then(prefetchOthers));}   /* 미리 갱신: 다른 프레임도 이 실행에서 받아 서버에 저장 */
  else if(!TEST||/[?&]prefetch=1/.test(location.search))setTimeout(prefetchOthers,1200);   /* 검증(?test=1) 중에는 미리받기 끔 — 로컬 IP 한도 보호 */
+}
+/* 미리 갱신(?warm=1&wf=3D:5m,5D:15m) 전용: 갱신할 프레임 목록(기간:봉). 첫 번째가 시작 프레임, 나머지는 뒤이어 받아 서버에 저장.
+   wf 가 없으면 예전 방식(사용자 마지막 프레임 + 가까운 프레임)으로 동작 */
+function warmList(){
+ const m=location.search.match(/[?&]wf=([^&]+)/);if(!m)return [];
+ return decodeURIComponent(m[1]).split(",").map(s=>{const [k,iv]=s.split(":"),b=F.FRAMES.find(x=>x.k===k);if(!b)return null;const v=!iv||iv===b.iv?"auto":iv;return F.ivStatus(k,v==="auto"?b.iv:v).ok?{k,iv:v}:null;}).filter(Boolean);
+}
+async function warmFrames(list){
+ if(prefetching)return;prefetching=true;
+ try{
+  let pd=0;F.tk.b("pre",list.length);
+  for(const r of list){
+   const f=F.frameOf(r.k,r.iv);{const x=F.tk.m.pre;if(x)x.note=r.k+"·"+f.iv+" 받는 중";}F.tk.p("pre",++pd,list.length);
+   if(f.key===F.frameObj().key)continue;
+   while(loading||document.hidden)await F.sleep(1500);
+   const tickers=allTickers();
+   const res=await F.fetchFast(f,tickers,null,4).catch(()=>null);
+   if(res&&Object.keys(res.data).length>=Math.ceil(tickers.length*0.5)&&enough(Object.keys(res.data).length,res.total))F.saveFrame(f,res.data);
+   await F.sleep(500);
+  }
+ }catch(e){}
+ F.tk.d("pre");prefetching=false;
 }
 /* 다른 프레임 미리 받기(현재 프레임과 가까운 순) → 전환 시 IndexedDB에서 즉시 */
 async function prefetchOthers(){
@@ -928,6 +951,7 @@ function shotHead(){
 async function init(){
  F.tk.b("settings");F.tk.b("live");
  await loadSettings();F.tk.d("settings");
+ if(WARM){const wf=warmList();if(wf.length){F.ui.frame=wf[0].k;F.ui.iv=wf[0].iv;}}   /* 미리 갱신: 지정한 첫 프레임에서 시작(설정은 저장하지 않음) */
  $("ldMain").onclick=e=>{e.stopPropagation();const p=$("ldPop");p.classList.toggle("on");if(p.classList.contains("on"))ldPop();};
  document.addEventListener("click",e=>{const p=$("ldPop");if(p.classList.contains("on")&&!p.contains(e.target))p.classList.remove("on");});
  buildFrames();buildIvBar();buildTools();buildLegend();buildWidths();renderFilters();renderList();

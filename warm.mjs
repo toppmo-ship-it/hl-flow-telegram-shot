@@ -68,7 +68,10 @@ async function main() {
       }
       r.continue();
     });
-    const extra = process.env.WARM_EXTRA ? "&" + process.env.WARM_EXTRA : "";
+    /* WARM_FRAMES="3D:5m,5D:15m" = 이번 실행이 갱신할 프레임(기간:봉). 없으면 사용자 마지막 프레임 + 가까운 프레임 */
+    const frames = process.env.WARM_FRAMES ? "&wf=" + encodeURIComponent(process.env.WARM_FRAMES) : "";
+    const extra = frames + (process.env.WARM_EXTRA ? "&" + process.env.WARM_EXTRA : "");
+    if (frames) log("갱신 프레임:", process.env.WARM_FRAMES);
     await page.goto(base + "/flow.html?warm=1" + extra, { waitUntil: "domcontentloaded", timeout: 30000 });
     log("열림 +" + (Date.now() - T0) + "ms");
     /* 끝났는지 판단: 첫 화면이 그려진 뒤 3초가 지나고, 불러오는 중·미리받기·뒤 작업이 모두 없는 상태가 연속 4번(≈8초) 이어지면 끝 */
