@@ -355,12 +355,25 @@ F.initChart=(stageEl,chartDiv,canvas,pillW)=>{
  startLoop();
  /* 오른쪽 종목명(알약)에 마우스를 올리면 그 종목 선만 선명하게, 나머지는 흐리게 — 알약은 캔버스에 그려져 있어서 위치를 기록해 두고 직접 판정 */
  S.pillHover=null;
+ const pillAt=(cx,cy,pad)=>{const r=stage.getBoundingClientRect(),x=cx-r.left,y=cy-r.top;let hit=null,bd=1e9;
+  for(const p of S.pills||[]){if(x>=p.x-pad.x&&x<=p.x+p.w+pad.x&&y>=p.y-pad.y&&y<=p.y+p.h+pad.y){const d=Math.abs(y-(p.y+p.h/2));if(d<bd){bd=d;hit=p.t;}}}
+  return hit;};
  stage.addEventListener("mousemove",e=>{
-  if(!F.ui.show.pills||!S.pills||F.ui.tool!=="cursor")return;
-  const r=stage.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;let hit=null;
-  for(const p of S.pills){if(x>=p.x-5&&x<=p.x+p.w+5&&y>=p.y-2&&y<=p.y+p.h+2){hit=p.t;break;}}
+  if(!F.ui.show.pills||!S.pills||F.ui.tool!=="cursor"||Date.now()-(S.touchAt||0)<700)return;   /* 터치 직후 브라우저가 흉내 내는 mousemove 는 무시 */
+  const hit=pillAt(e.clientX,e.clientY,{x:5,y:2});
   if(hit!==S.pillHover){S.pillHover=hit;F.setHover(hit);stage.style.cursor=hit?"pointer":"";F.redraw();}
  });
+ /* 폰·태블릿(터치): 마우스 올리기가 없으므로 알약을 '톡' 누르면 그 종목만 강조(다시 누르거나 빈 곳을 누르면 해제) — 끌거나 길게 누른 건 탭이 아님 */
+ {let dn=null;
+  stage.addEventListener("pointerdown",e=>{if(e.pointerType==="mouse"||!e.isPrimary){dn=null;return;}S.touchAt=Date.now();dn={x:e.clientX,y:e.clientY,t:Date.now()};},{passive:true});
+  stage.addEventListener("pointercancel",()=>{dn=null;},{passive:true});
+  stage.addEventListener("pointerup",e=>{if(e.pointerType==="mouse"||!dn)return;S.touchAt=Date.now();const d=dn;dn=null;
+   if(Math.hypot(e.clientX-d.x,e.clientY-d.y)>10||Date.now()-d.t>400)return;
+   if(!F.ui.show.pills||!S.pills||F.ui.tool!=="cursor")return;
+   const hit=pillAt(e.clientX,e.clientY,{x:12,y:4});
+   if(hit){const nx=hit===S.pillHover?null:hit;S.pillHover=nx;F.setHover(nx);F.redraw();}
+   else if(S.pillHover){S.pillHover=null;F.setHover(null);F.redraw();}
+  },{passive:true});}
  stage.addEventListener("mouseleave",()=>{if(S.pillHover){S.pillHover=null;F.setHover(null);stage.style.cursor="";F.redraw();}});
  restyleNow();
  return chart;
