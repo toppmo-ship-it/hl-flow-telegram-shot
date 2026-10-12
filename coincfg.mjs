@@ -1,10 +1,15 @@
 /* 코인 리포트·코인 알림 설정(tg_coin_cfg) — 코인 작업(coinjob.mjs)·챗봇·설정 페이지가 같은 모양을 씀(설정 페이지는 이 선택지를 그대로 따라감) */
 export const EVERY = [30, 60, 120, 240, 1440], TOPS = [50, 100, 150, 300], ROWS = [30, 50, 70, 100], HOTS = [50, 100, 200, 300];
 export const VOLM = [3, 5, 10], SURP = [2, 3, 5, 10], SURM = [30, 60], OIP = [5, 10, 20], MINE = [0, 1, 3, 10], FUNDA = [50, 100, 200, 300];
+import fs from "node:fs";
+/* 코인 종목 카드 설정·고르기는 설정 사이트와 같은 파일(site/coincards.js)을 씀 — 화면 미리보기와 실제 발송이 항상 같음.
+   실행기 폴더는 ES 모듈이라 require 가 안 되므로 파일을 읽어 module 로 실행 */
+export const CC = (() => { const m = { exports: {} }; new Function("module", "exports", fs.readFileSync(new URL("./site/coincards.js", import.meta.url), "utf8"))(m, m.exports); return m.exports; })();
 const pick = (a, v, d) => (a.includes(+v) ? +v : d);
 export function normCoinCfg(raw) {
   const r = raw && typeof raw === "object" ? raw : {}, a = r.alerts && typeof r.alerts === "object" ? r.alerts : {}, k = (n) => (a[n] && typeof a[n] === "object" ? a[n] : {}), on = (n, d) => (k(n).on != null ? !!k(n).on : d);
   return {
+    cards: CC.norm(r.cards),   /* 코인 종목 카드(챗봇이 설정을 다시 쓸 때 지워지지 않게 여기서 함께 정규화) */
     on: r.on !== false, every: pick(EVERY, r.every, 30), top: pick(TOPS, r.top, 100), rows: pick(ROWS, r.rows, 70), fundHot: pick(HOTS, r.fundHot, 100),
     alerts: { on: a.on !== false, photo: a.photo !== false, minEok: pick(MINE, a.minEok, 3),
       kel: { on: on("kel", true) }, w2: { on: on("w2", true) }, core: { on: on("core", true) }, h4u: { on: on("h4u", false) }, h4m: { on: on("h4m", false) },

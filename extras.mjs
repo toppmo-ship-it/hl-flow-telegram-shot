@@ -334,12 +334,12 @@ export async function buildCardData({ row, ticker, info, iv, days, fx, log, cach
   const frac = Math.min(1, Math.max(0, (now - last.time * 1000) / ms));   /* 진행 중인 봉이 얼마나 지났는지 — 봉 초반에 ×0.0 처럼 나오지 않게 경과 시간만큼 보정 */
   const mult = avg > 0 && prev20.length >= 8 && frac >= 0.08 ? last.volume / (avg * frac) : null, body = (last.close / last.open - 1) * 100, rsi = rsi14(candles.map((c) => c.close));
   const turn24 = candles.filter((c) => c.time * 1000 > now - 864e5).reduce((s, c) => s + c.volume, 0);
-  const kmap = info.koFull || info.ko, name0 = kmap[ticker] || kmap[row.short] || kmap[Object.keys(info.alias).find((k) => info.alias[k] === row.short)] || "", name = name0 && name0 !== ticker && name0 !== row.short ? name0 : "";
+  const kmap = info.koFull || info.ko, name0 = kmap[ticker] || kmap[row.short] || kmap[Object.keys(info.alias).find((k) => info.alias[k] === row.short)] || row.ko || "", name = name0 && name0 !== ticker && name0 !== row.short ? name0 : "";
   const price = last.close;
   const fmtP = (v) => (v >= 1000 ? v.toFixed(1) : v >= 10 ? v.toFixed(2) : v >= 1 ? v.toFixed(3) : v.toPrecision(4));
   const ivKo = { "15m": "15분", "30m": "30분", "1h": "1시간", "2h": "2시간", "4h": "4시간", "8h": "8시간" }[iv] || iv;
   const perEn = { "15m": "15min", "30m": "30min", "1h": "1hour", "2h": "2hour", "4h": "4hour", "8h": "8hour" }[iv] || iv;
-  const sec = info.sectorOf[ticker] || info.sectorOf[row.short] || info.sectorOf[Object.keys(info.alias).find((k) => info.alias[k] === row.short)] || "";
+  const sec = (row.dex === "코인" && row.cat) || info.sectorOf[ticker] || info.sectorOf[row.short] || info.sectorOf[Object.keys(info.alias).find((k) => info.alias[k] === row.short)] || row.cat || "";
   const ttl = ticker + (name ? " · " + name : ""), subTxt = (sec ? sec + " · " : "") + (row.dex === "코인" ? "Hyperliquid 무기한 선물" : "Hyperliquid " + row.full + " 무기한");
   const dot = mult == null ? "⬜" : mult >= 3 ? "🟥" : mult >= 2 ? "🟧" : mult >= 1.5 ? "🟨" : "⬜";
   const secS = sec.replace(/\s*\(.*?\)/g, "").trim();

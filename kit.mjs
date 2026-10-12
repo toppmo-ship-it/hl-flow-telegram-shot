@@ -90,6 +90,7 @@ export function createKit({ dry, token, chat, root, site, cache, log, getCtx, bu
       const d = await buildCardData({ row, ticker: tk, info: C.info, iv, days, fx: C.fx, log: () => {}, cacheDir: cache, mode: cfg.mode });
       if (!d) return null;
       applyCardCfg(d, cfg, resKey || cfg.res || cfg.cardRes, { noMini: iv === "1d" });   /* 일봉 카드에는 일봉 미니차트가 중복이라 뺌 */
+      if (row.dex === "코인" && row.theme !== "same") d.theme = row.theme === "lime" ? "lime" : "fuchsia";   /* 코인 카드는 주식 카드와 한눈에 구분되는 색(차트·지표 색과 안 겹치는 자홍/연두) */
       const { base } = await server(), b = await browser(), page = await b.newPage();
       try { page.on("pageerror", () => {}); const png = await renderCard(page, base, d); flushCardCache(cache); return { png: Buffer.from(png), caption: d.caption, detail: d.detail }; }
       finally { await page.close().catch(() => {}); }

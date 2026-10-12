@@ -9,9 +9,10 @@ import { loadSiteInfo, usdKrw } from "./extras.mjs";
 import { sbGet, sbPut } from "./sb.mjs";
 import { createKit, resKeyOf } from "./kit.mjs";
 import { loadStore, saveStore, restoreSnaps, saveSnaps, backupSnaps } from "./coindata.mjs";
-import { gather } from "./coinpipe.mjs";
+import { gather, STABLE } from "./coinpipe.mjs";
+import { COIN } from "./coinset.mjs";
 import { buildCoinReport } from "./coinreport.mjs";
-import { normCoinCfg } from "./coincfg.mjs";
+import { normCoinCfg, CC } from "./coincfg.mjs";
 import { median } from "./coincalc.mjs";
 import { fmtKrw } from "./mcap.mjs";
 import * as F from "./chatfmt.mjs";
@@ -97,6 +98,44 @@ async function sendReport(g, cfg, shotCfg) {
   return rep.meta;
 }
 
+/* ── 코인 목록 스냅샷(tg_coin_list): 설정 사이트가 '코인 종목 카드' 고르기(시총·거래대금·등락률 정렬)에 씀. 전 코인 한 줄씩 ── */
+function listRows(g) {
+  const fx = ctx.fx, ret7 = Object.fromEntries(g.rows.map((r) => [r.tk, r.v.ret7]));
+  return g.ctx.map((c) => {
+    const info = COIN[c.name] || {}, cg = g.meta.m && g.meta.m[c.name], mc = cg && cg.mc ? cg.mc * fx / 1e8 : 0, w = ret7[c.name];
+    return { t: c.name, n: info.ko || "", c: info.cat || "기타", m: Math.round(mc), e: Math.round(c.day * fx / 1e7) / 10, h: c.prev > 0 ? Math.round((c.px / c.prev - 1) * 1e4) / 100 : null, w: w == null ? null : w, s: STABLE.has(c.name) ? 1 : 0 };
+  });
+}
+
+/* ── 코인 종목 카드 (주식 종목 카드와 같은 그림·지표·패턴, 같은 방(기존 방), 코인 전용 색) ── */
+const mcTxt = (m) => (m >= 10000 ? (m / 10000).toFixed(1) + "조원" : Math.round(m) + "억원");
+function coinCap(cap, r) {   /* 기본 설명(종목·가격·거래대금) 아래에 코인 한 줄(시총·등락률) 추가 */
+  if (!r) return cap;
+  const sg2 = (x) => (x == null ? "–" : (x > 0 ? "+" : "") + x.toFixed(1) + "%"), L = String(cap).split("\n");
+  L.splice(2, 0, "🪙 시총 " + (r.m ? mcTxt(r.m) : "–") + " · 24h " + sg2(r.h) + " · 7일 " + sg2(r.w));
+  return L.join("\n");
+}
+async function sendCards(cc, shotCfg, rows, manual) {
+  const list = CC.pick(rows, cc);
+  room = "main";   /* 종목 카드는 기존 방 */
+  if (!list.length) { if (manual) await say("🪙 코인 카드로 보낼 코인이 없어요 — 설정 사이트의 '코인 종목 카드'에서 자동 기준·직접 고르기를 확인해 주세요"); return 0; }
+  const iv = cc.chart.iv === "auto" ? String(shotCfg.cardIv || "1h").replace(/[^0-9a-z]/g, "") : cc.chart.iv;
+  const days = iv === "1d" ? ([30, 60, 90, 120, 150].includes(+shotCfg.cardDailyDays) ? +shotCfg.cardDailyDays : 120) : (cc.chart.days || Math.min(150, Math.max(3, +shotCfg.cardDays || 60)));
+  const res = resKeyOf(shotCfg);
+  let n = 0, lastSent = 0;
+  for (const it of list) {
+    const r = it.row, row = { full: it.t, short: it.t, dex: "코인", ko: (r && r.n) || "", cat: (r && r.c) || "", theme: cc.chart.theme };
+    try {
+      const c = await kit.makeCard(it.t, iv, days, shotCfg, res, row);
+      if (!c) { log("코인 카드 데이터 부족:", it.t); continue; }
+      const gap = 3300 - (Date.now() - lastSent); if (!DRY && gap > 0) await sleep(gap);   /* 텔레그램 분당 장수 제한(주식 카드와 같은 간격) */
+      await photo(c.png, coinCap(c.caption, r), null, false, "coin_card_" + it.t);
+      lastSent = Date.now(); n++;
+    } catch (e) { log("코인 카드 실패", it.t, String((e && e.message) || e).slice(0, 100)); }
+  }
+  return n;
+}
+
 /* ── 메인 ── */
 async function main() {
   fs.mkdirSync(CACHE, { recursive: true });
@@ -111,7 +150,7 @@ async function main() {
     const now = Date.now();
     try {
       const cfg = normCoinCfg(process.env.COIN_CFG_JSON ? JSON.parse(process.env.COIN_CFG_JSON) : await sbGet("tg_coin_cfg")), cmd = DRY ? null : await sbGet("tg_coin_cmd");   /* COIN_CFG_JSON: 시험용 설정 덮어쓰기 */
-      const manual = !!(cmd && cmd.id && cmd.id !== last.cmd);   /* 아직 처리 안 한 '지금 보내기' 요청 */
+      const manual = !!(cmd && cmd.id && cmd.id !== last.cmd), manualCards = manual && cmd.kind === "cards";   /* 아직 처리 안 한 '지금 보내기' 요청(kind:"cards" = 코인 카드만) */
       if ((manual && now - lastManualTry >= 60000) || now - lastTick >= TICK) {
         lastTick = now; if (manual) lastManualTry = now;
         if (now - lastFx > 3600e3) { ctx.fx = await usdKrw(() => {}); lastFx = now; }
@@ -121,19 +160,27 @@ async function main() {
         else {
           st = g.st; saveStore(CACHE, S); saveSnaps(CACHE, snaps); try { fs.writeFileSync(path.join(CACHE, "coin_state.json"), JSON.stringify(st)); } catch (e) {}
           if (Date.now() - lastBackup > 3600e3) { await backupSnaps(snaps, DRY); lastBackup = Date.now(); }
+          const listSnap = listRows(g); if (!DRY) await W("tg_coin_list", { at: Date.now(), fx: ctx.fx, rows: listSnap });   /* 설정 사이트가 읽는 코인 목록 */
           log("틱", "코인", g.listN, "계산", g.rows.length, "커버", g.cover.toFixed(2), "받기", JSON.stringify(g.bars), "새 진입", g.fresh.length, g.mv && g.mv.verdict ? g.mv.verdict.t : "");
           if (g.cover >= 0.8) {
             const n = await doAlerts(g, cfg, shotCfg).catch((e) => { log("코인 알림 오류", String((e && e.message) || e).slice(0, 120)); return 0; });
             if (n) log("코인 알림", n + "건");
             const mute = await sbGet("tg_bot_mute"), muted = mute && +mute.until > Date.now();
             const due = cfg.on && !muted && (!last.rep || Date.now() - last.rep >= cfg.every * 60000 - 90000);
-            if (manual || due) {
+            if ((manual && !manualCards) || due) {
               const meta = await sendReport(g, cfg, shotCfg);
               log("코인 리포트 전송", JSON.stringify(meta), manual ? "(수동 요청)" : "");
               last = Object.assign({}, last, { rep: Date.now(), at: Date.now() }); if (manual) last.cmd = cmd.id;
               await W("tg_coin_last", last);
             }
-          } else if (manual && told !== cmd.id) { told = cmd.id; room = "report"; await say("⏳ 코인 데이터를 모으는 중이에요 (" + g.rows.length + "/" + g.listN + "종 준비). 준비되는 대로 바로 보내드려요"); }   /* 요청은 그대로 두고 1분마다 다시 확인 */
+            const dueC = cfg.cards.on && !muted && (!last.card || Date.now() - last.card >= cfg.cards.every * 60000 - 90000);
+            if (manualCards || dueC) {
+              const nC = await sendCards(cfg.cards, shotCfg, listSnap, manualCards);
+              log("코인 카드", nC + "장", manualCards ? "(수동 요청)" : "");
+              last = Object.assign({}, last, { card: Date.now(), at: Date.now() }); if (manualCards) last.cmd = cmd.id;
+              await W("tg_coin_last", last);
+            }
+          } else if (manual && told !== cmd.id) { told = cmd.id; room = manualCards ? "main" : "report"; await say("⏳ 코인 데이터를 모으는 중이에요 (" + g.rows.length + "/" + g.listN + "종 준비). 준비되는 대로 바로 보내드려요"); }   /* 요청은 그대로 두고 1분마다 다시 확인 */
         }
       }
     } catch (e) { log("틱 오류:", String((e && e.stack) || e).slice(0, 300)); }

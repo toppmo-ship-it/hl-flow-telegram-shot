@@ -7,7 +7,7 @@ import { COIN } from "./coinset.mjs";
 import { fetchCtx, getMeta, loadStore, saveStore, ensureBars, trackLive, loadSnaps, saveSnaps, pushSnap } from "./coindata.mjs";
 import { calcRow, marketView } from "./coincalc.mjs";
 
-const STABLE = new Set(["PAXG"]);   /* 알트시즌 지수·알트 시총에서 빼는 코인(금 토큰 등) */
+export const STABLE = new Set(["PAXG"]);   /* 알트시즌 지수·알트 시총에서 빼는 코인(금 토큰 등) */
 
 /* S = 캔들 저장소(메모리에 계속 들고 있음), snaps = 스냅샷, st = 진입 상태 {flags, log, t} — 호출하는 쪽이 들고 있다가 계속 넘김 */
 export async function gather({ cfg, cacheDir, log, deadline, noWrite, S, snaps, st, fx, stateIO, only }) {
