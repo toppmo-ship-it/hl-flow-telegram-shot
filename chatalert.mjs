@@ -247,20 +247,20 @@ export function makeAlerts(D) {
           const nt = (b) => (b[4] || 0) * (b[1] + b[2] + b[3]) / 3, last = m[m.length - 1], prev = m.slice(-33, -1).map(nt).filter((v) => v > 0);
           if (prev.length < 16 || S.vol[x.tk] === last[0]) return;
           const avg = prev.reduce((s, v) => s + v, 0) / prev.length, ratio = nt(last) / Math.max(avg, 1), eok15 = nt(last) * C.fx / 1e8;
-          if (ratio >= K.vol.mult && eok15 >= 1 && cool(x.tk + "|vol", 60)) { S.vol[x.tk] = last[0]; const up = last[3] >= (m[m.length - 2] ? m[m.length - 2][3] : last[3]); fires.push({ tk: x.tk, title: "💰 거래대금 급증 ×" + ratio.toFixed(1), text: "15분 거래대금 <b>" + F.eok(eok15) + "억</b> (평소 " + F.eok(avg * C.fx / 1e8) + "억의 " + ratio.toFixed(1) + "배) " + (up ? "🔺" : "🔽") + "\n" + F.quoteBlock(x) }); }
+          if (ratio >= K.vol.mult && eok15 >= 1 && cool(x.tk + "|vol", 60)) { S.vol[x.tk] = last[0]; const up = last[3] >= (m[m.length - 2] ? m[m.length - 2][3] : last[3]); fires.push({ room: "entry", tk: x.tk, title: "💰 거래대금 급증 ×" + ratio.toFixed(1), text: "15분 거래대금 <b>" + F.eok(eok15) + "억</b> (평소 " + F.eok(avg * C.fx / 1e8) + "억의 " + ratio.toFixed(1) + "배) " + (up ? "🔺" : "🔽") + "\n" + F.quoteBlock(x) }); }
         });
       }
       if (K.surge.on) {
         const list = []; rows.filter((x) => x.v.w >= 0).forEach((x) => { const c = changeOver(x.e, K.surge.mins, now); if (c) list.push({ x, pct: c.pct, usd: c.usd }); });
         const a = list.map((q) => q.pct).sort((p, q) => p - q), med = a.length >= 3 ? a[Math.floor(a.length / 2)] : 0;
-        list.map((q) => ({ ...q, rel: q.pct - med })).filter((q) => Math.abs(q.rel) >= K.surge.pct && ok(q.x)).sort((p, q) => Math.abs(q.rel) - Math.abs(p.rel)).slice(0, 5).forEach((q) => { if (cool(q.x.tk + "|surge", 30)) fires.push({ tk: q.x.tk, title: "🚨 급변동 " + (q.rel > 0 ? "+" : "") + q.rel.toFixed(2) + "%p", text: K.surge.mins + "분 · 시장 " + (med >= 0 ? "+" : "") + med.toFixed(2) + "%p 대비 · 유입 " + F.eok(q.usd * C.fx / 1e8) + "억\n" + F.quoteBlock(q.x) }); });
+        list.map((q) => ({ ...q, rel: q.pct - med })).filter((q) => Math.abs(q.rel) >= K.surge.pct && ok(q.x)).sort((p, q) => Math.abs(q.rel) - Math.abs(p.rel)).slice(0, 5).forEach((q) => { if (cool(q.x.tk + "|surge", 30)) fires.push({ room: "entry", tk: q.x.tk, title: "🚨 급변동 " + (q.rel > 0 ? "+" : "") + q.rel.toFixed(2) + "%p", text: K.surge.mins + "분 · 시장 " + (med >= 0 ? "+" : "") + med.toFixed(2) + "%p 대비 · 유입 " + F.eok(q.usd * C.fx / 1e8) + "억\n" + F.quoteBlock(q.x) }); });
       }
     }
     await W(K_STATE, S);
     if (!fires.length) return;
     photoLeft = 4;
     for (const f of fires.slice(0, 12)) await inRoom(f.room, () => send(f.tk, "<b>" + f.title + "</b>\n" + f.text, cfg));
-    if (fires.length > 12) await say("… 그 밖에 " + (fires.length - 12) + "건 더 있었어요 (<code>알림설정</code> 에서 기준을 높일 수 있어요)");
+    if (fires.length > 12) await inRoom("entry", () => say("… 그 밖에 " + (fires.length - 12) + "건 더 있었어요 (<code>알림설정</code> 에서 기준을 높일 수 있어요)"));
   }
   async function checkCmd() {   /* 설정 페이지의 '테스트 알림 보내기' */
     const c = await sbGet(K_CMD); if (!c || !c.id) return;

@@ -41,7 +41,7 @@ const coinLine = (r) => {
 /* ── 코인 알림: 전 코인 감시(진입 감지는 주식과 같은 규칙, 그 밖에 거래대금·급변동·펀딩·미결제) ── */
 async function doAlerts(g, cfg, shotCfg) {
   const A = cfg.alerts; if (!A.on) return 0;
-  room = "main";   /* 알림은 기존 방 */
+  room = "report";   /* 코인 알림 전부 새 방 */
   const now = g.now, SA = (await sbGet("tg_coin_alert_state")) || {}; SA.cool = SA.cool || {};
   Object.keys(SA.cool).forEach((k) => { if (now - SA.cool[k] > 9 * 3600e3) delete SA.cool[k]; });
   const cool = (key, min) => { if (now - (SA.cool[key] || 0) < min * 60000) return false; SA.cool[key] = now; return true; };
@@ -72,7 +72,6 @@ async function doAlerts(g, cfg, shotCfg) {
   const days = [30, 60, 90, 120, 150].includes(+shotCfg.cardDailyDays) ? +shotCfg.cardDailyDays : 120, res = resKeyOf(shotCfg);
   let photos = 6;
   for (const f of fires.slice(0, 14)) {
-    room = f.room;   /* 진입 알림=새 방, 거래대금·급변동·펀딩·미결제=기존 방 */
     const text = "🪙 <b>" + f.title + "</b>\n" + coinLine(f.r), mk = F.cardButtons(f.r.tk, "1d");
     let sent = false;
     if (A.photo && photos > 0) { photos--; try { const c = await kit.makeCard(f.r.tk, "1d", days, shotCfg, res, { full: f.r.tk, short: f.r.tk, dex: "코인" }); if (c) { await photo(c.png, text, mk, true); sent = true; } } catch (e) { log("코인 알림 사진 실패", f.r.tk, String((e && e.message) || e).slice(0, 80)); } }
