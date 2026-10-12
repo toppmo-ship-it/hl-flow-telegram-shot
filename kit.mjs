@@ -15,6 +15,7 @@ const strip = (t) => String(t || "").replace(/<\/?[a-z]+[^>]*>/g, "");
 
 export function createKit({ dry, token, chat, root, site, cache, log, getCtx, busy, outDir }) {
   let outN = 0;
+  const chatId = () => String(typeof chat === "function" ? chat() : chat);   /* chat 은 방 번호이거나, 요청마다 방을 돌려주는 함수(챗봇이 방 2개를 읽을 때) */
   const OUT = outDir || path.join(root, "out_chat");
   async function tg(method, payload, isForm) {
     if (dry) return { ok: true, result: { message_id: ++outN } };
@@ -36,14 +37,14 @@ export function createKit({ dry, token, chat, root, site, cache, log, getCtx, bu
     let last = null;
     for (let i = 0; i < chunks.length; i++) {
       if (dry) { console.log("\n┌─ 봇 답장 ─────────────\n" + strip(chunks[i]) + (extra && i === chunks.length - 1 ? "\n└─ [버튼] " + JSON.stringify(extra).slice(0, 200) : "\n└──────────────")); outN++; continue; }
-      last = await tg("sendMessage", { chat_id: chat, text: chunks[i], parse_mode: "HTML", disable_web_page_preview: true, ...(i === chunks.length - 1 && extra ? { reply_markup: extra } : {}) });
-      if (!last.ok) { log("전송 실패", last.description); last = await tg("sendMessage", { chat_id: chat, text: strip(chunks[i]), disable_web_page_preview: true }); }   /* HTML 오류면 태그 없이 다시 */
+      last = await tg("sendMessage", { chat_id: chatId(), text: chunks[i], parse_mode: "HTML", disable_web_page_preview: true, ...(i === chunks.length - 1 && extra ? { reply_markup: extra } : {}) });
+      if (!last.ok) { log("전송 실패", last.description); last = await tg("sendMessage", { chat_id: chatId(), text: strip(chunks[i]), disable_web_page_preview: true }); }   /* HTML 오류면 태그 없이 다시 */
     }
     return last && last.result && last.result.message_id;
   }
   async function photo(buf, caption, markup, html, name) {
     if (dry) { fs.mkdirSync(OUT, { recursive: true }); const f = path.join(OUT, (name || String(++outN).padStart(2, "0")) + ".png"); fs.writeFileSync(f, buf); console.log("\n┌─ 봇 사진 ─ " + f + " (" + Math.round(buf.length / 1024) + "KB)\n" + strip(caption) + "\n└──────────────"); return outN; }
-    const send = async () => { const f = new FormData(); f.append("chat_id", chat); if (caption) { f.append("caption", String(caption).slice(0, 1000)); if (html) f.append("parse_mode", "HTML"); } if (markup) f.append("reply_markup", JSON.stringify(markup)); f.append("photo", new Blob([buf], { type: "image/png" }), "chart.png"); return tg("sendPhoto", f, true); };
+    const send = async () => { const f = new FormData(); f.append("chat_id", chatId()); if (caption) { f.append("caption", String(caption).slice(0, 1000)); if (html) f.append("parse_mode", "HTML"); } if (markup) f.append("reply_markup", JSON.stringify(markup)); f.append("photo", new Blob([buf], { type: "image/png" }), "chart.png"); return tg("sendPhoto", f, true); };
     let j = await send();
     if (!j.ok && /429|Too Many/i.test(String(j.description))) { await sleep(8000); j = await send(); }
     if (!j.ok) { log("사진 전송 실패", j.description); throw new Error("사진 전송 실패: " + j.description); }
@@ -51,11 +52,11 @@ export function createKit({ dry, token, chat, root, site, cache, log, getCtx, bu
   }
   async function document(buf, filename, replyTo) {   /* 원본 PNG 파일(사진은 압축되므로) */
     if (dry) return null;
-    const f = new FormData(); f.append("chat_id", chat); f.append("document", new Blob([buf], { type: "image/png" }), filename); f.append("disable_content_type_detection", "true"); if (replyTo) f.append("reply_to_message_id", String(replyTo));
+    const f = new FormData(); f.append("chat_id", chatId()); f.append("document", new Blob([buf], { type: "image/png" }), filename); f.append("disable_content_type_detection", "true"); if (replyTo) f.append("reply_to_message_id", String(replyTo));
     return tg("sendDocument", f, true);
   }
-  const action = (a) => (dry ? null : tg("sendChatAction", { chat_id: chat, action: a || "upload_photo" }));
-  const delMsg = (id) => (dry || !id ? null : tg("deleteMessage", { chat_id: chat, message_id: id }));
+  const action = (a) => (dry ? null : tg("sendChatAction", { chat_id: chatId(), action: a || "upload_photo" }));
+  const delMsg = (id) => (dry || !id ? null : tg("deleteMessage", { chat_id: chatId(), message_id: id }));
 
   /* ── 그리기 ── */
   let SRV = null, BR = null, brUse = 0, brIdle = null;

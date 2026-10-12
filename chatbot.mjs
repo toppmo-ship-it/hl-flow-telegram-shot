@@ -9,6 +9,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { fileURLToPath } from "node:url";
 import { loadSiteInfo, loadUniverse, usdKrw, pickRow, buildCardData, renderCard, flushCardCache, applyCardCfg, hl, buildWeeklyTexts, buildSurgeText, buildPatternRankText } from "./extras.mjs";
 import { buildReport, buildListReport, collectRows, refreshBars } from "./report.mjs";
@@ -26,7 +27,9 @@ const ROOT = path.dirname(fileURLToPath(import.meta.url)), SITE = path.join(ROOT
 const DRY = /^(1|true)$/i.test(process.env.BOT_DRY || "");
 const MAX_MS = (+process.env.BOT_MAX_MIN || 335) * 60000, T_START = Date.now();
 const clean = (v) => String(v || "").trim().replace(/^["'`]+|["'`]+$/g, "").trim();
-const TOKEN = clean(process.env.TG_BOT_TOKEN).replace(/^bot/i, ""), CHAT = clean(process.env.TG_CHAT_ID);
+const TOKEN = clean(process.env.TG_BOT_TOKEN).replace(/^bot/i, ""), CHAT = clean(process.env.TG_CHAT_ID), CHAT2 = clean(process.env.TG_CHAT_ID2);
+/* 방 2개 읽기: 명령이 온 방으로 답함(AsyncLocalStorage — 그 명령에서 이어지는 모든 전송이 같은 방). 자동 알림·시작 인사 같은 백그라운드 발송은 기본 방(TG_CHAT_ID) */
+const ROOMS = new Set([CHAT, CHAT2].filter(Boolean)), ROOM = new AsyncLocalStorage(), chatNow = () => ROOM.getStore() || CHAT;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 const MEM = new Map();   /* 시험 모드에서는 운영 DB에 쓰지 않고 메모리에만 저장(같은 실행 안에서는 읽힘) */
@@ -64,7 +67,7 @@ async function snapshot(maxAgeMs, waitMs) {
 const rowsByTk = (rows) => Object.fromEntries(rows.map((r) => [r.tk, r]));
 
 /* 텔레그램 보내기·사진 그리기는 공용 도구(kit.mjs) — 코인 리포트와 같은 코드를 씀 */
-const KIT = createKit({ dry: DRY, token: TOKEN, chat: CHAT, root: ROOT, site: SITE, cache: CACHE, log, getCtx: async () => { await loadCtx(); return C; }, busy: (d) => { C.busy += d; } });
+const KIT = createKit({ dry: DRY, token: TOKEN, chat: chatNow, root: ROOT, site: SITE, cache: CACHE, log, getCtx: async () => { await loadCtx(); return C; }, busy: (d) => { C.busy += d; } });
 const { tg, say, photo, action, delMsg, makeCard, drawReportPng } = KIT;
 
 /* 설정(tg_shot_cfg) 읽고-고치고-쓰기 */
@@ -165,7 +168,7 @@ async function doReport() {
     if (out.skip) { await delMsg(prog); return say("⏳ " + F.esc(out.skip) + "\n잠시 뒤 다시 시도해 주세요"); }
     const png = await drawReportPng(out, resKeyOf(cfg));
     const mid = await photo(png, out.caption);
-    if (cfg.doc !== false && !DRY) { const f = new FormData(); f.append("chat_id", CHAT); f.append("document", new Blob([png], { type: "image/png" }), "report.png"); f.append("disable_content_type_detection", "true"); if (mid) f.append("reply_to_message_id", String(mid)); await tg("sendDocument", f, true); }
+    if (cfg.doc !== false && !DRY) { const f = new FormData(); f.append("chat_id", chatNow()); f.append("document", new Blob([png], { type: "image/png" }), "report.png"); f.append("disable_content_type_detection", "true"); if (mid) f.append("reply_to_message_id", String(mid)); await tg("sendDocument", f, true); }
   } finally { C.busy--; await delMsg(prog); }
 }
 /* 설정해 둔 카드 종목 전부 */
@@ -510,7 +513,7 @@ async function alertChart(tk, caption, markup) {
 }
 async function editMsg(mid, text, markup) {
   if (DRY) return say(text, markup);
-  const r = await tg("editMessageText", { chat_id: CHAT, message_id: mid, text, parse_mode: "HTML", reply_markup: markup });
+  const r = await tg("editMessageText", { chat_id: chatNow(), message_id: mid, text, parse_mode: "HTML", reply_markup: markup });
   if (!r.ok && !/not modified/i.test(String(r.description))) await say(text, markup);
 }
 const AL = makeAlerts({ C, say, W, sbGet, loadCtx, log, CACHE, cfgGet, UserErr, chart: alertChart, edit: editMsg });
@@ -572,7 +575,7 @@ async function handleCallback(cb) {
       const cfg = await cfgGet(), k = d.slice(2), mid = cb.message && cb.message.message_id;
       const text = k === "main" ? F.helpMain(cfg) : F.helpCat(k, cfg), markup = k === "main" ? F.helpButtons() : F.helpBack();
       if (DRY) return say(text, markup);
-      const r = await tg("editMessageText", { chat_id: CHAT, message_id: mid, text, parse_mode: "HTML", reply_markup: markup });
+      const r = await tg("editMessageText", { chat_id: chatNow(), message_id: mid, text, parse_mode: "HTML", reply_markup: markup });
       if (!r.ok && !/not modified/i.test(String(r.description))) await say(text, markup);
       return;
     }
@@ -642,12 +645,17 @@ async function main() {
       if (seen.has(u.update_id)) continue; seen.add(u.update_id); if (seen.size > 500) seen.delete(seen.values().next().value);
       const m = u.message, cb = u.callback_query;
       try {
-        if (cb) { if (String(cb.message && cb.message.chat && cb.message.chat.id) !== CHAT) continue; await handleCallback(cb); }
+        if (cb) { const rid = String(cb.message && cb.message.chat && cb.message.chat.id); if (!ROOMS.has(rid)) continue; await ROOM.run(rid, () => handleCallback(cb)); }
         else if (m && m.text) {
-          if (String(m.chat.id) !== CHAT) { log("다른 방의 글은 무시:", m.chat.type); continue; }   /* 이 방(설정된 TG_CHAT_ID)만 */
+          const rid = String(m.chat.id);
+          if (!ROOMS.has(rid)) {   /* 등록 안 된 방: 방 번호 확인용 /방번호 만 답함(방 번호 외엔 아무것도 처리·저장 안 함) */
+            if (/^\/(방번호|chatid|id)(@\w+)?\s*$/i.test(m.text.trim())) await tg("sendMessage", { chat_id: rid, text: "이 방의 번호: " + rid + "\n(GitHub 비밀값 TG_CHAT_ID2 에 넣으세요)" });
+            else log("등록 안 된 방의 글은 무시:", m.chat.type);
+            continue;
+          }
           if (Date.now() / 1000 - m.date > 20 * 60) { log("오래된 글 건너뜀:", m.text.slice(0, 20)); continue; }
           log("받음:", m.text.slice(0, 60));
-          await handleText(m.text, m.from);
+          await ROOM.run(rid, () => handleText(m.text, m.from));
         }
       } catch (e) { log("업데이트 처리 오류", String((e && e.message) || e).slice(0, 200)); }
       await W("tg_bot_offset", { next: offset, at: Date.now() });   /* 처리한 데까지 기록 → 재시작해도 다시 처리 안 함 */
