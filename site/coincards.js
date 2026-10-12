@@ -6,7 +6,7 @@
   else root.CoinCards = factory();
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
-  var EVERY = [30, 60, 120, 240, 1440], MAXS = [5, 10, 15, 20, 30], NS = [3, 5, 10, 15, 20, 30], MINE = [0, 1, 3, 10, 30, 100], MCTOP = [0, 50, 100, 150];
+  var EVERY = [30, 60, 120, 240, 1440], MAXS = [5, 10, 15, 20, 30], NS = [3, 5, 10, 15, 20, 30], MINE = [0, 1, 3, 10, 30, 100, 300, 1000], MCTOP = [0, 50, 100, 150];
   var IVS = ["auto", "1h", "2h", "4h", "8h", "1d"], DAYS = [0, 5, 10, 15, 20, 30, 60, 90, 120];   /* 0·auto = 주식 카드 설정 따라가기 */
   var BYS = ["eok", "mc", "chg", "ret7"], THEMES = ["fuchsia", "lime", "same"];
   var BY_LABEL = { eok: "거래대금", mc: "시가총액", chg: "등락률 24시간", ret7: "등락률 7일" };
