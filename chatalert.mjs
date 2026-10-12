@@ -45,6 +45,7 @@ export function parseAlertArgs(args) {
 }
 
 export function makeAlerts(D) {
+  const inRoom = (k, fn) => (D.inRoom ? D.inRoom(k, fn) : fn());   /* 알림 종류별 방 고르기("entry" = 신규 진입 알림 방) — 챗봇이 넘겨줌 */
   const { C, say, W, sbGet, loadCtx, log, CACHE, cfgGet } = D;
   const getCfg = async () => normCfg(await sbGet(K_CFG));
   const getList = async () => { const a = await sbGet(K_LIST); return { list: a && Array.isArray(a.list) ? a.list : [] }; };
@@ -231,7 +232,7 @@ export function makeAlerts(D) {
           if (K.h4u.on && has(/^발산/) && cool(e.k + "|h4u", 240)) labs.push("🔥 4H 발산 진입");
           if (K.h4m.on && has(/^4H/) && cool(e.k + "|h4m", 240)) labs.push("🕓 4H 중심 진입");
           if (!labs.length && K.entry.on && cool(e.k + "|entry", 240)) labs.push("🚪 진입");
-          if (labs.length) fires.push({ tk: e.k, title: labs.join(" · "), text: F.quoteBlock(row) });
+          if (labs.length) fires.push({ tk: e.k, title: labs.join(" · "), text: F.quoteBlock(row), room: "entry" });
         }
         S.last = Math.max(maxT, since);   /* 처음 켠 순간부터만 알림(과거 기록은 안 보냄) */
       }
@@ -258,13 +259,13 @@ export function makeAlerts(D) {
     await W(K_STATE, S);
     if (!fires.length) return;
     photoLeft = 4;
-    for (const f of fires.slice(0, 12)) await send(f.tk, "<b>" + f.title + "</b>\n" + f.text, cfg);
+    for (const f of fires.slice(0, 12)) await inRoom(f.room, () => send(f.tk, "<b>" + f.title + "</b>\n" + f.text, cfg));
     if (fires.length > 12) await say("… 그 밖에 " + (fires.length - 12) + "건 더 있었어요 (<code>알림설정</code> 에서 기준을 높일 수 있어요)");
   }
   async function checkCmd() {   /* 설정 페이지의 '테스트 알림 보내기' */
     const c = await sbGet(K_CMD); if (!c || !c.id) return;
     const S = await getState(); if (S.cmdId === c.id) return;
-    S.cmdId = c.id; await W(K_STATE, S); await testAlert();
+    S.cmdId = c.id; await W(K_STATE, S); await inRoom("entry", () => testAlert());
   }
   let lastAuto = 0;
   async function loop(maxMs, t0) {

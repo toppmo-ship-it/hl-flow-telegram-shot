@@ -516,7 +516,7 @@ async function editMsg(mid, text, markup) {
   const r = await tg("editMessageText", { chat_id: chatNow(), message_id: mid, text, parse_mode: "HTML", reply_markup: markup });
   if (!r.ok && !/not modified/i.test(String(r.description))) await say(text, markup);
 }
-const AL = makeAlerts({ C, say, W, sbGet, loadCtx, log, CACHE, cfgGet, UserErr, chart: alertChart, edit: editMsg });
+const AL = makeAlerts({ inRoom: (k, fn) => (k === "entry" && CHAT2 ? ROOM.run(CHAT2, fn) : fn()), C, say, W, sbGet, loadCtx, log, CACHE, cfgGet, UserErr, chart: alertChart, edit: editMsg });
 
 /* ───────────────── 라우터 ───────────────── */
 async function handleText(text, from) {

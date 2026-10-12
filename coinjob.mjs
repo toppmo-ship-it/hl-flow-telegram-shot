@@ -55,7 +55,7 @@ async function doAlerts(g, cfg, shotCfg) {
     if (A.h4u.on && has(/^발산/) && cool(e.k + "|h4u", 240)) labs.push("🔥 4H 발산 진입");
     if (A.h4m.on && has(/^4H/) && cool(e.k + "|h4m", 240)) labs.push("🕓 4H 중심 진입");
     if (!labs.length && A.entry.on && cool(e.k + "|entry", 240)) labs.push("🚪 진입");
-    if (labs.length) fires.push({ r, title: labs.join(" · ") });
+    if (labs.length) fires.push({ r, title: labs.join(" · "), room: "report" });
   }
   if (A.vol.on) g.rows.filter((r) => ok(r) && r.v.volx != null && r.v.volx >= A.vol.mult && r.v.eok >= 3).forEach((r) => { if (cool(r.tk + "|vol", 360)) fires.push({ r, title: "💰 거래대금 급증 ×" + r.v.volx.toFixed(1) + " (7일 평균 대비)" }); });
   if (A.surge.on) {
@@ -66,12 +66,13 @@ async function doAlerts(g, cfg, shotCfg) {
   if (A.oi.on) g.rows.filter((r) => ok(r) && r.v.oi4h != null && r.v.oiEok >= 3 && Math.abs(r.v.oi4h) >= A.oi.pct).forEach((r) => { if (cool(r.tk + "|oi", 240)) fires.push({ r, title: "📊 미결제 4시간 " + sg(r.v.oi4h, 1) + "%" + (r.v.quad ? " · " + r.v.quad : "") }); });
   await W("tg_coin_alert_state", SA);
   /* 같은 코인에 여러 알림이 겹치면 한 통으로 묶음 */
-  const merged = new Map(); fires.forEach((x) => { const m = merged.get(x.r.tk); if (m) m.title += "\n" + x.title; else merged.set(x.r.tk, { r: x.r, title: x.title }); });
+  const merged = new Map(); fires.forEach((x) => { const key = x.r.tk + "|" + (x.room || "main"), m = merged.get(key); if (m) m.title += "\n" + x.title; else merged.set(key, { r: x.r, title: x.title, room: x.room || "main" }); });
   fires.length = 0; merged.forEach((x) => fires.push(x));
   if (!fires.length) return 0;
   const days = [30, 60, 90, 120, 150].includes(+shotCfg.cardDailyDays) ? +shotCfg.cardDailyDays : 120, res = resKeyOf(shotCfg);
   let photos = 6;
   for (const f of fires.slice(0, 14)) {
+    room = f.room;   /* 진입 알림=새 방, 거래대금·급변동·펀딩·미결제=기존 방 */
     const text = "🪙 <b>" + f.title + "</b>\n" + coinLine(f.r), mk = F.cardButtons(f.r.tk, "1d");
     let sent = false;
     if (A.photo && photos > 0) { photos--; try { const c = await kit.makeCard(f.r.tk, "1d", days, shotCfg, res, { full: f.r.tk, short: f.r.tk, dex: "코인" }); if (c) { await photo(c.png, text, mk, true); sent = true; } } catch (e) { log("코인 알림 사진 실패", f.r.tk, String((e && e.message) || e).slice(0, 80)); } }
