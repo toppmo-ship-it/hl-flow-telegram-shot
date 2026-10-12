@@ -72,6 +72,7 @@ jobs:
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          TG_CHAT_ID2: ${{ secrets.TG_CHAT_ID2 }}
           HL_BUDGET: "900"
           BOT_MAX_MIN: "335"
         run: node coinjob.mjs

@@ -76,6 +76,8 @@ jobs:
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+
+          TG_CHAT_ID2: ${{ secrets.TG_CHAT_ID2 }}
           SHOT_DRY: ${{ github.event.inputs.dry }}
           SHOT_OVERRIDES: ${{ github.event.inputs.overrides }}
           PATTERN_RANK_JSON: ${{ secrets.PATTERN_RANK_JSON }}

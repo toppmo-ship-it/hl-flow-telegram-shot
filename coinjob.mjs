@@ -19,12 +19,15 @@ import * as F from "./chatfmt.mjs";
 const ROOT = path.dirname(fileURLToPath(import.meta.url)), SITE = path.join(ROOT, "site"), CACHE = process.env.COIN_CACHE || path.join(ROOT, ".cache");
 const DRY = /^(1|true)$/i.test(process.env.BOT_DRY || ""), MAX_MS = (+process.env.BOT_MAX_MIN || 335) * 60000, T0 = Date.now(), TICK = 10 * 60000;
 const clean = (v) => String(v || "").trim().replace(/^["'`]+|["'`]+$/g, "").trim();
-const TOKEN = clean(process.env.TG_BOT_TOKEN).replace(/^bot/i, ""), CHAT = clean(process.env.TG_CHAT_ID);
+const TOKEN = clean(process.env.TG_BOT_TOKEN).replace(/^bot/i, ""), CHAT = clean(process.env.TG_CHAT_ID), CHAT2 = clean(process.env.TG_CHAT_ID2);
+/* 방 고르기: 코인 리포트 = 리포트 방(TG_CHAT_ID2, 없으면 기본 방) · 코인 알림(종목 사진) = 기본 방(챗봇·버튼과 같은 방). room 은 단계마다 지정 */
+let room = "report";
+const chatNow = () => (room === "report" && CHAT2) || CHAT;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 const W = async (k, v) => (DRY ? (log("[dry] 저장 생략", k), true) : sbPut(k, v));
 const ctx = { info: null, uni: [], fx: 1350 };
-const kit = createKit({ dry: DRY, token: TOKEN, chat: CHAT, root: ROOT, site: SITE, cache: CACHE, log, getCtx: async () => ctx, busy: () => {}, outDir: path.join(ROOT, "out_coin") });
+const kit = createKit({ dry: DRY, token: TOKEN, chat: chatNow, root: ROOT, site: SITE, cache: CACHE, log, getCtx: async () => ctx, busy: () => {}, outDir: path.join(ROOT, "out_coin") });
 const { say, photo } = kit;
 
 /* ── 코인 한 줄 요약(알림 글) ── */
@@ -38,6 +41,7 @@ const coinLine = (r) => {
 /* ── 코인 알림: 전 코인 감시(진입 감지는 주식과 같은 규칙, 그 밖에 거래대금·급변동·펀딩·미결제) ── */
 async function doAlerts(g, cfg, shotCfg) {
   const A = cfg.alerts; if (!A.on) return 0;
+  room = "main";   /* 알림은 기존 방 */
   const now = g.now, SA = (await sbGet("tg_coin_alert_state")) || {}; SA.cool = SA.cool || {};
   Object.keys(SA.cool).forEach((k) => { if (now - SA.cool[k] > 9 * 3600e3) delete SA.cool[k]; });
   const cool = (key, min) => { if (now - (SA.cool[key] || 0) < min * 60000) return false; SA.cool[key] = now; return true; };
@@ -80,6 +84,7 @@ async function doAlerts(g, cfg, shotCfg) {
 
 /* ── 리포트 보내기(2장) ── */
 async function sendReport(g, cfg, shotCfg) {
+  room = "report";   /* 리포트는 새 방 */
   const rep = buildCoinReport({ cfg, rows: g.rows, meta: g.meta, mv: g.mv, fx: ctx.fx, now: g.now, ent: g.ent });
   const res = resKeyOf(shotCfg);
   for (let i = 0; i < rep.parts.length; i++) {
@@ -128,7 +133,7 @@ async function main() {
               last = Object.assign({}, last, { rep: Date.now(), at: Date.now() }); if (manual) last.cmd = cmd.id;
               await W("tg_coin_last", last);
             }
-          } else if (manual && told !== cmd.id) { told = cmd.id; await say("⏳ 코인 데이터를 모으는 중이에요 (" + g.rows.length + "/" + g.listN + "종 준비). 준비되는 대로 바로 보내드려요"); }   /* 요청은 그대로 두고 1분마다 다시 확인 */
+          } else if (manual && told !== cmd.id) { told = cmd.id; room = "report"; await say("⏳ 코인 데이터를 모으는 중이에요 (" + g.rows.length + "/" + g.listN + "종 준비). 준비되는 대로 바로 보내드려요"); }   /* 요청은 그대로 두고 1분마다 다시 확인 */
         }
       }
     } catch (e) { log("틱 오류:", String((e && e.stack) || e).slice(0, 300)); }

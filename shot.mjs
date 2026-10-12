@@ -141,9 +141,12 @@ const kstText = () => {
 /* Secrets에 따옴표·공백·"bot" 접두어가 섞여 들어가도 정리 */
 const clean = (v) => String(v || "").trim().replace(/^["'`]+|["'`]+$/g, "").trim();
 const tgToken = () => clean(process.env.TG_BOT_TOKEN).replace(/^bot/i, "");
+/* 방 고르기: main = 기본 방(TG_CHAT_ID), report = 리포트 방(TG_CHAT_ID2 — 비어 있으면 기본 방). cur 는 지금 보내는 종류(단계마다 지정) */
+let cur = "main";
+const chatId = () => (cur === "report" && clean(process.env.TG_CHAT_ID2)) || clean(process.env.TG_CHAT_ID);
 async function sendPhoto(buf, caption) {
   const form = new FormData();
-  form.append("chat_id", clean(process.env.TG_CHAT_ID));
+  form.append("chat_id", chatId());
   form.append("caption", caption);
   form.append("photo", new Blob([buf], { type: "image/png" }), "flow.png");
   let r = await fetch("https://api.telegram.org/bot" + tgToken() + "/sendPhoto", { method: "POST", body: form });
@@ -163,7 +166,7 @@ async function sendPhoto(buf, caption) {
 }
 async function sendDocument(buf, name, replyTo) {
   const form = new FormData();
-  form.append("chat_id", clean(process.env.TG_CHAT_ID));
+  form.append("chat_id", chatId());
   form.append("document", new Blob([buf], { type: "image/png" }), name);
   form.append("disable_content_type_detection", "true");
   if (replyTo) form.append("reply_to_message_id", String(replyTo));
@@ -201,14 +204,14 @@ async function sendText(text) {
   for (const ln of lines) { if ((cur + "\n" + ln).length > 3900) { chunks.push(cur); cur = ln; } else cur = cur ? cur + "\n" + ln : ln; }
   if (cur) chunks.push(cur);
   for (const c of chunks) {
-    const r = await fetch("https://api.telegram.org/bot" + tgToken() + "/sendMessage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: clean(process.env.TG_CHAT_ID), text: c, disable_web_page_preview: true }) });
+    const r = await fetch("https://api.telegram.org/bot" + tgToken() + "/sendMessage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: chatId(), text: c, disable_web_page_preview: true }) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !j.ok) throw new Error("텍스트 전송 실패 " + r.status + " " + (j.description || ""));
   }
 }
 /* 카드 사진에 답장으로 붙는 패턴 상세 분석 글. 사진은 이미 갔으므로 실패해도 전체를 멈추지 않고 로그만 남김(429는 한 번 재시도) */
 async function sendDetail(text, replyTo) {
-  const body = { chat_id: clean(process.env.TG_CHAT_ID), text: String(text).slice(0, 4000), disable_web_page_preview: true };
+  const body = { chat_id: chatId(), text: String(text).slice(0, 4000), disable_web_page_preview: true };
   if (replyTo) body.reply_to_message_id = replyTo;
   for (let a = 0; a < 2; a++) {
     const r = await fetch("https://api.telegram.org/bot" + tgToken() + "/sendMessage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -438,7 +441,7 @@ async function main() {
     if (!ready) log("데이터 수집 중 — 이번엔 차트 사진을 보내지 않음(다음 실행이 이어받음)");
     else if (dry) log("dry 모드 — 차트 사진 전송 생략");
     else {
-      stage(64, "텔레그램으로 차트 사진 보내는 중");
+      cur = "report"; stage(64, "텔레그램으로 차트 사진 보내는 중");
       const mid = await sendPhoto(png, "📈 흐름차트 · " + frame + " · " + ({ "4h": "4시간", "1h": "1시간", "8h": "8시간", "15m": "15분", "30m": "30분", "3m": "3분" }[iv] || iv) + "봉 · " + (lead || alt ? "" : "코인 제외 · ") + kstText());
       log("사진 전송", mid); stage(72, "차트 사진 전송 완료");
       { const s2 = loadState(); s2.lastFlow = Date.now(); saveState(s2); }
@@ -453,8 +456,8 @@ async function main() {
     }
     /* 사진 직후 바로: 순위 텍스트 · 종목 카드 (설정 페이지의 토글) */
     if (!ONLY.size) {
-      try { await runExtras({ cfg0, q, dry, base }); } catch (e) { log("추가 기능 오류:", String((e && e.message) || e)); }
-      try { await runReport({ cfg0, q, dry }); } catch (e) { log("하이퍼 리포트 오류:", String((e && e.message) || e)); }
+      cur = "main"; try { await runExtras({ cfg0, q, dry, base }); } catch (e) { log("추가 기능 오류:", String((e && e.message) || e)); }
+      cur = "report"; try { await runReport({ cfg0, q, dry }); } catch (e) { log("하이퍼 리포트 오류:", String((e && e.message) || e)); }
     }
   } finally {
     try { if (browser) await browser.close(); } catch (e) {}
