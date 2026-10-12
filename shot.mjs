@@ -5,6 +5,7 @@
    - 캔들 저장본은 .cache/store.json (GitHub 캐시로 실행 간 이어받음) + Supabase 백업(1시간 간격)
    환경변수: TG_BOT_TOKEN, TG_CHAT_ID (GitHub Secrets), 선택: SHOT_DRY=1(전송 안 함), SHOT_OVERRIDES="res=pc&vz=200", CHROME_PATH */
 import puppeteer from "puppeteer-core";
+import * as CL from "./cardlock.mjs";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -311,7 +312,7 @@ async function runExtras({ cfg0, q, dry, base }) {
   if (!wantW && !wantS && !wantP && !cards.length && !autoCards) return;
   const st = loadState(), now = Date.now(), force = q.force === "1";
   const dueRank = (wantW || wantS) && (force || due(st.lastRank, +cfg0.rankEvery || 0));
-  const dueCards = (cards.length || autoCards) && (force || due(st.lastCards, cfg0.cardEvery != null ? +cfg0.cardEvery : 0));
+  const dueCards = (cards.length || autoCards) && (force || due(st.lastCards, cfg0.cardEvery != null ? Math.min(240, +cfg0.cardEvery) : 0));
   const dueP = wantP && (force || due(st.lastPat, cfg0.rankPatEvery != null ? +cfg0.rankPatEvery : 60));
   if (!dueRank && !dueCards && !dueP) { log("추가 기능: 아직 보낼 주기가 아님"); return; }
   const info = loadSiteInfo(SITE), uni = await getUni(), fx = await getFx();
@@ -341,7 +342,9 @@ async function runExtras({ cfg0, q, dry, base }) {
     try {
       const page = await browser.newPage();
       let n = 0, lastSent = 0;
+      if (!dry) await CL.acquire("stock", log);   /* 코인 카드가 보내는 중이면 끝날 때까지(+45초) 기다림 — 두 카드가 번갈아 오지 않게 */
       for (const t of cards) {
+        if (!dry) await CL.renew("stock");
         stage(88 + Math.round(10 * n / Math.max(1, cards.length)), "종목 카드 " + (n + 1) + "/" + cards.length + " 만드는 중 · " + t);
         const row = pickRow(uni, t, info);
         if (!row) { log("카드 종목 없음:", t); continue; }
@@ -354,7 +357,7 @@ async function runExtras({ cfg0, q, dry, base }) {
         n++;
       }
       log("종목 카드", n + "장", dry ? "(dry — 파일 저장)" : "전송");
-    } finally { await browser.close(); flushCardCache(CACHE); }
+    } finally { if (!dry) await CL.release("stock"); await browser.close(); flushCardCache(CACHE); }
     st.lastCards = now;
   }
   saveState(st);

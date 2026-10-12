@@ -10,7 +10,7 @@
   else root.CardPick = factory();
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
-  var EVERY = [30, 60, 120, 240, 1440], MAXS = [5, 10, 15, 20, 30], NS = [3, 5, 10, 15, 20, 30], MINE = [0, 1, 3, 10, 30, 100, 300, 1000], MCTOP = [0, 50, 100, 150];
+  var EVERY = [5, 10, 15, 30, 60, 240],   /* 카드 보내는 주기(분) — 주식 카드와 같은 6단계 */ MAXS = [5, 10, 15, 20, 30], NS = [3, 5, 10, 15, 20, 30], MINE = [0, 1, 3, 10, 30, 100, 300, 1000], MCTOP = [0, 50, 100, 150];
   var IVS = ["auto", "1h", "2h", "4h", "8h", "1d"], DAYS = [0, 5, 10, 15, 20, 30, 60, 90, 120], THEMES = ["fuchsia", "lime", "same"];
   var BY_LABEL = { eok: "거래대금", mc: "시가총액", chg: "등락률 24시간", ret7: "등락률 7일" };
   var BY_SHORT = { eok: "거래대금", mc: "시총", chg: "24h 등락", ret7: "7일 등락" };
@@ -55,7 +55,7 @@
     var r = obj(raw), ch = obj(r.chart), kd = KINDS[kindOf(kind)];
     return {
       on: r.on === true,   /* 기본은 꺼짐 — 켜야 보냄 */
-      every: pk(EVERY, r.every, 60), max: pk(MAXS, r.max, kd.max),
+      every: pk(EVERY, (+r.every > 240 ? 240 : +r.every === 120 ? 60 : r.every), 60),   /* 예전 값(2시간·하루)은 가까운 단계로 */ max: pk(MAXS, r.max, kd.max),
       auto: normAuto(r.auto, kind), filter: normFilter(r.filter, kind),
       picks: tickers(r.picks, MAX_PICKS), exclude: tickers(r.exclude, MAX_EXCL),
       chart: { iv: oneOf(IVS, ch.iv, "auto"), days: pk(DAYS, ch.days, 0), theme: oneOf(THEMES, ch.theme, "fuchsia") }
