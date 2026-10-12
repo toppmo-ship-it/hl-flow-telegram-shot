@@ -19,6 +19,7 @@ import { createKit, resKeyOf } from "./kit.mjs";
 import { sbGet as sbGetRaw, sbPut, sbUpdate } from "./sb.mjs";
 import { makeAlerts } from "./chatalert.mjs";
 import { getMcap } from "./mcap.mjs";
+import { CP, selectStockCards } from "./stocklist.mjs";
 import { normCoinCfg, EVERY as C_EVERY, TOPS as C_TOPS, ROWS as C_ROWS, COIN_KINDS } from "./coincfg.mjs";
 import { norm, secName, parseCommand, parseRequest, parseEvery, snapEvery, everyKo, buildIndex, resolveSectors, IV_KO, MAX_CARDS, MAX_TABLE } from "./chatparse.mjs";
 import * as F from "./chatfmt.mjs";
@@ -173,7 +174,9 @@ async function doReport() {
 }
 /* 설정해 둔 카드 종목 전부 */
 async function doCards() {
-  const cfg = await cfgGet(), list = (Array.isArray(cfg.cards) ? cfg.cards : []).slice(0, MAXC);
+  const cfg = await cfgGet(), K = CP.fromStockCfg(cfg);
+  let rows = null; if (K.auto.on) { const sl = await sbGet("tg_stock_list"); rows = sl && Array.isArray(sl.rows) ? sl.rows : null; }   /* 자동 상위는 설정 사이트가 읽는 주식 목록으로 계산 */
+  const list = selectStockCards(cfg, rows).slice(0, MAXC);
   if (!list.length) return say("🃏 설정한 카드 종목이 없어요.\n<code>카드추가 메타 애플</code> 로 넣거나, 그냥 <code>메타</code> 처럼 이름을 쓰세요");
   const iv = String(cfg.cardIv || "4h"), days = iv === "1d" ? await dailyBars(cfg) : Math.min(150, Math.max(3, +cfg.cardDays || 60));
   await sendCards(list, iv, days, cfg, { buttons: true });
@@ -362,8 +365,8 @@ async function doEvery(target, value) {
     if (target === "report") { if (value === "off") c.rep = false; else if (value === "on") c.rep = true; else { c.rep = true; c.repEvery = snapEvery(value); } return c.rep === false ? "끔" : everyKo(c.repEvery != null ? +c.repEvery : 15) + "마다"; }
     if (target === "flow") { if (value === "off") { c.flowEvery = 1440; return "하루 1번 (가격흐름은 끌 수 없어서 가장 드물게)"; } if (value === "on") { c.flowEvery = 0; return "매번(5분)"; } c.flowEvery = snapEvery(value); return everyKo(c.flowEvery) + "마다"; }
     if (target === "cards") {
-      if (value === "off") { if (Array.isArray(c.cards) && c.cards.length) { backup = c.cards.slice(); c.cards = []; } return "끔 (카드 종목 " + (backup ? backup.length : 0) + "개는 보관해 뒀어요 — '카드 켜기'로 복구)"; }
-      if (value === "on") { if ((!c.cards || !c.cards.length) && backup && backup.length) c.cards = backup.slice(0, MAXC); return "켬 (카드 " + ((c.cards || []).length) + "장)"; }
+      if (value === "off") { c.cardOn = false; return "끔 (직접 고른 카드 종목 " + (Array.isArray(c.cards) ? c.cards.length : 0) + "개와 자동 상위 설정은 그대로 — '카드 켜기'로 다시 켜요)"; }
+      if (value === "on") { if ((!c.cards || !c.cards.length) && backup && backup.length) c.cards = backup.slice(0, MAXC); c.cardOn = true; return "켬 (직접 고른 카드 " + ((c.cards || []).length) + "장" + (c.cardAuto && c.cardAuto.on ? " + 자동 상위" : "") + ")"; }
       c.cardEvery = snapEvery(value); return everyKo(c.cardEvery) + "마다";
     }
     if (target === "rank") {
@@ -429,7 +432,7 @@ async function doSetting(cmd, arg) {
 /* 카드 종목 추가/삭제/목록 */
 async function doCardList(cmd, arg) {
   await loadCtx();
-  if (cmd === "cardList") { const c = await cfgGet(), l = Array.isArray(c.cards) ? c.cards : []; return say("🃏 <b>카드 종목 " + l.length + "장</b>\n" + (l.length ? l.map((t, i) => (i + 1) + ". " + F.esc(t)).join("\n") : "— 없음 —") + "\n\n<i>카드추가 메타 애플 · 카드삭제 메타 · 카드초기화</i>"); }
+  if (cmd === "cardList") { const c = await cfgGet(), l = Array.isArray(c.cards) ? c.cards : []; return say("🃏 <b>카드 종목 " + l.length + "장</b>" + (CP.fromStockCfg(c).on ? "" : " · <b>꺼짐</b>") + (c.cardAuto && c.cardAuto.on ? " · ⚡자동 상위 " + c.cardAuto.n + "개 켜짐(설정 사이트에서 확인)" : "") + "\n" + (l.length ? l.map((t, i) => (i + 1) + ". " + F.esc(t)).join("\n") : "— 없음 —") + "\n\n<i>카드추가 메타 애플 · 카드삭제 메타 · 카드초기화</i>"); }
   if (cmd === "cardClear") { await patchCfg((c) => { c.cards = []; }); return say("✅ 카드 종목을 모두 비웠어요 (설정 페이지에도 반영)"); }
   need(arg.length, cmd === "cardAdd" ? "예) <code>카드추가 메타 애플</code>" : "예) <code>카드삭제 메타</code>");
   const q = parseRequest(arg.join(" "), C.idx, C.info, C.themes); need(q.tickers.length, "'" + F.esc(arg.join(" ")) + "' 못 찾았어요");

@@ -173,7 +173,7 @@ async function main() {
               last = Object.assign({}, last, { rep: Date.now(), at: Date.now() }); if (manual) last.cmd = cmd.id;
               await W("tg_coin_last", last);
             }
-            const dueC = cfg.cards.on && !muted && (!last.card || Date.now() - last.card >= cfg.cards.every * 60000 - 90000);
+            const dueC = (DRY && process.env.COIN_FORCE_CARDS === "1") || (cfg.cards.on && !muted && (!last.card || Date.now() - last.card >= cfg.cards.every * 60000 - 90000));   /* COIN_FORCE_CARDS: 시험 모드에서만 주기 무시 */
             if (manualCards || dueC) {
               const nC = await sendCards(cfg.cards, shotCfg, listSnap, manualCards);
               log("코인 카드", nC + "장", manualCards ? "(수동 요청)" : "");

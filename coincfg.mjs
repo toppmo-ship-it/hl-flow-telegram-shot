@@ -2,9 +2,9 @@
 export const EVERY = [30, 60, 120, 240, 1440], TOPS = [50, 100, 150, 300], ROWS = [30, 50, 70, 100], HOTS = [50, 100, 200, 300];
 export const VOLM = [3, 5, 10], SURP = [2, 3, 5, 10], SURM = [30, 60], OIP = [5, 10, 20], MINE = [0, 1, 3, 10], FUNDA = [50, 100, 200, 300];
 import fs from "node:fs";
-/* 코인 종목 카드 설정·고르기는 설정 사이트와 같은 파일(site/coincards.js)을 씀 — 화면 미리보기와 실제 발송이 항상 같음.
+/* 코인 종목 카드 설정·고르기는 설정 사이트와 같은 파일(site/cardpick.js)을 씀 — 화면 미리보기와 실제 발송이 항상 같음.
    실행기 폴더는 ES 모듈이라 require 가 안 되므로 파일을 읽어 module 로 실행 */
-export const CC = (() => { const m = { exports: {} }; new Function("module", "exports", fs.readFileSync(new URL("./site/coincards.js", import.meta.url), "utf8"))(m, m.exports); return m.exports; })();
+export const CC = (() => { const m = { exports: {} }; new Function("module", "exports", fs.readFileSync(new URL("./site/cardpick.js", import.meta.url), "utf8"))(m, m.exports); return m.exports; })();
 const pick = (a, v, d) => (a.includes(+v) ? +v : d);
 export function normCoinCfg(raw) {
   const r = raw && typeof raw === "object" ? raw : {}, a = r.alerts && typeof r.alerts === "object" ? r.alerts : {}, k = (n) => (a[n] && typeof a[n] === "object" ? a[n] : {}), on = (n, d) => (k(n).on != null ? !!k(n).on : d);

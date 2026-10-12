@@ -14,6 +14,7 @@ import { loadSiteInfo, loadUniverse, usdKrw, buildWeeklyTexts, buildSurgeText, p
 import { buildReport } from "./report.mjs";
 import { sbPut } from "./sb.mjs";
 import { getMcap } from "./mcap.mjs";
+import { CP, buildStockRows, selectStockCards } from "./stocklist.mjs";
 const ONLY = new Set(String(process.env.SHOT_ONLY || "").split(",").filter(Boolean));   /* 챗봇이 '흐름'만 따로 보낼 때: SHOT_ONLY=flow (설정 주기·지금보내기·진행상황 기록은 건드리지 않음) */
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -225,6 +226,25 @@ async function sendDetail(text, replyTo) {
 let _uni = null, _fx = null;   /* 같은 실행 안에서 유니버스·환율은 한 번만 받음 */
 const getUni = async () => _uni || (_uni = await loadUniverse(log));
 const getFx = async () => _fx || (_fx = await usdKrw(log));
+/* ── 주식 종목 목록(시총·거래대금·24h 등락·분야): 설정 사이트가 '종목 카드 고르기'에 쓰고, 자동 상위 카드도 이 데이터로 뽑음 ── */
+let _srows = null;
+async function stockRows() {
+  if (_srows) return _srows;
+  const info = loadSiteInfo(SITE), uni = await getUni(), fx = await getFx();
+  const mcap = await getMcap({ info, uni, log }).catch(() => ({}));
+  const cl = await sbRead("tg_coin_list").catch(() => null);   /* 메인 거래소 코인(BTC·ETH 등)은 코인 목록에서 채움 */
+  _srows = buildStockRows({ uni, info, fx, mcap, coinRows: cl && cl.rows });
+  return _srows;
+}
+async function refreshStockList(dry) {
+  const sd = loadState();
+  if (Date.now() - (+sd.lastStockList || 0) < 9 * 60e3) return;
+  const rows = await stockRows();
+  if (!rows.length) return;
+  if (!dry) await sbPut("tg_stock_list", { at: Date.now(), fx: await getFx(), rows });
+  const s2 = loadState(); s2.lastStockList = Date.now(); saveState(s2);
+  log("주식 목록 스냅샷", rows.length + "종목" + (dry ? " (dry — 저장 생략)" : " 저장"));
+}
 
 /* ── 하이퍼 리포트(사진): 탬퍼몽키 3분 리포트와 같은 구성. 데이터·섹션은 report.mjs, 그리기는 rep-render.js ── */
 const REP_W = { fcover: 1360, fwide: 2184, pcxl: 3200 };   /* 해상도 3종 → 리포트 가로 픽셀(세로는 내용만큼) */
@@ -281,18 +301,22 @@ async function tgDiag() {
 }
 
 async function runExtras({ cfg0, q, dry, base }) {
-  const flag = (qv, cv) => (qv != null ? qv === "1" : !!cv);
-  const wantW = flag(q.rankw, cfg0.rankWeekly), wantS = flag(q.ranks, cfg0.rankSurge);
-  const cards = (q.cards != null ? String(q.cards).split(",") : (Array.isArray(cfg0.cards) ? cfg0.cards : [])).map((x) => x.replace(/[^0-9A-Za-z]/g, "")).filter(Boolean).slice(0, 30);   /* 텔레그램 그룹 분당 20건 제한은 아래 발송 간격·429 재시도로 지킴 */
-  const wantP = flag(q.rankp, cfg0.rankPattern !== false);   /* 패턴 확률 순위(별도 메시지) — 기본 켬 */
-  if (!wantW && !wantS && !wantP && !cards.length) return;
+  const flag = (qv, cv) => (qv != null ? qv === "1" : !!cv), only = q._only || null;   /* only = 설정 페이지·챗봇의 항목별 '지금 보내기' */
+  const wantW = only ? (only.has("rank") && !!cfg0.rankWeekly) : flag(q.rankw, cfg0.rankWeekly), wantS = only ? (only.has("rank") && !!cfg0.rankSurge) : flag(q.ranks, cfg0.rankSurge);
+  const K = CP.fromStockCfg(cfg0), manualCards = q.cards != null, cardsOn = only ? only.has("cards") : K.on;   /* 항목별 '지금 보내기'는 켜짐 여부와 상관없이 보냄 */
+  const cleanT = (a) => a.map((x) => String(x).replace(/[^0-9A-Za-z]/g, "")).filter(Boolean).slice(0, 30);
+  let cards = manualCards ? cleanT(String(q.cards).split(",")) : (cardsOn ? cleanT(selectStockCards(cfg0, null)) : []);   /* 직접 고른 종목 — 자동 상위는 데이터를 받은 뒤 아래에서 더함 */
+  const autoCards = !manualCards && cardsOn && K.auto.on;   /* 텔레그램 그룹 분당 20건 제한은 아래 발송 간격·429 재시도로 지킴 */
+  const wantP = only ? (only.has("rank") && cfg0.rankPattern !== false) : flag(q.rankp, cfg0.rankPattern !== false);   /* 패턴 확률 순위(별도 메시지) — 기본 켬 */
+  if (!wantW && !wantS && !wantP && !cards.length && !autoCards) return;
   const st = loadState(), now = Date.now(), force = q.force === "1";
   const dueRank = (wantW || wantS) && (force || due(st.lastRank, +cfg0.rankEvery || 0));
-  const dueCards = cards.length && (force || due(st.lastCards, cfg0.cardEvery != null ? +cfg0.cardEvery : 0));
+  const dueCards = (cards.length || autoCards) && (force || due(st.lastCards, cfg0.cardEvery != null ? +cfg0.cardEvery : 0));
   const dueP = wantP && (force || due(st.lastPat, cfg0.rankPatEvery != null ? +cfg0.rankPatEvery : 60));
   if (!dueRank && !dueCards && !dueP) { log("추가 기능: 아직 보낼 주기가 아님"); return; }
   const info = loadSiteInfo(SITE), uni = await getUni(), fx = await getFx();
   log("추가 기능 시작 — HIP-3 " + uni.length + "종목, 환율 " + fx.toFixed(1));
+  if (dueCards && autoCards) { cards = cleanT(selectStockCards(cfg0, await stockRows())); log("종목 카드 목록(직접 " + K.picks.length + " + 자동 상위, 제외 " + K.exclude.length + "):", cards.join(",")); }
   if (dueP) {
     stage(73, "패턴 확률 순위 계산 중 (종목 스캔)");
     const tx = await buildPatternRankText({ uni, info, log, cacheDir: CACHE, tf0: String(cfg0.cardIv || "4h"), scanN: 50 });
@@ -356,7 +380,7 @@ async function main() {
   }
   const q = Object.fromEntries(new URLSearchParams(process.env.SHOT_OVERRIDES || ""));   /* 수동 실행 시 한 번만 덮어쓰기: 예) res=pc&vz=200 */
   stage(3, "설정 읽는 중");
-  const cfg0 = Object.assign({}, DEF_CFG, (await sbRead(CFG_KEY)) || {});
+  const cfg0 = Object.assign({}, DEF_CFG, (await sbRead(CFG_KEY)) || {}, process.env.SHOT_CFG_JSON ? JSON.parse(process.env.SHOT_CFG_JSON) : {});   /* SHOT_CFG_JSON: 시험용 설정 덮어쓰기 */
   /* 설정 페이지의 「지금 보내기」: 새 요청이면 설정된 사진을 전부 바로 보냄(주기 무시). 처리하면 그 시각부터 모든 주기를 새로 시작 */
   const sendCmd = process.env.SHOT_CMD ? JSON.parse(process.env.SHOT_CMD) : await sbRead("tg_shot_cmd");
   const manual = !ONLY.size && !!(sendCmd && sendCmd.id && sendCmd.id !== loadState().lastCmd);
@@ -364,8 +388,10 @@ async function main() {
   /* 챗봇의 「조용히」: 정해진 시각까지는 주기 발송을 쉼('지금 보내기'는 예외) */
   if (!ONLY.size && !manual) { const mute = await sbRead("tg_bot_mute"); if (mute && +mute.until > Date.now()) { log("🔕 조용히 모드 — " + new Date(+mute.until + 9 * 3600e3).toISOString().slice(5, 16).replace("T", " ") + " KST 까지 발송을 쉽니다"); ST.state = "done"; ST.pct = 100; ST.label = "조용히 모드"; ST.done = Date.now(); await stFlush(true); return; } }
   if (manual) { q.force = "1"; const s0 = loadState(); s0.lastCmd = sendCmd.id; saveState(s0); log("📤 「지금 보내기」 요청 — 설정된 사진을 모두 바로 보냅니다 (" + (sendCmd.at || "") + ")"); }
+  const onlyCmd = manual && Array.isArray(sendCmd.only) && sendCmd.only.length ? new Set(sendCmd.only.map(String)) : null;   /* 항목별 지금 보내기: ["cards"|"flow"|"rep"|"rank"] */
+  if (onlyCmd) { q._only = onlyCmd; q.rep = onlyCmd.has("rep") ? "1" : "0"; log("📤 항목별 「지금 보내기」:", [...onlyCmd].join(",")); }
   { const sd = loadState(); if (!dry && !ONLY.size && !sd.diag1) { try { const r = await tgDiag(); log("텔레그램 방 진단", JSON.stringify({ chat: r.chat && r.chat.type, bot_read_all: r.bot && r.bot.can_read_all_group_messages, member: r.member && r.member.status, webhook: r.webhook && r.webhook.url_set })); } catch (e) { log("진단 오류", String(e && e.message || e)); } sd.diag1 = Date.now(); saveState(sd); } }
-  const wantFlow = ONLY.size ? ONLY.has("flow") : (q.force === "1" || due(loadState().lastFlow, cfg0.flowEvery != null ? +cfg0.flowEvery : 0));   /* 가격흐름 사진 보내는 주기(0 = 매번 5분) */
+  const wantFlow = ONLY.size ? ONLY.has("flow") : (onlyCmd ? onlyCmd.has("flow") : (cfg0.flowOn !== false && (q.force === "1" || due(loadState().lastFlow, cfg0.flowEvery != null ? +cfg0.flowEvery : 0))));   /* flowOn=false 면 가격흐름 사진을 안 보냄 */   /* 가격흐름 사진 보내는 주기(0 = 매번 5분) */
   const list = (v, def) => (v == null ? def : String(v).split(",").map((x) => x.replace(/[^0-9a-z]/g, "")).filter(Boolean));
   const frame = String(q.frame || cfg0.frame).replace(/[^0-9A-Za-z]/g, ""), iv = String(q.iv || cfg0.iv).replace(/[^0-9a-z]/g, "");
   const vol = list(q.vol, cfg0.vol), kel = list(q.kel, cfg0.kel);
@@ -456,6 +482,7 @@ async function main() {
     }
     /* 사진 직후 바로: 순위 텍스트 · 종목 카드 (설정 페이지의 토글) */
     if (!ONLY.size) {
+      try { await refreshStockList(dry); } catch (e) { log("주식 목록 오류:", String((e && e.message) || e)); }
       cur = "main"; try { await runExtras({ cfg0, q, dry, base }); } catch (e) { log("추가 기능 오류:", String((e && e.message) || e)); }
       cur = "report"; try { await runReport({ cfg0, q, dry }); } catch (e) { log("하이퍼 리포트 오류:", String((e && e.message) || e)); }
     }
@@ -465,8 +492,10 @@ async function main() {
   }
   if (manual) {   /* 누른 시각을 새 기준으로: 모든 주기가 그 시각부터 다시 시작, 5분 격자도 그 시각에 맞춤 */
     const T = Date.parse(sendCmd.at) || T0, s = loadState();
-    Object.assign(s, { lastFlow: T, lastCards: T, lastRep: T, lastRank: T, lastPat: T }); saveState(s);
-    try { fs.mkdirSync(CACHE, { recursive: true }); fs.writeFileSync(path.join(CACHE, "anchor.json"), JSON.stringify({ t: T })); } catch (e) {}
+    if (onlyCmd) { const K2 = { flow: ["lastFlow"], cards: ["lastCards"], rep: ["lastRep"], rank: ["lastRank", "lastPat"] }; onlyCmd.forEach((k) => (K2[k] || []).forEach((f) => { s[f] = T; })); }   /* 항목별: 보낸 것만 그 시각부터 다시 시작 */
+    else Object.assign(s, { lastFlow: T, lastCards: T, lastRep: T, lastRank: T, lastPat: T });
+    saveState(s);
+    if (!onlyCmd || onlyCmd.has("flow")) { try { fs.mkdirSync(CACHE, { recursive: true }); fs.writeFileSync(path.join(CACHE, "anchor.json"), JSON.stringify({ t: T })); } catch (e) {} }
     log("주기 기준을 " + new Date(T + 9 * 3600e3).toISOString().slice(11, 19) + " KST 로 새로 시작");
   }
   if (!ONLY.size && !dry) { const sl = loadState(); await sbPut("tg_shot_last", { at: Date.now(), flow: sl.lastFlow || 0, cards: sl.lastCards || 0, rep: sl.lastRep || 0, rank: sl.lastRank || 0, pat: sl.lastPat || 0, run: ST.run }); }   /* 챗봇 '상태' 명령이 읽음 */

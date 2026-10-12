@@ -95,7 +95,7 @@ export async function loadUniverse(log) {
   await pool(names, 3, async (dx) => {
     const r = await hl({ type: "metaAndAssetCtxs", dex: dx }, log);
     if (!r) return;
-    r[0].universe.forEach((u, i) => { const c = r[1][i] || {}; rows.push({ dex: dx, full: u.name, short: u.name.includes(":") ? u.name.split(":")[1] : u.name, dayNtl: +c.dayNtlVlm || 0, px: +c.markPx || +c.midPx || 0 }); });
+    r[0].universe.forEach((u, i) => { const c = r[1][i] || {}; rows.push({ dex: dx, full: u.name, short: u.name.includes(":") ? u.name.split(":")[1] : u.name, dayNtl: +c.dayNtlVlm || 0, px: +c.markPx || +c.midPx || 0, prev: +c.prevDayPx || 0 }); });
   });
   const cnt = {}; rows.forEach((r) => { cnt[r.short] = (cnt[r.short] || 0) + 1; });
   DUP = new Set(Object.keys(cnt).filter((k) => cnt[k] > 1));   /* 여러 거래소에 같은 티커가 있는 경우(예: SNDK) — 이름표에서 구분용으로만 거래소를 붙임 */
