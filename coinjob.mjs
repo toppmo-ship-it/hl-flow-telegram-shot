@@ -126,7 +126,7 @@ async function sendCards(cc, shotCfg, rows, manual) {
   let n = 0, lastSent = 0;
   if (!DRY) await CL.acquire("coin", log);   /* 주식 카드가 보내는 중이면 끝날 때까지(+45초) 기다림 — 두 카드가 번갈아 오지 않게 */
   try {
-  for (const it of list) {
+  for (const it of list.slice().reverse()) {   /* 텔레그램은 아래가 최신 — 1번 코인이 맨 아래에 오도록 거꾸로 보냄 */
     if (!DRY) await CL.renew("coin");
     const r = it.row, row = { full: it.t, short: it.t, dex: "코인", ko: (r && r.n) || "", cat: (r && r.c) || "", theme: cc.chart.theme };
     try {

@@ -343,7 +343,7 @@ async function runExtras({ cfg0, q, dry, base }) {
       const page = await browser.newPage();
       let n = 0, lastSent = 0;
       if (!dry) await CL.acquire("stock", log);   /* 코인 카드가 보내는 중이면 끝날 때까지(+45초) 기다림 — 두 카드가 번갈아 오지 않게 */
-      for (const t of cards) {
+      for (const t of (manualCards ? cards : cards.slice().reverse())) {   /* 텔레그램은 아래가 최신 — 1번 종목이 맨 아래에 오도록 거꾸로 보냄 */
         if (!dry) await CL.renew("stock");
         stage(88 + Math.round(10 * n / Math.max(1, cards.length)), "종목 카드 " + (n + 1) + "/" + cards.length + " 만드는 중 · " + t);
         const row = pickRow(uni, t, info);

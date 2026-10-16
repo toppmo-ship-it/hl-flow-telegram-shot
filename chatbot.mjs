@@ -175,11 +175,11 @@ async function doReport() {
 /* 설정해 둔 카드 종목 전부 */
 async function doCards() {
   const cfg = await cfgGet(), K = CP.fromStockCfg(cfg);
-  let rows = null; if (K.auto.on) { const sl = await sbGet("tg_stock_list"); rows = sl && Array.isArray(sl.rows) ? sl.rows : null; }   /* 자동 상위는 설정 사이트가 읽는 주식 목록으로 계산 */
+  let rows = null; if (K.auto.on || K.sort !== false) { const sl = await sbGet("tg_stock_list"); rows = sl && Array.isArray(sl.rows) ? sl.rows : null; }   /* 자동 상위는 설정 사이트가 읽는 주식 목록으로 계산 */
   const list = selectStockCards(cfg, rows).slice(0, MAXC);
   if (!list.length) return say("🃏 설정한 카드 종목이 없어요.\n<code>카드추가 메타 애플</code> 로 넣거나, 그냥 <code>메타</code> 처럼 이름을 쓰세요");
   const iv = String(cfg.cardIv || "4h"), days = iv === "1d" ? await dailyBars(cfg) : Math.min(150, Math.max(3, +cfg.cardDays || 60));
-  await sendCards(list, iv, days, cfg, { buttons: true });
+  await sendCards(list.slice().reverse(), iv, days, cfg, { buttons: true });   /* 텔레그램은 아래가 최신 — 1번이 맨 아래 */
 }
 /* 순위 글 */
 async function doRank() {
