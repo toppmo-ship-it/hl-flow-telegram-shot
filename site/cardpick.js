@@ -22,6 +22,9 @@
   var MAJORS = ["BTC", "ETH", "SOL", "XRP", "BNB", "HYPE"];   /* 코인 '대장주급' */
   var COIN_CATS = ["대장", "L1", "L2·확장", "디파이", "파생·DEX", "스테이킹", "밈", "AI", "프라이버시", "인프라", "게임·NFT", "RWA·스테이블", "BTC계열", "플랫폼", "기타"];
   var MAX_PICKS = 30, MAX_EXCL = 200;
+  /* 코인은 코인 카드에서만 다룸 — 주식 카드의 저장된 선택·제외에서 걸러냄(예전 설정에 남아 있어도 무시) */
+  var STOCK_COIN_OUT = ["BTC", "ETH", "HYPE", "ZEC", "KNTQ", "SOL", "XRP", "DOGE", "BNB", "ADA", "LINK", "AVAX", "SUI", "XLM", "PONS"];
+  function noCoin(a) { return a.filter(function (t) { return STOCK_COIN_OUT.indexOf(t) < 0; }); }
 
   function pk(a, v, d) { v = +v; return a.indexOf(v) >= 0 ? v : d; }
   function oneOf(a, v, d) { return a.indexOf(v) >= 0 ? v : d; }
@@ -58,6 +61,7 @@
       every: pk(EVERY, (+r.every > 240 ? 240 : +r.every === 120 ? 60 : r.every), 60),   /* 예전 값(2시간·하루)은 가까운 단계로 */ max: pk(MAXS, r.max, kd.max),
       auto: normAuto(r.auto, kind), filter: normFilter(r.filter, kind),
       picks: tickers(r.picks, MAX_PICKS), exclude: tickers(r.exclude, MAX_EXCL),
+      sort: r.sort !== false,   /* 자동정렬(기본 켬) — 끄면 내가 정한 순서 그대로 */
       chart: { iv: oneOf(IVS, ch.iv, "auto"), days: pk(DAYS, ch.days, 0), theme: oneOf(THEMES, ch.theme, "fuchsia") }
     };
   }
@@ -67,16 +71,16 @@
   function stockOn(cfg) { cfg = obj(cfg); return cfg.cardOn != null ? !!cfg.cardOn : tickers(cfg.cards, MAX_PICKS).length > 0; }
   function stockExtras(v) {   /* 설정 페이지 mapRemote 용: 새 키만 정규화해서 돌려줌 */
     v = obj(v);
-    return { cardOn: v.cardOn != null ? !!v.cardOn : null, cardMax: pk(MAXS, v.cardMax, KINDS.stock.max), cardAuto: normAuto(v.cardAuto, "stock"), cardFilter: normFilter(v.cardFilter, "stock"), cardExclude: tickers(v.cardExclude, MAX_EXCL) };
+    return { cardOn: v.cardOn != null ? !!v.cardOn : null, cardMax: pk(MAXS, v.cardMax, KINDS.stock.max), cardAuto: normAuto(v.cardAuto, "stock"), cardFilter: normFilter(v.cardFilter, "stock"), cardExclude: noCoin(tickers(v.cardExclude, MAX_EXCL)), cardSort: v.cardSort !== false };
   }
   function fromStockCfg(cfg) {
     cfg = obj(cfg);
     var x = stockExtras(cfg);
-    return { on: stockOn(cfg), every: 0, max: x.cardMax, auto: x.cardAuto, filter: x.cardFilter, picks: tickers(cfg.cards, MAX_PICKS), exclude: x.cardExclude,
+    return { on: stockOn(cfg), every: 0, max: x.cardMax, auto: x.cardAuto, filter: x.cardFilter, picks: noCoin(tickers(cfg.cards, MAX_PICKS)), exclude: x.cardExclude, sort: x.cardSort,
       chart: { iv: "auto", days: 0, theme: "same" } };
   }
   function applyToStockCfg(cfg, K) {   /* K 를 평평한 키로 되돌려 씀 (cfg 를 직접 고침) */
-    cfg.cards = K.picks.slice(0, MAX_PICKS); cfg.cardOn = !!K.on; cfg.cardMax = K.max; cfg.cardAuto = K.auto; cfg.cardFilter = K.filter; cfg.cardExclude = K.exclude.slice(0, MAX_EXCL);
+    cfg.cards = K.picks.slice(0, MAX_PICKS); cfg.cardOn = !!K.on; cfg.cardMax = K.max; cfg.cardAuto = K.auto; cfg.cardFilter = K.filter; cfg.cardExclude = K.exclude.slice(0, MAX_EXCL); cfg.cardSort = K.sort !== false;
     return cfg;
   }
 
@@ -98,6 +102,36 @@
     if (f.cats && f.cats.length && f.cats.indexOf(row.c || "기타") < 0) return false;
     return true;
   }
+  /* ── 자동정렬 순서 ──
+     코인: 24h 거래대금 큰 순(같거나 없으면 시총 큰 순).
+     주식: ① 📊 지수(10Y 제외, 목록 순서) → ② 🛢 원자재(목록 순서) → ③ 10Y → ④ 나머지는 섹터별로 묶고, 섹터는 '섹터 전체 종목의 거래대금 합'이 큰 순,
+     섹터 안에서는 거래대금 큰 순. 목록에 없는 종목은 맨 뒤. */
+  function num(v) { return typeof v === "number" && isFinite(v) ? v : null; }
+  function byVol(a, b) { var x = num(a.e), y = num(b.e); if (x == null && y == null) return (num(b.m) || 0) - (num(a.m) || 0); if (x == null) return 1; if (y == null) return -1; return y - x || (num(b.m) || 0) - (num(a.m) || 0); }
+  function autoOrder(out, all, kind) {
+    if (kindOf(kind) === "coin") {
+      return out.map(function (x, i) { return { x: x, i: i }; }).sort(function (a, b) { return byVol(a.x.row || {}, b.x.row || {}) || a.i - b.i; }).map(function (o) { return o.x; });
+    }
+    var idx = {}, sum = {}, first = {};
+    all.forEach(function (r, i) { idx[r.t] = i; var c = r.c || ""; if (first[c] == null) first[c] = i; sum[c] = (sum[c] || 0) + (num(r.e) || 0); });
+    function tier(x) {
+      var r = x.row; if (!r) return 4;
+      if (x.t === "10Y") return 2;
+      if ((r.c || "").indexOf("지수") >= 0) return 0;
+      if ((r.c || "").indexOf("원자재") >= 0) return 1;
+      return 3;
+    }
+    return out.map(function (x, i) { return { x: x, i: i, t: tier(x) }; }).sort(function (a, b) {
+      if (a.t !== b.t) return a.t - b.t;
+      if (a.t === 0 || a.t === 1) return (idx[a.x.t] || 0) - (idx[b.x.t] || 0);
+      if (a.t === 3) {
+        var ca = a.x.row.c || "", cb = b.x.row.c || "";
+        if (ca !== cb) return (sum[cb] || 0) - (sum[ca] || 0) || first[ca] - first[cb];
+        return byVol(a.x.row, b.x.row) || a.i - b.i;
+      }
+      return a.i - b.i;
+    }).map(function (o) { return o.x; });
+  }
   /* 이번에 보낼 종목: 직접 고른 것(순서대로) 먼저 + 자동 상위(필터 통과·제외 빼고) → 최대 max 장. 반환 [{t, src:"pick"|"auto", row}]
      ※ 직접 고른 종목은 목록에 없어도·필터에 걸려도 항상 포함(누락 없음). max 를 넘는 직접 선택은 뒤에서 잘리지만 over 로 알려줌 */
   function pick(rows, cfg, kind) {
@@ -116,7 +150,7 @@
         seen[r.t] = 1; out.push({ t: r.t, src: "auto", row: r }); cnt++;
       }
     }
-    return out;
+    return c.sort ? autoOrder(out, all, kind) : out;
   }
   /* 직접 고른 것 중 max 를 넘어 못 보내는 종목(칩에 점선으로 알려줌) */
   function overflow(cfg, kind) { var c = norm(cfg, kind); return c.picks.slice(c.max); }
@@ -135,6 +169,7 @@
     var keep = c.picks.filter(function (t) { return !inHead[t] && ord.indexOf(t) < 0; });   /* 화면에 안 보이던(max 초과) 직접 선택은 보존 */
     c.picks = head.concat(keep).slice(0, MAX_PICKS);
     c.exclude = c.exclude.filter(function (t) { return !inHead[t]; });
+    c.sort = false;   /* 끌어서 순서를 바꾸면 직접정렬로 바뀜 — 버튼으로 다시 자동정렬 */
     return c;
   }
   /* 칩 ✕: 직접 고른 건 목록에서 빼고, 자동으로 뽑힌 건 제외 목록에 넣음 */
@@ -165,5 +200,5 @@
   }
   return { EVERY: EVERY, MAXS: MAXS, NS: NS, MINE: MINE, MCTOP: MCTOP, IVS: IVS, DAYS: DAYS, THEMES: THEMES, KINDS: KINDS, BY_LABEL: BY_LABEL, BY_SHORT: BY_SHORT, MAJORS: MAJORS, COIN_CATS: COIN_CATS, MAX_PICKS: MAX_PICKS,
     canon: canon, norm: norm, normAuto: normAuto, normFilter: normFilter, fromStockCfg: fromStockCfg, applyToStockCfg: applyToStockCfg, stockExtras: stockExtras, stockOn: stockOn,
-    sortRows: sortRows, pick: pick, overflow: overflow, applyOrder: applyOrder, removeTicker: removeTicker, togglePick: togglePick, addMany: addMany, val: val };
+    sortRows: sortRows, autoOrder: autoOrder, STOCK_COIN_OUT: STOCK_COIN_OUT, pick: pick, overflow: overflow, applyOrder: applyOrder, removeTicker: removeTicker, togglePick: togglePick, addMany: addMany, val: val };
 });

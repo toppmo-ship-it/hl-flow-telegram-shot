@@ -307,7 +307,7 @@ async function runExtras({ cfg0, q, dry, base }) {
   const K = CP.fromStockCfg(cfg0), manualCards = q.cards != null, cardsOn = only ? only.has("cards") : K.on;   /* 항목별 '지금 보내기'는 켜짐 여부와 상관없이 보냄 */
   const cleanT = (a) => a.map((x) => String(x).replace(/[^0-9A-Za-z]/g, "")).filter(Boolean).slice(0, 30);
   let cards = manualCards ? cleanT(String(q.cards).split(",")) : (cardsOn ? cleanT(selectStockCards(cfg0, null)) : []);   /* 직접 고른 종목 — 자동 상위는 데이터를 받은 뒤 아래에서 더함 */
-  const autoCards = !manualCards && cardsOn && K.auto.on;   /* 텔레그램 그룹 분당 20건 제한은 아래 발송 간격·429 재시도로 지킴 */
+  const autoCards = !manualCards && cardsOn && (K.auto.on || K.sort !== false);   /* 자동정렬도 시세 목록(거래대금·분야)이 필요해서 같이 받음 */   /* 텔레그램 그룹 분당 20건 제한은 아래 발송 간격·429 재시도로 지킴 */
   const wantP = only ? (only.has("rank") && cfg0.rankPattern !== false) : flag(q.rankp, cfg0.rankPattern !== false);   /* 패턴 확률 순위(별도 메시지) — 기본 켬 */
   if (!wantW && !wantS && !wantP && !cards.length && !autoCards) return;
   const st = loadState(), now = Date.now(), force = q.force === "1";

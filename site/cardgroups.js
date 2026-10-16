@@ -10,7 +10,6 @@
     ["🏛 빅테크", [["META","META"],["MSFT","MSFT"],["SOFTBANK","소프트뱅크"],["AAPL","AAPL"],["NFLX","NFLX"],["AMZN","AMZN"],["GOOGL","GOOGL"]]],
     ["🚀 AI칩 대장 (GPU·CPU·설계)", [["NVDA","NVDA"],["ARM","ARM"],["AMD","AMD"],["INTC","INTC"]]],
     ["🧠 메모리 대장주", [["MU","MU"],["SMSN","삼성전자"],["SKHY","하이닉스ADR"],["SNDK","SNDK"],["SKHYNIX","SK하이닉스"]]],
-    ["🪙 코인", [["BTC","BTC"],["KNTQ","KNTQ"],["ETH","ETH"],["HYPE","HYPE"],["ZEC","ZEC"]]],
     ["🧲 코인관련주", [["HOOD","HOOD"],["STRC","STRC"],["IREN","IREN"],["COIN","COIN"],["CRCL","CRCL"],["PURRDAT","PURRDAT"],["MSTR","MSTR"],["KSTR","KSTR"],["BMNR","BMNR"]]],
     ["📦 ETF·레버리지", [["XLE","XLE"],["NCLD","NCLD"],["MAGS","MAGS"],["TLT","TLT"],["EWJ","EWJ"],["EWZ","EWZ"],["SMH","SMH"],["EWT","EWT"],["DRAM","DRAM"],["EWY","EWY"],["URNM","URNM"],["XBI","XBI"],["SOXL","SOXL"],["KORU","KORU"]]],
     ["💾 메모리 중소·해외", [["WDC","WDC"],["CXMT","CXMT"],["KIOXIA","키오시아"],["GIGADEV","GIGADEV"]]],
@@ -22,7 +21,6 @@
     ["🇨🇳 중국 AI·로봇", [["BOT","BOT"],["UNITREE","UNITREE"],["MINIMAX","MINIMAX"],["ZHIPU","ZHIPU"]]],
     ["🚗 전기차·우주·전력", [["TSLA","TSLA"],["RIVN","RIVN"],["RKLB","RKLB"],["BE","BE"],["GEV","GEV"],["SPCX","SPCX"],["USAR","USAR"]]],
     ["💊 바이오·헬스", [["MRNA","MRNA"],["LLY","LLY"],["HIMS","HIMS"]]],
-    ["🛒 소비·기타", [["GME","GME"],["SHEIN","SHEIN"],["BIRD","BIRD"],["COST","COST"],["EBAY","EBAY"],["BX","BX"],["RDDT","RDDT"],["HYUNDAI","현대차"],["DKNG","DKNG"],["QNT","QNT"],["BABA","BABA"],["SHAZ","SHAZ"],["SNXX","SNXX"]]],
-    ["🌈 기존 알트코인", [["SOL","SOL"],["XRP","XRP"],["DOGE","DOGE"],["BNB","BNB"],["ADA","ADA"],["LINK","LINK"],["AVAX","AVAX"],["SUI","SUI"],["XLM","XLM"],["PONS","PONS"]]]
+    ["🛒 소비·기타", [["GME","GME"],["SHEIN","SHEIN"],["BIRD","BIRD"],["COST","COST"],["EBAY","EBAY"],["BX","BX"],["RDDT","RDDT"],["HYUNDAI","현대차"],["DKNG","DKNG"],["QNT","QNT"],["BABA","BABA"],["SHAZ","SHAZ"],["SNXX","SNXX"]]]
   ];
 });
