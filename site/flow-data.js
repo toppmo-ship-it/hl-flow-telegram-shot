@@ -137,11 +137,13 @@ F.MAXBARS=2500;   /* 한 종목당 최대 봉 수(하이퍼리퀴드 1회 5000�
 /* 기간(range) + 봉 간격(sel; auto=기간 기본값) → 실제 프레임 정의. key 는 캐시·공유 저장 키(기간|봉) */
 /* 표시 기준: kel(기본) = 각 종목의 '현재 일봉 켈상단'을 0으로 — 기간을 바꿔도 현재 위치가 같음 / start = 예전 방식(기간 시작가 대비) */
 F.mode=()=>(F.ui&&F.ui.mode==="start")?"start":"kel";
+/* 밴드 위치 모드(기본): 각 종목의 현재 일봉 켈트너 하단=0 · 중심=50 · 상단=100 으로 환산 → 켈 3선과 주가 위치가 종목 자기 밴드 기준 그대로. knorm="pct" 면 예전(현재 켈상단 대비 %p) */
+F.bandOn=()=>F.mode()==="kel"&&!(F.ui&&F.ui.knorm==="pct");
 F.frameOf=(range,sel)=>{
  const b=F.FRAMES.find(x=>x.k===range)||F.FRAMES.find(x=>x.k==="20D");
  const useSel=sel&&sel!=="auto"&&sel!==b.iv&&IVMIN[sel];
  const iv=useSel?sel:b.iv,min=IVMIN[iv];
- return Object.assign({},b,{iv,min,auto:!useSel,key:b.k+"|"+iv+(F.mode()==="kel"?"|k":"|s"),tick:!!b.tick&&iv===b.iv});   /* 모드별로 캐시 키 분리 */
+ return Object.assign({},b,{iv,min,auto:!useSel,key:b.k+"|"+iv+(F.mode()==="kel"?(F.bandOn()?"|kb":"|k"):"|s"),tick:!!b.tick&&iv===b.iv});   /* 모드별로 캐시 키 분리 */
 };
 /* 이 기간에서 이 봉이 쓸 만한가: 봉이 8개 미만이면 불가, 2500개 초과면 최근 구간만(잘림) */
 F.ivStatus=(range,iv)=>{const b=F.FRAMES.find(x=>x.k===range);if(!b)return {ok:false,bars:0,clamped:false};const bars=b.days*1440/IVMIN[iv];return {ok:bars>=8,bars:Math.round(bars),clamped:bars>F.MAXBARS};};
@@ -284,7 +286,7 @@ F.fmtEok=usd=>{const e=usd*F.krw/1e8;if(!isFinite(e)||e<=0)return"—";if(e>=100
 const KL=20,KA=10,KM=1.5,WARM=45;
 /* 1일 이상 프레임: 기준 = 창 시작이 속한 날 09:00 KST 직전 종가. 하루 미만(12시간~30분) 프레임은 기준 = 창 시작 직전 종가
    (전일 09:00까지 1분봉을 최대 24시간치 받으면 종목당 가중치가 2배라서 — 선들이 왼쪽 끝에서 0%로 출발하는 비교 차트) */
-F.baseLabel=f=>F.mode()==="kel"?"각 종목 현재 일봉 켈상단(0%p=상단선)":(f.days<1?"창 시작":"전일 09:00 종가");
+F.baseLabel=f=>F.bandOn()?"각 종목 일봉 켈트너 밴드(0=하단 · 50=중심 · 100=상단)":F.mode()==="kel"?"각 종목 현재 일봉 켈상단(0%p=상단선)":(f.days<1?"창 시작":"전일 09:00 종가");
 F.windowOf=f=>{
  const end=Date.now(),ivMs=f.min*60000;
  let start=end-f.days*86400000,clamped=false;
@@ -328,9 +330,12 @@ function build(candles,w,f,tk){
  if(base===null)base=(a[0].o>0?a[0].o:a[0].c);
  const k=2/(KL+1);let ema=a[0].c,atr=null;const trs=[];
  /* 기준(bs): kel = 현재 일봉 켈상단 R / start = 기간 시작가. 가격·상단·중심선 모두 같은 기준으로 %p 변환 */
- const bs=bd?bd.R:base;let bj=-1;
+ const bandM=!!bd&&F.bandOn(),lastDay=bd?bd.days[bd.days.length-1]:null;
+ /* 변환: z=(x-off)/sc×100. 예전 = off·sc 모두 기준가(bs) → (x/bs-1)×100 / 밴드 모드 = off 하단, sc 밴드 폭(상단-하단) → 하단 0·중심 50·상단 100 */
+ const bs=bd?bd.R:base,off=bandM?lastDay.d:bs,sc=bandM?(lastDay.u-lastDay.d):bs;let bj=-1;
+ const tf=x=>+(((x-off)/sc)*100).toFixed(bandM?2:3);
  /* o/h/l 도 종가와 같은 기준(bs)으로 %p 변환해 둠 — 캔들·하이킨아시 표시용(추가 요청 없이 바로 그림) */
- const out={t:[],p:[],u:[],m:[],dn:[],o:[],h:[],l:[],base:bs,lb:0};
+ const out={t:[],p:[],u:[],m:[],dn:[],o:[],h:[],l:[],base:off,sc:sc,lb:0};
  for(let i=0;i<a.length;i++){
   if(i>0){ema=a[i].c*k+ema*(1-k);
    const tr=Math.max(a[i].h-a[i].l,Math.abs(a[i].h-a[i-1].c),Math.abs(a[i].l-a[i-1].c));trs.push(tr);
@@ -340,14 +345,14 @@ function build(candles,w,f,tk){
   else if(atr!==null){uV=ema+KM*atr;mV=ema;dV=ema-KM*atr;}
   if(a[i].t>=w.start-f.min*60000&&uV!==null){
    out.t.push(Math.round(a[i].t/1000)+KST);
-   out.p.push(+((a[i].c/bs-1)*100).toFixed(3));
-   out.o.push(+((a[i].o/bs-1)*100).toFixed(3));
-   out.h.push(+((a[i].h/bs-1)*100).toFixed(3));
-   out.l.push(+((a[i].l/bs-1)*100).toFixed(3));
-   out.u.push(+((uV/bs-1)*100).toFixed(3));
-   out.m.push(+((mV/bs-1)*100).toFixed(3));
-   out.dn.push(+((dV/bs-1)*100).toFixed(3));
-   out.lb=+((mV/bs-1)*100).toFixed(3);
+   out.p.push(tf(a[i].c));
+   out.o.push(tf(a[i].o));
+   out.h.push(tf(a[i].h));
+   out.l.push(tf(a[i].l));
+   out.u.push(tf(uV));
+   out.m.push(tf(mV));
+   out.dn.push(tf(dV));
+   out.lb=tf(mV);
   }
  }
  return out.t.length>2?out:null;
@@ -404,13 +409,13 @@ F.viewStaleMs=f=>Math.min(F.staleMs(f),Math.max(120000,f.min*60000*2));
 F.dayFresh=ts=>{const ds=Math.floor((Date.now()-120000)/864e5)*864e5+120000;return ts>=ds;};
 F.dayFreshMs=()=>{const now=Date.now(),ds=Math.floor((now-120000)/864e5)*864e5+120000;return Math.max(60000,now-ds);};
 F.ttl=f=>F.staleMs(f);
-const packFrame=data=>{const p={},base={},lb={};
- Object.keys(data).forEach(t=>{const d=data[t];base[t]=d.base;lb[t]=d.lb;p[t]=d.t.map((s,i)=>[Math.round((s-KST)/60),d.p[i],d.u[i],d.o[i],d.h[i],d.l[i],d.m?d.m[i]:d.u[i],d.dn?d.dn[i]:(d.m?d.m[i]:d.u[i])]);});
- return {v:6,base,lb,p};};
+const packFrame=data=>{const p={},base={},lb={},sc={};
+ Object.keys(data).forEach(t=>{const d=data[t];base[t]=d.base;sc[t]=d.sc||d.base;lb[t]=d.lb;p[t]=d.t.map((s,i)=>[Math.round((s-KST)/60),d.p[i],d.u[i],d.o[i],d.h[i],d.l[i],d.m?d.m[i]:d.u[i],d.dn?d.dn[i]:(d.m?d.m[i]:d.u[i])]);});
+ return {v:6,base,sc,lb,p};};
 /* v2(예전 캐시, o/h/l 없음)도 그대로 읽되 캔들 모드에서는 종가로만 채워 평선(도지)으로 표시됨 */
 const unpackFrame=v=>{const data={};
  Object.keys(v.p).forEach(t=>{const r=v.p[t];const p=r.map(x=>x[1]);
-  data[t]={t:r.map(x=>x[0]*60+KST),p,u:r.map(x=>x[2]),m:r.map(x=>x.length>6?x[6]:x[2]),dn:r.map(x=>x.length>7?x[7]:(x.length>6?x[6]:x[2])),o:r.map((x,i)=>x.length>3?x[3]:p[i]),h:r.map((x,i)=>x.length>3?x[4]:p[i]),l:r.map((x,i)=>x.length>3?x[5]:p[i]),base:v.base[t],lb:v.lb[t]};});return data;};
+  data[t]={t:r.map(x=>x[0]*60+KST),p,u:r.map(x=>x[2]),m:r.map(x=>x.length>6?x[6]:x[2]),dn:r.map(x=>x.length>7?x[7]:(x.length>6?x[6]:x[2])),o:r.map((x,i)=>x.length>3?x[3]:p[i]),h:r.map((x,i)=>x.length>3?x[4]:p[i]),l:r.map((x,i)=>x.length>3?x[5]:p[i]),base:v.base[t],sc:v.sc&&v.sc[t]!=null?v.sc[t]:v.base[t],lb:v.lb[t]};});return data;};
 F.frameKey=f=>"flow_v6_"+f.key;   /* v4: 켈 배수 1.5 + 중심선(m) + 기준 모드(키 끝 |k / |s) — 옛 스냅샷과 섞이지 않게 키 변경 */
 F.saveFrame=(f,data)=>F.sbSet(F.frameKey(f),packFrame(data));
 F.loadFrameShared=async(f,tickers)=>{
@@ -820,7 +825,7 @@ F.seedTicks=(data,f)=>{
  if(!f.tick)return data;
  Object.keys(data).forEach(t=>{const d=data[t],coin=F.coinOf(t),b=coin&&F.tickBuf[coin];if(!b||!d.t.length)return;
   const lastT=d.t[d.t.length-1],lastU=d.u[d.u.length-1],lastM=d.m?d.m[d.m.length-1]:lastU,lastD=d.dn?d.dn[d.dn.length-1]:lastM;
-  b.forEach(([ts,px])=>{if(ts>lastT+1){const pct=+((px/d.base-1)*100).toFixed(3);d.t.push(ts);d.p.push(pct);d.u.push(lastU);if(d.m)d.m.push(lastM);if(d.dn)d.dn.push(lastD);d.o.push(pct);d.h.push(pct);d.l.push(pct);}});});
+  b.forEach(([ts,px])=>{if(ts>lastT+1){const pct=+(((px-d.base)/(d.sc||d.base))*100).toFixed(3);d.t.push(ts);d.p.push(pct);d.u.push(lastU);if(d.m)d.m.push(lastM);if(d.dn)d.dn.push(lastD);d.o.push(pct);d.h.push(pct);d.l.push(pct);}});});
  return data;
 };
 })();

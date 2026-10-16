@@ -75,12 +75,12 @@ let chart=null,stage=null,chartEl=null,ov=null,ctx=null,PILL_W=250;
 let rsS=null,kuS=null,mS=null,lowS=null,anchS=null,rs2=null,ku2=null,mid2=null,low2=null,histS=null,mk1=null,mk2=null,refS=null;
 let maS=[],maC=[],maL=[],wrS=[],wrAnchor=null,wrPL=[];   /* maL = 하단 이격뷰(상대강도) 위에 겹치는 EMA 5·10·20·60·120 */   /* 상단 EMA 본선·심선 / 하단 W%R 선들·기준(축 고정) 시리즈·−20/−80 기준선 */
 /* 축 눈금 표기: 패널마다 달라서(메인·이격뷰=%p, W%R=−20 형식) 차트 전체 포매터 대신 시리즈별 포매터를 씀 */
-const PF_P={type:"custom",minMove:0.01,formatter:p=>(p>=0?"+":"")+p.toFixed(2)+"%p"};
+const PF_P={type:"custom",minMove:0.01,formatter:p=>F.bandOn()?p.toFixed(0):(p>=0?"+":"")+p.toFixed(2)+"%p"};   /* 밴드 모드는 0=하단·50=중심·100=상단 눈금 */
 const PF_W={type:"custom",minMove:0.1,formatter:p=>Math.abs(p-Math.round(p))<0.05?String(Math.round(p)):p.toFixed(1)};
 const pad=n=>String(n).padStart(2,"0");
 const WD=["일","월","화","수","목","금","토"];
 F.fmtT=(s,full,sec)=>{const d=new Date(s*1000);return (full===false?"":(d.getUTCMonth()+1)+"/"+d.getUTCDate()+"("+WD[d.getUTCDay()]+") ")+pad(d.getUTCHours())+":"+pad(d.getUTCMinutes())+(sec?":"+pad(d.getUTCSeconds()):"");};
-F.fmtP=(v,d)=>(v>=0?"+":"")+v.toFixed(d==null?2:d)+"%p";
+F.fmtP=(v,d)=>F.bandOn()?v.toFixed(d==null?0:Math.min(d,1)):(v>=0?"+":"")+v.toFixed(d==null?2:d)+"%p";
 F.fmtDur=sec=>{sec=Math.abs(sec);const d=Math.floor(sec/86400),h=Math.floor(sec%86400/3600),m=Math.floor(sec%3600/60);return (d?d+"일 ":"")+(h?h+"시간 ":"")+(m||(!d&&!h)?m+"분":"");};
 const rgba=(hex,a)=>{const h=hex.replace("#","");const n=parseInt(h.length===3?h.split("").map(c=>c+c).join(""):h,16);return "rgba("+(n>>16&255)+","+(n>>8&255)+","+(n&255)+","+a+")";};
 let _fk="",_fo=null;
@@ -711,7 +711,7 @@ F.live=mids=>{
  if(newBar)Object.keys(S.haOpen).forEach(t=>{const i=li-1,pO=S.O[t][i];if(pO===pO)S.haOpen[t]=(S.haOpen[t]+(pO+S.H[t][i]+S.L[t][i]+S.P[t][i])/4)/2;});
  Object.keys(S.data).forEach(t=>{
   const coin=F.coinOf(t),px=coin!=null?+mids[coin]:NaN;if(!(px>0))return;
-  const pct=+((px/S.data[t].base-1)*100).toFixed(3);
+  const dd0=S.data[t],pct=+(((px-dd0.base)/(dd0.sc||dd0.base))*100).toFixed(3);
   if(!S.barFresh[t]){S.O[t][li]=pct;S.H[t][li]=pct;S.L[t][li]=pct;S.barFresh[t]=true;}
   else{if(pct>S.H[t][li])S.H[t][li]=pct;if(pct<S.L[t][li])S.L[t][li]=pct;}
   S.P[t][li]=pct;n++;
@@ -1114,6 +1114,7 @@ const pt2xy=p=>{const x=xOf(p.t),pn=panes()[0],y=refS.priceToCoordinate(p.v);ret
 function xy2pt(x,y){const pn=panes()[0];const t=timeOfX(x),v=refS.coordinateToPrice(y-pn.top);return t==null||v==null?null:{t,v};}
 function shapeLabel(a,b){
  const dv=b.v-a.v,real=((100+b.v)/(100+a.v)-1)*100;
+ if(F.bandOn())return F.fmtP(dv)+"  ·  "+F.fmtDur(b.t-a.t);
  return F.fmtP(dv)+"  (실제 "+(real>=0?"+":"")+real.toFixed(2)+"%)  ·  "+F.fmtDur(b.t-a.t);
 }
 function drawShapes(p0,pl,plotR){

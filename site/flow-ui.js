@@ -10,7 +10,7 @@ const F=window.FLOW,S=F.S;
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const name=t=>F.NAME_KO[t]||t;
-const price=t=>{const d=S.data[t],p=F.lastValue(t);return d&&p===p?d.base*(1+p/100):NaN;};
+const price=t=>{const d=S.data[t],p=F.lastValue(t);return d&&p===p?d.base+(d.sc||d.base)*p/100:NaN;};
 
 /* ═════════════ 설정 저장/복원 ═════════════ */
 let warmN=0;   /* 미리 갱신(?warm=1): 뒤에서 도는 수집 작업 수 — 0이 되면 실행기가 끝냄 */
@@ -560,7 +560,7 @@ function buildWidths(){
 /* ── 종목선 표시 방식(선/캔들/하이킨아시) 버튼 라벨 — 데이터는 그대로, 그리는 방식만 즉시 전환 ── */
 const STYLE_LABEL={line:"표시: 선",candle:"표시: 캔들",heikin:"표시: 하이킨아시"};
 /* 표시 기준 버튼: 켈상단(기본) ↔ 기간시작(예전 방식) — 모드별로 캐시가 따로라 전환해도 즉시 표시 */
-function refreshModeBtn(){const b=$("btnMode");if(!b)return;const k=F.mode()==="kel";b.textContent=k?"기준: 켈상단":"기준: 기간시작";b.classList.toggle("acc",k);}
+function refreshModeBtn(){const b=$("btnMode");if(!b)return;const k=F.mode()==="kel";b.textContent=F.bandOn()?"기준: 켈 밴드위치":(k?"기준: 켈상단 %p":"기준: 기간시작");b.classList.toggle("acc",k);}
 function refreshStyleBtn(){const b=$("btnStyle");if(!b)return;const m=F.ui.candleMode||"line";b.textContent=STYLE_LABEL[m];b.classList.toggle("acc",m!=="line");}
 
 /* ═════════════ 차트총집합 표 ═════════════ */
@@ -944,7 +944,7 @@ function shotHead(){
  const when=(d.getUTCMonth()+1)+"/"+d.getUTCDate()+"("+WDK[d.getUTCDay()]+") "+p2(d.getUTCHours())+":"+p2(d.getUTCMinutes());
  const cls=v=>F.num(v)?(v>=0?"up":"dn"):"";
  el.innerHTML='<div class="sh-l"><i class="sh-dot"></i><b>선구안</b><span>흐름차트</span></div>'
-  +'<div class="sh-c"><em>'+shotMeta.frame+'</em> 기간 · <em>'+(IVKO[shotMeta.iv]||shotMeta.iv)+'봉</em> · 켈상단 기준<small>'+shotFilterTxt+' · 표시 '+F.TICKERS.filter(t=>F.isVisible(t)).length+'종목</small></div>'
+  +'<div class="sh-c"><em>'+shotMeta.frame+'</em> 기간 · <em>'+(IVKO[shotMeta.iv]||shotMeta.iv)+'봉</em> · '+(F.bandOn()?'켈 밴드위치 기준 (0 하단 · 50 중심 · 100 상단)':'켈상단 기준')+'<small>'+shotFilterTxt+' · 표시 '+F.TICKERS.filter(t=>F.isVisible(t)).length+'종목</small></div>'
   +'<div class="sh-r"><span class="'+cls(rs)+'">상대강도 <b>'+(F.num(rs)?F.fmtP(rs):"—")+'</b></span><span class="k">켈상단 <b>'+(F.num(ku)?F.fmtP(ku):"—")+'</b></span><span class="t">'+when+' KST</span></div>';
 }
 /* ═════════════ 시작 ═════════════ */
@@ -963,7 +963,7 @@ async function init(){
  $("fPlus").onclick=()=>{F.ui.font=Math.min(10,F.ui.font+1);applyFont();F.saveUI();};
  $("btnW").onclick=e=>{e.stopPropagation();const p=$("wPop");p.style.display=p.style.display==="block"?"none":"block";};
  refreshStyleBtn();refreshModeBtn();
- $("btnMode").onclick=()=>{F.ui.mode=F.mode()==="kel"?"start":"kel";refreshModeBtn();F.saveUI();loadFrame(false);};
+ $("btnMode").onclick=()=>{/* 밴드위치 → 켈상단 %p → 기간시작 → 밴드위치 */if(F.bandOn()){F.ui.knorm="pct";}else if(F.mode()==="kel"){F.ui.mode="start";}else{F.ui.mode="kel";F.ui.knorm=undefined;}refreshModeBtn();F.saveUI();loadFrame(false);};
  $("btnStyle").onclick=()=>{const order=["line","candle","heikin"];const next=order[(order.indexOf(F.ui.candleMode||"line")+1)%order.length];F.setCandleMode(next);refreshStyleBtn();};
  document.addEventListener("click",e=>{const p=$("wPop");if(p.style.display==="block"&&!p.contains(e.target))p.style.display="none";});
  $("btnAll").onclick=openTable;
