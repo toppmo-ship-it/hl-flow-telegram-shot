@@ -300,7 +300,10 @@ async function loadFrame(force){
  /* 2) 서버 공유 스냅샷(다른 기기·이전 접속이 받아 둔 것) */
  if(!force){
   F.tk.b("shared");const sh=(SHOT||WARM)?null:await F.loadFrameShared(f,tickers);   /* 촬영은 남이 저장한 스냅샷이 아니라 내 원본 캔들 저장본으로 그림 */if(tok!==loadTok)return;F.tk.d("shared",sh?"공유본 있음 · "+ago(sh.t):"공유본 없음");
-  if(sh&&(!hit||sh.t>hit.t+30000)){const rec=commit(sh.data,"서버 공유캐시 · "+ago(sh.t),sh.t);F.idbSet(key,rec);loading=false;progress(1,1);F.tk.d("frame","서버 공유본 사용");afterLoad(tok);return;}
+  if(sh&&(!hit||sh.t>hit.t+30000)){const rec=commit(sh.data,"서버 공유캐시 · "+ago(sh.t),sh.t);F.idbSet(key,rec);loading=false;progress(1,1);F.tk.d("frame","서버 공유본 사용");afterLoad(tok);
+   if(Date.now()-sh.t<=F.viewStaleMs(f))return;   /* 공유본이 신선하면 끝 */
+   hit=rec;F.tk.d("frame","공유본 표시 중 · 뒤에서 최신화");}   /* 조금 오래됐으면 일단 바로 보여주고, 아래에서 새 봉만 조용히 이어받음 */
+  else
   if(hit){afterLoad(tok);}   /* 공유본이 더 새롭지 않으면 캐시 그대로 두고 아래에서 조용히 갱신 */
  }
  /* 3) 서버 프록시로 병렬 수집(집 IP 한도 미사용). 절반 미만이면 못 받은 것만 서버로 한 번 더 — 느린 브라우저 직접 수집은 그다음 */

@@ -419,7 +419,7 @@ const unpackFrame=v=>{const data={};
 F.frameKey=f=>"flow_v6_"+f.key;   /* v4: 켈 배수 1.5 + 중심선(m) + 기준 모드(키 끝 |k / |s) — 옛 스냅샷과 섞이지 않게 키 변경 */
 F.saveFrame=(f,data)=>F.sbSet(F.frameKey(f),packFrame(data));
 F.loadFrameShared=async(f,tickers)=>{
- const s=await F.sbGet(F.frameKey(f),F.ttl(f));if(!s||!s.v||s.v.v!==6)return null;
+ const s=await F.sbGet(F.frameKey(f),6*3600*1000);if(!s||!s.v||s.v.v!==6)return null;   /* 신선도 기준을 넘어도 6시간 안이면 읽음 — 화면은 먼저 이걸로 바로 그리고 새 데이터는 뒤에서 받음(열자마자 뜸) */
  const data=unpackFrame(s.v);
  const have=tickers.filter(t=>data[t]).length;
  return have>=Math.max(1,Math.ceil(tickers.length*0.9)-1)?{data,t:s.t}:null;
