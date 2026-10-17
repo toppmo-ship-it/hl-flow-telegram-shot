@@ -197,6 +197,9 @@ const PV_ROOT = {};
     var mdl = opt.model || MODELS[opt.mode || "big"];
     var hr = new Float64Array(n), dw = new Float64Array(n);   // 시각(UTC): 초 단위/밀리초 단위 모두 허용. dow: 월=0
     for (i = 0; i < n; i++) { var tt = cs[i].time * (cs[i].time > 1e11 ? 1 : 1000), dd = new Date(tt); hr[i] = dd.getUTCHours(); dw[i] = (dd.getUTCDay() + 6) % 7; }
+    var fh = opt.fixedHour;   // 일봉처럼 봉 간격이 20시간 이상이면 시각 입력을 15시(UTC)로 고정
+    if (fh == null && n > 3) { var stp = cs[1].time - cs[0].time; if (stp > 1e11) stp /= 1000; if (stp >= 72000) fh = 15; }
+    if (fh != null) for (i = 0; i < n; i++) hr[i] = fh;
     var S = { top: side(o, h, l, c, mdl, hr, dw), bot: side(no, nh, nl, nc, mdl, hr, dw) };
     var sigs = [];
     ["top", "bot"].forEach(function (sd) {
@@ -732,14 +735,14 @@ function ictItems(a, o, col, th) {
    data: { candles:[{time(UTC초),open,high,low,close,volume}], daily:[같은 형식, 일봉], precision? }
    opt : { iv, subs:["vol","rsi","st533","st2599"], rsiOB, rsiOS, kel:{on,wC,wB}, ict:{sr,struct,fvg,ob,liq,pd}, ... } */
 const SUB_TITLE = { vol: "거래량 (거래대금$) · 노랑선=20봉 평균", rsi: "RSI (14) · 노랑 음영 = 과매수(70↑)·과매도(30↓)", pvs: "PivotScope · 선 = 예고(곧 형성될 가능성) 위 빨강=고점·아래 초록=저점 · 막대 = 확정 후보 확률 · 점선 70% = 확정" };
-const SUB_ORDER = ["vol", "pvs"];   /* 스토캐스틱·RSI 는 제거 — PivotScope(고점·저점 판독기)가 대신함. 작은 일봉 미니차트(compact)만 예전 RSI 유지 */
+const SUB_ORDER = ["vol", "pvs"];   /* 스토캐스틱·RSI 는 제거 — PivotScope(고점·저점 판독기)가 대신함(작은 일봉 미니차트 포함) */
 function build(el, data, opt) {
   opt = opt || {}; el.innerHTML = "";
-  /* PivotScope 는 ICT 또는 VWAP 표시일 때만(작은 미니차트 제외). 예전 설정의 "rsi" 는 PivotScope 로 대체 */
+  /* PivotScope: 큰 차트는 ICT 또는 VWAP 표시일 때, 작은 일봉 미니차트(compact)는 하단 지표 칸(예전 RSI 칸)을 켰을 때. 예전 설정의 "rsi" 는 PivotScope 로 대체 */
   const LY0 = opt.layers || { pattern: opt.mode !== "ict", ict: opt.mode === "ict", vwap: false };
-  const usePV = !opt.compact && !!(LY0.ict || LY0.vwap);
-  const want = (opt.subs || ["vol", "rsi"]).map((s) => (!opt.compact && s === "rsi" ? "pvs" : s));
-  const subs = (opt.compact ? ["vol", "rsi"] : SUB_ORDER).filter((s) => want.includes(s) && (s !== "pvs" || usePV));
+  const want = (opt.subs || ["vol", "rsi"]).map((s) => (s === "rsi" ? "pvs" : s));
+  const usePV = opt.compact ? want.includes("pvs") : !!(LY0.ict || LY0.vwap);
+  const subs = SUB_ORDER.filter((s) => want.includes(s) && (s !== "pvs" || usePV));
   const chart = LW.createChart(el, {
     autoSize: true,
     layout: { background: { type: "solid", color: "#0a0f19" }, textColor: "#9fb1cf", fontFamily: '"Pretendard","Malgun Gothic","Nanum Gothic",system-ui,sans-serif', fontSize: opt.compact ? 11 : 14, attributionLogo: !opt.compact, panes: { separatorColor: "#34507f", separatorHoverColor: "#6f9bff", enableResize: false } },
@@ -802,8 +805,8 @@ function build(el, data, opt) {
       const bars = chart.addSeries(LW.HistogramSeries, { priceLineVisible: false, lastValueVisible: false, priceFormat: { type: "custom", formatter: pct, minMove: 1 }, autoscaleInfoProvider: fixed }, pane);
       const osc = chart.addSeries(LW.BaselineSeries, { baseValue: { type: "price", price: 0 }, topLineColor: "rgba(" + RED + ",.95)", topFillColor1: "rgba(" + RED + ",.45)", topFillColor2: "rgba(" + RED + ",.04)", bottomLineColor: "rgba(" + GRN + ",.95)", bottomFillColor1: "rgba(" + GRN + ",.04)", bottomFillColor2: "rgba(" + GRN + ",.45)", lineWidth: 2, priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false, priceFormat: { type: "custom", formatter: pct, minMove: 1 }, autoscaleInfoProvider: fixed }, pane);
       osc.createPriceLine({ price: 0, color: "rgba(150,165,190,.55)", lineWidth: 1, lineStyle: 0, axisLabelVisible: false, title: "" });
-      [50, -50].forEach((v) => osc.createPriceLine({ price: v, color: "rgba(150,165,190,.35)", lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: "" }));
-      [70, -70].forEach((v) => osc.createPriceLine({ price: v, color: "rgba(255,216,77,.85)", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "" }));
+      if (!opt.compact) [50, -50].forEach((v) => osc.createPriceLine({ price: v, color: "rgba(150,165,190,.35)", lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: "" }));
+      [70, -70].forEach((v) => osc.createPriceLine({ price: v, color: "rgba(255,216,77,.85)", lineWidth: 1, lineStyle: 2, axisLabelVisible: !opt.compact, title: "" }));
       ctl.subSeries.pvs = osc; ctl.pvBars = bars; ctl.pvOsc = osc;
     } else if (id === "rsi") {
       const r = rsiArr(closes, 14), ob = opt.rsiOB || 70, os = opt.rsiOS || 30;
@@ -882,7 +885,7 @@ function build(el, data, opt) {
   /* 패널 제목(왼쪽 위) */
   function titles() {
     el.querySelectorAll(".paneTitle").forEach((x) => x.remove());
-    const CP = !!opt.compact, FS = CP ? 11 : 13, ST = CP ? { vol: "거래량", rsi: "RSI 14" } : SUB_TITLE;   /* 작은 차트(일봉 미니)는 제목을 짧게 */
+    const CP = !!opt.compact, FS = CP ? 11 : 13, ST = CP ? { vol: "거래량", pvs: "PivotScope · 선=예고 막대=확정" } : SUB_TITLE;   /* 작은 차트(일봉 미니)는 제목을 짧게 */
     const pr = chart.panes(), base = el.getBoundingClientRect(), mk = (txt, top) => { const d = document.createElement("div"); d.className = "paneTitle"; d.textContent = txt; d.style.cssText = "position:absolute;left:" + (CP ? 8 : 10) + "px;top:" + (top + (CP ? 3 : 4)) + "px;z-index:6;font:700 " + FS + "px 'Pretendard','Malgun Gothic','Nanum Gothic',sans-serif;color:#aebfdc;background:rgba(10,15,25,.78);padding:2px 7px;border-radius:5px;pointer-events:none"; el.appendChild(d); };
     subs.forEach((id, i) => { const p = pr[i + 1]; if (!p || !p.getHTMLElement()) return; mk(ST[id], p.getHTMLElement().getBoundingClientRect().top - base.top); });
     const lg = []; if (CP) lg.push("일봉 " + (opt.windowBars || cs.length) + "개" + (K.on !== false ? " · 켈트너(20/10/1.5)" : "")); else if (K.on !== false) lg.push("일봉 켈트너(20/10/1.5) — 중심선 주황 · 상하단 노랑" + (isDaily ? "" : " · 그날의 일봉 값(계단)"));
