@@ -62,6 +62,147 @@ function stochArr(cs, n, sk, d) {
   return { k: K, d: D };
 }
 
+/* ───────── 고점·저점 판독기 (PivotScope · 작은 피벗 모드) ─────────
+   봉이 마감된 시점의 정보만 쓰고, 신호는 고점/저점 봉에서 1~3봉 뒤 확정된다. 화살표는 그 고점/저점 캔들에 찍는다.
+   원본·검증: 트레이딩/trading-bot/pivot-lab (pivotdetector.js · README.md). 이 블록을 고치면 그쪽도 같이 고칠 것. */
+const PV_ROOT = {};
+/* 고점·저점 판독기 (PivotScope) — 기준 구현.
+   - 봉이 '마감된 시점'의 정보만 사용(미래 참조 없음). 신호는 고점/저점 봉에서 최대 3봉 뒤(보통 1봉 뒤)에 확정된다.
+   - 저점은 가격 부호를 뒤집어 같은 계산을 재사용한다(고점 로직 1벌).
+   - 계수는 pivot-lab/model_final.json (하이퍼리퀴드 30분·1시간봉 약 190개 종목으로 학습).
+   - 브라우저(window.PivotScope)·Node(module.exports) 겸용. 의존 라이브러리 없음.
+   candles: [{time, open, high, low, close}]  (시간 오름차순) */
+(function (root) {
+  "use strict";
+  var M = {
+    intercept: -4.30195,
+    scale: { stochK: 0.1, stoch_kd: 0.1, rsi7_drop: 0.2, rsi14_drop: 0.2, macd_drop: 10.0 },
+    coef: {
+      miss: 1.32724, nearhi24: -0.22271, roc12: 0.08259, lowdepth: 0.09121, stochK: 0.16190, stoch_kd: 0.05651,
+      atr_ratio: 0.26473, sweep3: 0.20186, "kc2.0_pierce3": 0.07422, rsi7_drop: 0.16971, rsi14_drop: -0.31450,
+      macd_drop: -0.17722, runup24: -0.10496, upwick: 0.19405, close_lt_prevlow: -0.17110, bear_engulf: 0.08839,
+      j1: 0.13839, j2: 0.15855, j3: 0.20967, "lowdepth*j": 0.05131
+    }
+  };
+  /* 모드: big=큰 피벗(좌우12봉·2.5ATR, 가장 정확·드묾) / mid=중간(8봉·2.0ATR) / small=작은(6봉·1.5ATR, 가장 자주) */
+  var MODELS = {
+    big: { intercept: M.intercept, win: 12, coef: M.coef },
+    mid: { intercept: -3.39406, win: 9, coef: {"miss": 1.54048, "nearhi24": -0.14842, "roc12": 0.12439, "lowdepth": 0.01415, "stochK": 0.10439, "stoch_kd": -0.07165, "atr_ratio": 0.29238, "sweep3": 0.07768, "kc2.0_pierce3": 0.09434, "rsi7_drop": 0.24084, "rsi14_drop": -0.42245, "macd_drop": -0.25591, "runup24": -0.13083, "upwick": 0.21699, "close_lt_prevlow": -0.18166, "bear_engulf": 0.06485, "j1": 0.09766, "j2": 0.07923, "j3": -0.00018, "lowdepth*j": 0.07253} },
+    small: { intercept: -2.48018, win: 6, coef: {"miss": 1.53770, "nearhi24": -0.11873, "roc12": 0.06654, "lowdepth": -0.05935, "stochK": 0.06321, "stoch_kd": -0.06162, "atr_ratio": 0.27740, "sweep3": 0.01101, "kc2.0_pierce3": 0.11767, "rsi7_drop": 0.25513, "rsi14_drop": -0.43512, "macd_drop": -0.30095, "runup24": -0.10513, "upwick": 0.26217, "close_lt_prevlow": -0.15699, "bear_engulf": 0.08080, "j1": 0.25478, "j2": 0.24368, "j3": 0.14164, "lowdepth*j": 0.06817} }
+  };
+  var NaNv = NaN;
+  function ewm(x, alpha) { var n = x.length, o = new Float64Array(n), prev = NaNv; for (var i = 0; i < n; i++) { var v = x[i]; if (v !== v) { o[i] = prev; continue; } prev = prev !== prev ? v : prev * (1 - alpha) + v * alpha; o[i] = prev; } return o; }
+  function rollMax(x, w) { var n = x.length, o = new Float64Array(n); for (var i = 0; i < n; i++) { if (i < w - 1) { o[i] = NaNv; continue; } var m = -Infinity, bad = false; for (var k = i - w + 1; k <= i; k++) { var v = x[k]; if (v !== v) { bad = true; break; } if (v > m) m = v; } o[i] = bad ? NaNv : m; } return o; }
+  function rollMin(x, w) { var n = x.length, o = new Float64Array(n); for (var i = 0; i < n; i++) { if (i < w - 1) { o[i] = NaNv; continue; } var m = Infinity, bad = false; for (var k = i - w + 1; k <= i; k++) { var v = x[k]; if (v !== v) { bad = true; break; } if (v < m) m = v; } o[i] = bad ? NaNv : m; } return o; }
+  function rollMean(x, w) { var n = x.length, o = new Float64Array(n); for (var i = 0; i < n; i++) { if (i < w - 1) { o[i] = NaNv; continue; } var s = 0, bad = false; for (var k = i - w + 1; k <= i; k++) { var v = x[k]; if (v !== v) { bad = true; break; } s += v; } o[i] = bad ? NaNv : s / w; } return o; }
+  function rsi(c, n) {
+    var N = c.length, up = new Float64Array(N), dn = new Float64Array(N); up[0] = dn[0] = NaNv;
+    for (var i = 1; i < N; i++) { var d = c[i] - c[i - 1]; up[i] = d > 0 ? d : 0; dn[i] = d < 0 ? -d : 0; }
+    var U = ewm(up, 1 / n), D = ewm(dn, 1 / n), r = new Float64Array(N);
+    for (var j = 0; j < N; j++) r[j] = (U[j] !== U[j] || D[j] !== D[j] || D[j] === 0) ? NaNv : 100 - 100 / (1 + U[j] / D[j]);
+    return r;
+  }
+  function clip(v, a, b) { return v !== v ? 0 : (v < a ? a : v > b ? b : v); }
+
+  /* 한쪽(고점 기준) 확률. o,h,l,c = 고점 기준 가격 배열(저점이면 부호를 뒤집어 넘긴다).
+     반환: { p[], bs[], gate[], atr[] }  p=고점일 확률(게이트 밖은 0), bs=고점이 몇 봉 전인지 */
+  function side(o, h, l, c, mdl) {
+    mdl = mdl || MODELS.big;
+    var n = c.length, i, k;
+    var tr = new Float64Array(n);
+    for (i = 0; i < n; i++) tr[i] = i === 0 ? h[i] - l[i] : Math.max(h[i] - l[i], Math.abs(h[i] - c[i - 1]), Math.abs(l[i] - c[i - 1]));
+    var a14 = ewm(tr, 1 / 14), a10 = ewm(tr, 1 / 10), atr = new Float64Array(n);
+    for (i = 0; i < n; i++) atr[i] = Math.max(a14[i], Math.abs(c[i]) * 0.0008);
+    var atrAvg = new Float64Array(n), asum = 0;   // 100봉 평균(앞 100봉 미만이면 지금까지의 평균 — 짧은 차트에서도 동작)
+    for (i = 0; i < n; i++) { asum += atr[i]; if (i >= 100) asum -= atr[i - 100]; atrAvg[i] = i >= 99 ? asum / 100 : i >= 19 ? asum / (i + 1) : NaNv; }
+    var e20 = ewm(c, 2 / 21), e12 = ewm(c, 2 / 13), e26 = ewm(c, 2 / 27);
+    var ml = new Float64Array(n); for (i = 0; i < n; i++) ml[i] = e12[i] - e26[i];
+    var sg = ewm(ml, 2 / 10), hist = new Float64Array(n), upk = new Float64Array(n);
+    for (i = 0; i < n; i++) { hist[i] = (ml[i] - sg[i]) / atr[i]; upk[i] = h[i] - (e20[i] + 2.0 * a10[i]); }
+    var r7 = rsi(c, 7), r14 = rsi(c, 14);
+    var hist3 = rollMax(hist, 3), r7m = rollMax(r7, 3), r14m = rollMax(r14, 3), upk3 = rollMax(upk, 3);
+    var H8 = rollMax(h, 8), H12 = rollMax(h, mdl.win), H24 = rollMax(h, 24), L24 = rollMin(l, 24), L3 = rollMin(l, 3);
+    var ll14 = rollMin(l, 14), hh14 = rollMax(h, 14), kk = new Float64Array(n);
+    for (i = 0; i < n; i++) kk[i] = hh14[i] === ll14[i] ? NaNv : 100 * (c[i] - ll14[i]) / (hh14[i] - ll14[i]);
+    var k3 = rollMean(kk, 3), d3 = rollMean(k3, 3);
+    var pm = new Float64Array(n), sw = new Float64Array(n);
+    var hs = new Float64Array(n); hs[0] = NaNv; for (i = 1; i < n; i++) hs[i] = h[i - 1];
+    pm = rollMax(hs, 20);
+    for (i = 0; i < n; i++) sw[i] = (pm[i] === pm[i] && h[i] > pm[i] && c[i] < pm[i]) ? 1 : 0;
+    var sw3 = rollMax(sw, 3);
+    var p = new Float64Array(n), bs = new Int8Array(n), gate = new Uint8Array(n);
+    for (i = 40; i < n; i++) {
+      if (i < 7) continue;
+      // 8봉 구간에서 가장 높은 봉(동률이면 가장 오래된 것) → 몇 봉 전인지
+      var best = -Infinity, bi = 0;
+      for (k = 0; k < 8; k++) { var hv = h[i - 7 + k]; if (hv > best) { best = hv; bi = k; } }
+      var b = 7 - bi; bs[i] = b;
+      if (!(H12[i] === H12[i] && H12[i] <= H8[i] && b <= 3)) continue;   // 게이트: 12봉 신고가 + 3봉 이내
+      gate[i] = 1;
+      var A = atr[i], f = {};
+      f.miss = (H8[i] - c[i]) / A;
+      f.nearhi24 = (H24[i] - H8[i]) / A;
+      f.roc12 = i >= 12 ? (c[i] - c[i - 12]) / A : NaNv;
+      f.lowdepth = (H8[i] - L3[i]) / A;
+      f.stochK = k3[i]; f.stoch_kd = d3[i] - k3[i];
+      f.atr_ratio = atr[i] / atrAvg[i];
+      f.sweep3 = sw3[i];
+      f["kc2.0_pierce3"] = upk3[i] / A;
+      f.rsi7_drop = r7m[i] - r7[i]; f.rsi14_drop = r14m[i] - r14[i];
+      f.macd_drop = hist3[i] - hist[i];
+      f.runup24 = (H8[i] - L24[i]) / A;
+      var rg = h[i] - l[i];
+      f.upwick = rg === 0 ? NaNv : (h[i] - Math.max(o[i], c[i])) / rg;
+      f.close_lt_prevlow = c[i] < l[i - 1] ? 1 : 0;
+      f.bear_engulf = (c[i] < o[i] && o[i] >= c[i - 1] && c[i] <= o[i - 1] && c[i - 1] > o[i - 1]) ? 1 : 0;
+      var z = mdl.intercept, key;
+      for (key in mdl.coef) {
+        var x;
+        if (key === "j1" || key === "j2" || key === "j3") x = (b === +key[1]) ? 1 : 0;
+        else if (key === "lowdepth*j") x = clip(f.lowdepth, -8, 12) * b;
+        else { x = f[key]; if (M.scale[key]) x = x * M.scale[key]; x = clip(x, -8, 12); }
+        z += mdl.coef[key] * x;
+      }
+      p[i] = 1 / (1 + Math.exp(-z));
+    }
+    return { p: p, bs: bs, gate: gate, atr: atr };
+  }
+
+  /* 전체 분석. opt: { t1, t2, t3 (후보/확정/강 확률컷), cooldown, invalidate (고점 경신 시 무효화), slack } */
+  function analyze(cs, opt) {
+    opt = opt || {};
+    var t1 = opt.t1 != null ? opt.t1 : 0.5, t2 = opt.t2 != null ? opt.t2 : 0.7, t3 = opt.t3 != null ? opt.t3 : 0.85;
+    var cd = opt.cooldown != null ? opt.cooldown : 5, slack = opt.slack != null ? opt.slack : 0.25, invBars = opt.invBars != null ? opt.invBars : 12;   // invBars: 신호 후 이 봉 수 안에 고점이 깨지면 가짜로 보고 지운다(그 뒤엔 영구 유지)
+    var n = cs.length, o = new Float64Array(n), h = new Float64Array(n), l = new Float64Array(n), c = new Float64Array(n);
+    for (var i = 0; i < n; i++) { o[i] = cs[i].open; h[i] = cs[i].high; l[i] = cs[i].low; c[i] = cs[i].close; }
+    var no = new Float64Array(n), nh = new Float64Array(n), nl = new Float64Array(n), nc = new Float64Array(n);
+    for (i = 0; i < n; i++) { no[i] = -o[i]; nh[i] = -l[i]; nl[i] = -h[i]; nc[i] = -c[i]; }
+    var mdl = opt.model || MODELS[opt.mode || "big"];
+    var S = { top: side(o, h, l, c, mdl), bot: side(no, nh, nl, nc, mdl) };
+    var sigs = [];
+    ["top", "bot"].forEach(function (sd) {
+      var R = S[sd], last = -1e9, live = [], byPi = {}, hh = sd === "top" ? h : nh;   // hh = 고점 기준 high
+      for (var t = 0; t < n; t++) {
+        for (var q = 0; q < live.length; q++) { var s0 = live[q]; if (!s0.dead && t > s0.t && t - s0.t <= invBars && hh[t] > s0.lvl) { s0.dead = true; s0.deadAt = t; } }
+        if (!R.gate[t] || R.p[t] < t1) continue;
+        var pi = t - R.bs[t], ex = byPi[pi];
+        if (ex) { if (R.p[t] > ex.p) ex.p = R.p[t]; continue; }         // 같은 고점이면 확률만 갱신(등급 상향)
+        if (t - last < cd) continue;
+        var act = { side: sd, t: t, pi: pi, p: R.p[t], p0: R.p[t], lvl: hh[pi] + slack * R.atr[t], dead: false, deadAt: -1 };
+        sigs.push(act); live.push(act); byPi[pi] = act; last = t;
+        if (live.length > 40) live.shift();
+      }
+    });
+    sigs.forEach(function (s) { s.tier = s.p >= t3 ? 3 : s.p >= t2 ? 2 : 1; });
+    sigs.sort(function (a, b) { return a.t - b.t; });
+    return { signals: sigs, top: S.top, bot: S.bot };
+  }
+  var api = { analyze: analyze, side: side, model: M, models: MODELS };
+  if (typeof module !== "undefined" && module.exports) module.exports = api; else root.PivotScope = api;
+})(PV_ROOT);
+
+const PV = PV_ROOT.PivotScope;
+
 /* ───────── ICT 분석 ───────── */
 function ictAnalyze(cs, o) {
   o = o || {}; const n = cs.length, k = o.k || 5, price = n ? cs[n - 1].close : 0;
@@ -665,14 +806,19 @@ function build(el, data, opt) {
     let rg = 0; const nr = Math.min(60, cs.length); for (let i = cs.length - nr; i < cs.length; i++) rg += cs[i].high - cs[i].low;
     const th = Math.max(rg / nr * 0.6, cs[cs.length - 1].close * 0.0018);   /* 존 두께의 절반: 최근 봉 평균 변동폭의 60% (최소 0.18%) */
     ctl.overlay.setItems(ictItems(a, I, col, th));
-    const sw = []; /* 고점·저점 라벨(화살표 + 가격) */
-    const k = 12;
-    for (let i = k; i < cs.length - 1; i++) {
-      let h = true, l = true; for (let j = Math.max(0, i - k); j <= Math.min(cs.length - 1, i + k); j++) { if (j === i) continue; if (cs[j].high > cs[i].high) h = false; if (cs[j].low < cs[i].low) l = false; }
-      if (h) sw.push({ time: T(cs[i]), position: "aboveBar", color: "#ffffff", shape: "arrowDown", text: "" });
-      else if (l) sw.push({ time: T(cs[i]), position: "belowBar", color: "#ffffff", shape: "arrowUp", text: "" });
-    }
-    if (ctl.mk) ctl.mk.setMarkers(sw.slice(-5)); else ctl.mk = LW.createSeriesMarkers(main, sw.slice(-5));
+    /* 고점·저점 흰 화살표: 판독기(작은 피벗). 과거 캔들 전체에 표시 · 확정(확률 0.7↑)만 · 신호 후 12봉 안에 고점/저점이 다시 깨진 가짜는 숨김 */
+    const sw = [];
+    try {
+      const pvMin = opt.pvMin != null ? opt.pvMin : 0.7;
+      const pv = PV.analyze(cs, { model: PV.models.small, t1: 0.5, t2: 0.7, t3: 0.85, cooldown: 5, invBars: 12 });
+      ctl.pv = pv;
+      pv.signals.forEach((s) => {
+        if (s.p < pvMin || s.dead || !cs[s.pi]) return;
+        sw.push(s.side === "top" ? { time: T(cs[s.pi]), position: "aboveBar", color: "#ffffff", shape: "arrowDown", text: "" } : { time: T(cs[s.pi]), position: "belowBar", color: "#ffffff", shape: "arrowUp", text: "" });
+      });
+      sw.sort((x, y) => x.time - y.time);
+    } catch (e) { if (typeof console !== "undefined") console.warn("PivotScope 오류", e); }
+    if (ctl.mk) ctl.mk.setMarkers(sw); else ctl.mk = LW.createSeriesMarkers(main, sw);
     return a;
   }
   const a = drawIct();
