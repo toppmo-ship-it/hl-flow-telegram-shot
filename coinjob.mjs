@@ -17,6 +17,7 @@ import { median } from "./coincalc.mjs";
 import { fmtKrw } from "./mcap.mjs";
 import * as F from "./chatfmt.mjs";
 import * as CL from "./cardlock.mjs";
+import { newCodeReady } from "./newcode.mjs";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url)), SITE = path.join(ROOT, "site"), CACHE = process.env.COIN_CACHE || path.join(ROOT, ".cache");
 const DRY = /^(1|true)$/i.test(process.env.BOT_DRY || ""), MAX_MS = (+process.env.BOT_MAX_MIN || 335) * 60000, T0 = Date.now(), TICK = 10 * 60000;
@@ -198,6 +199,7 @@ async function main() {
     } catch (e) { log("틱 오류:", String((e && e.stack) || e).slice(0, 300)); }
     await sleep(DRY ? 1000 : 20000);
     if (DRY && process.env.COIN_ONCE) break;
+    if (!DRY && await newCodeReady(log)) break;   /* 저장소에 새 커밋이 올라오면 여기서 끝내고 다음 실행(새 코드)에 넘김 — 카드·차트 수정이 5시간 뒤가 아니라 몇 분 안에 반영 */
   }
   log("실행 시간 끝 — 종료(다음 실행이 이어받음)");
   try { saveStore(CACHE, S); saveSnaps(CACHE, snaps); await backupSnaps(snaps, DRY); await kit.close(); } catch (e) {}

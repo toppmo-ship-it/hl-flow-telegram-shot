@@ -12,6 +12,7 @@ import { spawn } from "node:child_process";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { fileURLToPath } from "node:url";
 import { loadSiteInfo, loadUniverse, usdKrw, pickRow, buildCardData, renderCard, flushCardCache, applyCardCfg, hl, buildWeeklyTexts, buildSurgeText, buildPatternRankText } from "./extras.mjs";
+import { newCodeReady } from "./newcode.mjs";
 import { buildReport, buildListReport, collectRows, refreshBars } from "./report.mjs";
 import { loadBars, saveBars, stripLive, changeOver } from "./repcalc.mjs";
 import { FIXED_INDEX, KO } from "./repnames.mjs";
@@ -641,6 +642,7 @@ async function main() {
   let offset = 0; { const o = await sbGet("tg_bot_offset"); if (o && +o.next) offset = +o.next; }
   const seen = new Set();
   while (Date.now() - T_START < MAX_MS) {
+    if (!DRY && C.busy === 0 && await newCodeReady(log)) break;   /* 저장소에 새 커밋이 오면(카드 코드 수정 등) 한가할 때 끝내고 다음 실행이 새 코드로 이어받음 */
     const r = await tg("getUpdates", { offset, timeout: 25, allowed_updates: ["message", "callback_query"] });
     if (!r.ok) { if (/409|Conflict/i.test(String(r.description))) { log("다른 곳에서 읽는 중(409) — 10초 뒤 재시도"); await sleep(10000); } else await sleep(3000); continue; }
     for (const u of r.result || []) {
