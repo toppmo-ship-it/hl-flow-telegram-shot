@@ -828,11 +828,10 @@ function build(el, data, opt) {
   subs.forEach((id, idx) => {
     const pane = idx + 1;
     if (id === "vol") {
-      const vs = chart.addSeries(LW.HistogramSeries, { priceFormat: { type: "custom", formatter: (v) => (v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : v >= 1e3 ? (v / 1e3).toFixed(0) + "K" : v.toFixed(0)) }, priceLineVisible: false, lastValueVisible: false }, pane);
-      const krwMode = !!(opt.compact && opt.volKrw > 0);   /* 일봉 미니: 막대 대신 '오늘 거래대금(원)' 글자만 */
-      if (krwMode && cs.length) ctl.krwTxt = "오늘 거래대금 " + fmtKrw(cs[cs.length - 1].volume * opt.volKrw);
-      vs.setData(krwMode ? [] : cs.map((c) => ({ time: T(c), value: c.volume, color: c.close >= c.open ? "rgba(255,77,93,.78)" : "rgba(79,195,255,.78)" })));
-      const ma = []; let s = 0; if (!krwMode) cs.forEach((c, i) => { s += c.volume; if (i >= 20) s -= cs[i - 20].volume; if (i >= 19) ma.push({ time: T(c), value: s / 20 }); });
+      const krwMode = !!(opt.compact && opt.volKrw > 0);   /* 일봉 미니: 막대는 그대로, 오른쪽 축 눈금·마지막 값 라벨만 원화(글자 없이 금액만) */
+      const vs = chart.addSeries(LW.HistogramSeries, { priceFormat: { type: "custom", formatter: krwMode ? (v) => fmtKrw(v * opt.volKrw) : (v) => (v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : v >= 1e3 ? (v / 1e3).toFixed(0) + "K" : v.toFixed(0)) }, priceLineVisible: false, lastValueVisible: krwMode }, pane);
+      vs.setData(cs.map((c) => ({ time: T(c), value: c.volume, color: c.close >= c.open ? "rgba(255,77,93,.78)" : "rgba(79,195,255,.78)" })));
+      const ma = []; let s = 0; cs.forEach((c, i) => { s += c.volume; if (i >= 20) s -= cs[i - 20].volume; if (i >= 19) ma.push({ time: T(c), value: s / 20 }); });
       const ml = chart.addSeries(LW.LineSeries, { color: COL.vol, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }, pane); ml.setData(ma);
       ctl.subSeries.vol = vs;
     } else if (id === "pvs") {
@@ -913,7 +912,7 @@ function build(el, data, opt) {
         cs.forEach((c, i) => {
           const pt = pv.top.gate[i] ? pv.top.p[i] : 0, pb = pv.bot.gate[i] ? pv.bot.p[i] : 0, top = pt >= pb, p = top ? pt : pb;
           if (p < 0.5) return;
-          const rgb = top ? RED : GRN, al = p >= 0.85 ? 0.95 : p >= 0.7 ? 0.65 : 0.34;
+          const rgb = c.close >= c.open ? [255, 77, 93] : [79, 195, 255], al = p >= 0.85 ? 0.95 : p >= 0.7 ? 0.65 : 0.34;   /* 막대 색 = 그 봉의 캔들 색(상승 빨강·하락 파랑), 고점/저점은 위/아래 방향으로 구분 */
           hb.push({ time: T(c), value: (top ? 1 : -1) * p * 100, color: "rgba(" + rgb[0] + "," + rgb[1] + "," + rgb[2] + "," + al + ")" });
         });
         ctl.pvBars.setData(hb);
@@ -937,14 +936,7 @@ function build(el, data, opt) {
     el.querySelectorAll(".paneTitle").forEach((x) => x.remove());
     const CP = !!opt.compact, FS = CP ? 11 : 13, ST = CP ? { vol: "거래량", pvs: "PivotScope · 선=예고 막대=확정" } : SUB_TITLE;   /* 작은 차트(일봉 미니)는 제목을 짧게 */
     const pr = chart.panes(), base = el.getBoundingClientRect(), mk = (txt, top) => { const d = document.createElement("div"); d.className = "paneTitle"; d.textContent = txt; d.style.cssText = "position:absolute;left:" + (CP ? 8 : 10) + "px;top:" + (top + (CP ? 3 : 4)) + "px;z-index:6;font:700 " + FS + "px 'Pretendard','Malgun Gothic','Nanum Gothic',sans-serif;color:#aebfdc;background:rgba(10,15,25,.78);padding:2px 7px;border-radius:5px;pointer-events:none"; el.appendChild(d); };
-    subs.forEach((id, i) => {
-      const p = pr[i + 1]; if (!p || !p.getHTMLElement()) return;
-      const pr_ = p.getHTMLElement().getBoundingClientRect();
-      if (id === "vol" && ctl.krwTxt) {
-        const d0 = document.createElement("div"); d0.className = "paneTitle"; d0.textContent = ctl.krwTxt;
-        d0.style.cssText = "position:absolute;left:0;width:calc(100% - 64px);text-align:center;top:" + (pr_.top - base.top + Math.max(0, pr_.height / 2 - 11)) + "px;z-index:6;font:700 12px 'Pretendard','Malgun Gothic','Nanum Gothic',sans-serif;color:#ffd84d;pointer-events:none;text-shadow:0 0 6px rgba(0,0,0,.8)"; el.appendChild(d0);
-      } else mk(ST[id], pr_.top - base.top);
-    });
+    subs.forEach((id, i) => { const p = pr[i + 1]; if (!p || !p.getHTMLElement()) return; mk(ST[id], p.getHTMLElement().getBoundingClientRect().top - base.top); });
     const lg = []; if (CP) lg.push("일봉 " + (opt.windowBars || cs.length) + "개" + (K.on !== false ? " · 켈트너(20/10/1.5)" : "")); else if (K.on !== false) lg.push("일봉 켈트너(20/10/1.5) — 중심선 주황 · 상하단 노랑" + (isDaily ? "" : " · 그날의 일봉 값(계단)"));
     const d = document.createElement("div"); d.className = "paneTitle"; d.textContent = lg.join(""); d.style.cssText = "position:absolute;left:" + (CP ? 8 : 10) + "px;top:" + (CP ? 5 : 6) + "px;z-index:6;font:700 " + FS + "px 'Pretendard','Malgun Gothic','Nanum Gothic',sans-serif;color:#c9d6ee;background:rgba(10,15,25,.78);padding:2px 7px;border-radius:5px;pointer-events:none"; if (lg.length) el.appendChild(d);
   }
