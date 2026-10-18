@@ -348,7 +348,7 @@ export async function buildCardData({ row, ticker, info, iv, days, fx, log, cach
     (body >= 0 ? "🔺" : "🔽") + " " + ivKo + "봉 몸통 " + (body >= 0 ? "+" : "") + body.toFixed(2) + "%" + (rsi != null ? " · RSI " + Math.round(rsi) : "") + "\n" +
     dot + " 거래량 평소의 ×" + (mult == null ? "—" : mult.toFixed(1)) + (mult == null ? " (봉 집계 초반)" : lastWk ? " (주말 평균 대비 · 경과시간 보정)" : " (직전 20봉 평균 대비 · 경과시간 보정)") + "\n" +
     "⏱ " + kstStamp(now).slice(-9) + " · 진행 중";
-  return { iv, mode: mode || "pattern", windowBars, daily, tk: ticker, nm: name, ivKo, ttl, sub: subTxt, period: days + "day-" + perEn, title: ticker + (name ? " (" + name + ")" : "") + " - " + iv.toUpperCase() + " (Vol) (HYPERLIQUID)", price: fmtP(price), candles, sr: levels(candles, price), swings: swings(candles), caption };
+  return { iv, mode: mode || "pattern", windowBars, daily, tk: ticker, nm: name, ivKo, ttl, sub: subTxt, period: days + "day-" + perEn, fx, title: ticker + (name ? " (" + name + ")" : "") + " - " + iv.toUpperCase() + " (Vol) (HYPERLIQUID)", price: fmtP(price), candles, sr: levels(candles, price), swings: swings(candles), caption };
 }
 
 /* ═════════ ④ 패턴 셋업 리포트 (연구 결과 pattern_rank.json v3 기반 · 별도 메시지) ═════════

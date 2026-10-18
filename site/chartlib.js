@@ -760,6 +760,15 @@ function ictItems(a, o, col, th) {
    data: { candles:[{time(UTC초),open,high,low,close,volume}], daily:[같은 형식, 일봉], precision? }
    opt : { iv, subs:["vol","rsi","st533","st2599"], rsiOB, rsiOS, kel:{on,wC,wB}, ict:{sr,struct,fvg,ob,liq,pd}, ... } */
 const SUB_TITLE = { vol: "거래량 (거래대금$) · 노랑선=20봉 평균", rsi: "RSI (14) · 노랑 음영 = 과매수(70↑)·과매도(30↓)", pvs: "PivotScope · 선 = 예고(곧 형성될 가능성) 위 빨강=고점·아래 초록=저점 · 막대 = 확정 후보 확률 · 점선 70% = 확정" };
+/* 원화 간략 표기: 1.4천 · 520만 · 5.6억 · 24억 · 5500억 · 1.2조 */
+function fmtKrw(w) {
+  if (!(w > 0)) return "0원";
+  if (w >= 1e12) return (w / 1e12).toFixed(w >= 1e13 ? 0 : 1).replace(/\.0$/, "") + "조";
+  if (w >= 1e8) { const e = w / 1e8; return (e >= 10 ? Math.round(e) : e.toFixed(1).replace(/\.0$/, "")) + "억"; }
+  if (w >= 1e4) return Math.round(w / 1e4) + "만";
+  if (w >= 1e3) return (w / 1e3).toFixed(1).replace(/\.0$/, "") + "천";
+  return Math.round(w) + "원";
+}
 const SUB_ORDER = ["vol", "pvs"];   /* 스토캐스틱·RSI 는 제거 — PivotScope(고점·저점 판독기)가 대신함(작은 일봉 미니차트 포함) */
 function build(el, data, opt) {
   opt = opt || {}; el.innerHTML = "";
@@ -820,8 +829,10 @@ function build(el, data, opt) {
     const pane = idx + 1;
     if (id === "vol") {
       const vs = chart.addSeries(LW.HistogramSeries, { priceFormat: { type: "custom", formatter: (v) => (v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : v >= 1e3 ? (v / 1e3).toFixed(0) + "K" : v.toFixed(0)) }, priceLineVisible: false, lastValueVisible: false }, pane);
-      vs.setData(cs.map((c) => ({ time: T(c), value: c.volume, color: c.close >= c.open ? "rgba(255,77,93,.78)" : "rgba(79,195,255,.78)" })));
-      const ma = []; let s = 0; cs.forEach((c, i) => { s += c.volume; if (i >= 20) s -= cs[i - 20].volume; if (i >= 19) ma.push({ time: T(c), value: s / 20 }); });
+      const krwMode = !!(opt.compact && opt.volKrw > 0);   /* 일봉 미니: 막대 대신 '오늘 거래대금(원)' 글자만 */
+      if (krwMode && cs.length) ctl.krwTxt = "오늘 거래대금 " + fmtKrw(cs[cs.length - 1].volume * opt.volKrw);
+      vs.setData(krwMode ? [] : cs.map((c) => ({ time: T(c), value: c.volume, color: c.close >= c.open ? "rgba(255,77,93,.78)" : "rgba(79,195,255,.78)" })));
+      const ma = []; let s = 0; if (!krwMode) cs.forEach((c, i) => { s += c.volume; if (i >= 20) s -= cs[i - 20].volume; if (i >= 19) ma.push({ time: T(c), value: s / 20 }); });
       const ml = chart.addSeries(LW.LineSeries, { color: COL.vol, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }, pane); ml.setData(ma);
       ctl.subSeries.vol = vs;
     } else if (id === "pvs") {
@@ -926,7 +937,14 @@ function build(el, data, opt) {
     el.querySelectorAll(".paneTitle").forEach((x) => x.remove());
     const CP = !!opt.compact, FS = CP ? 11 : 13, ST = CP ? { vol: "거래량", pvs: "PivotScope · 선=예고 막대=확정" } : SUB_TITLE;   /* 작은 차트(일봉 미니)는 제목을 짧게 */
     const pr = chart.panes(), base = el.getBoundingClientRect(), mk = (txt, top) => { const d = document.createElement("div"); d.className = "paneTitle"; d.textContent = txt; d.style.cssText = "position:absolute;left:" + (CP ? 8 : 10) + "px;top:" + (top + (CP ? 3 : 4)) + "px;z-index:6;font:700 " + FS + "px 'Pretendard','Malgun Gothic','Nanum Gothic',sans-serif;color:#aebfdc;background:rgba(10,15,25,.78);padding:2px 7px;border-radius:5px;pointer-events:none"; el.appendChild(d); };
-    subs.forEach((id, i) => { const p = pr[i + 1]; if (!p || !p.getHTMLElement()) return; mk(ST[id], p.getHTMLElement().getBoundingClientRect().top - base.top); });
+    subs.forEach((id, i) => {
+      const p = pr[i + 1]; if (!p || !p.getHTMLElement()) return;
+      const pr_ = p.getHTMLElement().getBoundingClientRect();
+      if (id === "vol" && ctl.krwTxt) {
+        const d0 = document.createElement("div"); d0.className = "paneTitle"; d0.textContent = ctl.krwTxt;
+        d0.style.cssText = "position:absolute;left:0;width:calc(100% - 64px);text-align:center;top:" + (pr_.top - base.top + Math.max(0, pr_.height / 2 - 11)) + "px;z-index:6;font:700 12px 'Pretendard','Malgun Gothic','Nanum Gothic',sans-serif;color:#ffd84d;pointer-events:none;text-shadow:0 0 6px rgba(0,0,0,.8)"; el.appendChild(d0);
+      } else mk(ST[id], pr_.top - base.top);
+    });
     const lg = []; if (CP) lg.push("일봉 " + (opt.windowBars || cs.length) + "개" + (K.on !== false ? " · 켈트너(20/10/1.5)" : "")); else if (K.on !== false) lg.push("일봉 켈트너(20/10/1.5) — 중심선 주황 · 상하단 노랑" + (isDaily ? "" : " · 그날의 일봉 값(계단)"));
     const d = document.createElement("div"); d.className = "paneTitle"; d.textContent = lg.join(""); d.style.cssText = "position:absolute;left:" + (CP ? 8 : 10) + "px;top:" + (CP ? 5 : 6) + "px;z-index:6;font:700 " + FS + "px 'Pretendard','Malgun Gothic','Nanum Gothic',sans-serif;color:#c9d6ee;background:rgba(10,15,25,.78);padding:2px 7px;border-radius:5px;pointer-events:none"; if (lg.length) el.appendChild(d);
   }

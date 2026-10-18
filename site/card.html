@@ -121,7 +121,7 @@ window.renderCard=function(d){
    pos();
    const dcs=d.daily.map(function(c){return {time:c.time,open:c.open,high:c.high,low:c.low,close:c.close,volume:c.volume*(c.high+c.low+c.close)/3};});   /* 거래량 = 거래대금($) — 메인과 같은 기준 */
    const subs=[];if(mm.vol)subs.push("vol");if(mm.rsi)subs.push("rsi");
-   const mctl=ChartLib.build(mel,{candles:dcs,daily:d.daily},{iv:"1d",mode:d.mode||"pattern",layers:{pattern:false,vwap:!!mm.vwap,ict:false},windowBars:mm.bars||60,pvMin:d.pvMinMini,colors:d.colors,barSpacing:6,scale:d.scale||"all",kel:{on:!!mm.kel,wC:3,wB:3},subs:subs,compact:true,rightPad:6});
+   const mctl=ChartLib.build(mel,{candles:dcs,daily:d.daily},{iv:"1d",mode:d.mode||"pattern",layers:{pattern:false,vwap:!!mm.vwap,ict:false},windowBars:mm.bars||60,pvMin:d.pvMinMini,volKrw:d.fx,colors:d.colors,barSpacing:6,scale:d.scale||"all",kel:{on:!!mm.kel,wC:3,wB:3},subs:subs,compact:true,rightPad:6});
    window.__mini=mctl;window.__miniPos=pos;[100,250,450].forEach(function(t){setTimeout(function(){try{pos();mctl.titles();}catch(e){}},t);});
   }
  }catch(e){window.__miniErr=String(e&&e.message||e);}
