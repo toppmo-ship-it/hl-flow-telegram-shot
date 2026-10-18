@@ -354,6 +354,31 @@ class Overlay {
   }
 }
 
+/* PivotScope 예비 신호: 속 빈 노란 화살표(마커는 속이 찬 모양뿐이라 직접 그림). 고점=봉 위에서 아래로, 저점=봉 아래에서 위로 */
+class HollowArrows {
+  constructor() { this.items = []; this.small = false; this.chart = null; this.series = null; this.req = null; }
+  attached(p) { this.chart = p.chart; this.series = p.series; this.req = p.requestUpdate; }
+  detached() {}
+  updateAllViews() {}
+  setItems(it, small) { this.items = it; this.small = small; this.req && this.req(); }
+  paneViews() { const self = this; return [{ zOrder: () => "top", renderer: () => ({ draw: (t) => t.useMediaCoordinateSpace((s) => self.draw(s)) }) }]; }
+  draw({ context: c }) {
+    if (!this.chart || !this.series || !this.items.length) return;
+    const ts = this.chart.timeScale(), bs = ts.options().barSpacing || 8;
+    const w = Math.max(this.small ? 8 : 10, Math.min(this.small ? 12 : 17, bs * 1.7)), h = w * 1.25, g = 5;
+    c.save(); c.strokeStyle = "#ffd84d"; c.lineWidth = this.small ? 1.4 : 1.8; c.lineJoin = "round";
+    this.items.forEach((it) => {
+      const x = ts.timeToCoordinate(it.time), y0 = this.series.priceToCoordinate(it.price); if (x == null || y0 == null) return;
+      const tip = it.top ? y0 - g : y0 + g;   /* 화살촉 끝: 고점이면 봉 위, 저점이면 봉 아래로 g만큼 띄움 */
+      const P = [[0, 0], [-w / 2, -h * 0.5], [-w * 0.2, -h * 0.5], [-w * 0.2, -h], [w * 0.2, -h], [w * 0.2, -h * 0.5], [w / 2, -h * 0.5]];   /* 촉이 (0,0), 몸통은 −y 쪽 */
+      c.beginPath();
+      P.forEach((q, k) => { const yy = it.top ? tip + q[1] : tip - q[1]; k ? c.lineTo(x + q[0], yy) : c.moveTo(x + q[0], yy); });
+      c.closePath(); c.stroke();
+    });
+    c.restore();
+  }
+}
+
 /* 켈트너 1.0 ~ 1.5 사이 음영 (연한 그린). 일중 봉은 계단 모양으로 */
 class BandFill {
   constructor() { this.rows = []; this.step = false; this.color = "rgba(61,220,151,.13)"; this.chart = null; this.series = null; this.req = null; }
@@ -851,13 +876,26 @@ function build(el, data, opt) {
     let pv = null; const sw = [];
     try {
       pv = PV.analyze(cs, { model: PV.models.small, t1: 0.5, t2: 0.7, t3: 0.85, cooldown: 5, invBars: 12 });
-      const pvMin = opt.pvMin != null ? opt.pvMin : 0.7;
+      /* 진짜 기준은 0.7 고정. opt.pvMin(설정, 기본 0.7)을 0.7 밑으로 내리면 그 확률~0.7 사이가 '예비' 표시(속 빈 노란 화살표, 깨지면 지움) */
+      const pvMin = 0.7, pvLo = Math.min(0.7, opt.pvMin != null && opt.pvMin > 0 ? +opt.pvMin : 0.7), real = {};
       pv.signals.forEach((g) => {
         if (g.p < pvMin || !cs[g.pi]) return;
+        real[g.side + g.pi] = 1;
         const col = g.dead ? "rgba(255,255,255,0.42)" : "#ffffff";   /* 12봉 내 깨진 가짜는 지우지 않고 옅은 흰색으로 남긴다(갑자기 사라지면 당황스러움) */
         sw.push(g.side === "top" ? { time: T(cs[g.pi]), position: "aboveBar", color: col, shape: "arrowDown", text: "" } : { time: T(cs[g.pi]), position: "belowBar", color: col, shape: "arrowUp", text: "" });
       });
       sw.sort((x, y) => x.time - y.time);
+      /* 예비: 0.5 미만까지 내리면 후보 컷을 낮춘 분석을 따로 돌린다(진짜 신호의 쿨다운이 달라지지 않게 위 분석은 그대로 둠) */
+      const pre = [];
+      if (pvLo < 0.7) {
+        const base = pvLo < 0.5 ? PV.analyze(cs, { model: PV.models.small, t1: pvLo, t2: 0.7, t3: 0.85, cooldown: 5, invBars: 12 }) : pv;
+        base.signals.forEach((g) => {
+          if (g.p < pvLo || g.p >= 0.7 || g.dead || !cs[g.pi] || real[g.side + g.pi]) return;
+          pre.push({ time: T(cs[g.pi]), price: g.side === "top" ? cs[g.pi].high : cs[g.pi].low, top: g.side === "top" });
+        });
+      }
+      if (!ctl.pvPre) { ctl.pvPre = new HollowArrows(); main.attachPrimitive(ctl.pvPre); }
+      ctl.pvPre.setItems(pre, !!opt.compact);
       if (ctl.pvOsc) {
         ctl.pvOsc.setData(cs.map((c, i) => { const u = pv.top.pre[i], d = pv.bot.pre[i]; return u === u && d === d ? { time: T(c), value: (u - d) * 100 } : { time: T(c) }; }));
         const RED = [255, 90, 90], GRN = [53, 212, 154], hb = [];
