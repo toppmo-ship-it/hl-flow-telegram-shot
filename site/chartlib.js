@@ -853,8 +853,9 @@ function build(el, data, opt) {
       pv = PV.analyze(cs, { model: PV.models.small, t1: 0.5, t2: 0.7, t3: 0.85, cooldown: 5, invBars: 12 });
       const pvMin = opt.pvMin != null ? opt.pvMin : 0.7;
       pv.signals.forEach((g) => {
-        if (g.p < pvMin || g.dead || !cs[g.pi]) return;
-        sw.push(g.side === "top" ? { time: T(cs[g.pi]), position: "aboveBar", color: "#ffffff", shape: "arrowDown", text: "" } : { time: T(cs[g.pi]), position: "belowBar", color: "#ffffff", shape: "arrowUp", text: "" });
+        if (g.p < pvMin || !cs[g.pi]) return;
+        const col = g.dead ? "rgba(255,255,255,0.42)" : "#ffffff";   /* 12봉 내 깨진 가짜는 지우지 않고 옅은 흰색으로 남긴다(갑자기 사라지면 당황스러움) */
+        sw.push(g.side === "top" ? { time: T(cs[g.pi]), position: "aboveBar", color: col, shape: "arrowDown", text: "" } : { time: T(cs[g.pi]), position: "belowBar", color: col, shape: "arrowUp", text: "" });
       });
       sw.sort((x, y) => x.time - y.time);
       if (ctl.pvOsc) {
