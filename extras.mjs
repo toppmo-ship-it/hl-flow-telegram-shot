@@ -515,7 +515,7 @@ export function applyCardCfg(d, cfg0, resKey, opt) {
   opt = opt || {};
   d.colors = cfg0.colors || null;
   /* 고점·저점 화살표 기준(PivotScope): 0.7=진짜만(기본), 낮추면 그 아래가 예비(속 빈 노랑). 큰 차트 / 일봉 미니 따로 */
-  const PVOK = (x) => ([0.7, 0.65, 0.6, 0.55, 0.5, 0.45, 0.44].includes(+x) ? +x : 0.7);
+  const PVOK = (x) => ([0.7, 0.65, 0.6, 0.55, 0.5, 0.45, 0.4, 0.35, 0.3].includes(+x) ? +x : 0.7);
   d.pvMin = PVOK(cfg0.pvMin); d.pvMinMini = PVOK(cfg0.pvMinMini);
   /* 일봉 미니차트(카드 왼쪽 아래): 켜기·크기·일봉 개수·넣을 지표. 패턴·패턴 글자는 항상 없음. 기본값 = 켬 · 보통 · 60개 · 지표 전부 */
   const ind = Array.isArray(cfg0.cardDailyInd) ? cfg0.cardDailyInd : ["kel", "vwap", "vol", "rsi"];
