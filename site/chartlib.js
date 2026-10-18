@@ -937,6 +937,13 @@ function build(el, data, opt) {
     const CP = !!opt.compact, FS = CP ? 11 : 13, ST = CP ? { vol: "거래량", pvs: "PivotScope · 선=예고 막대=확정" } : SUB_TITLE;   /* 작은 차트(일봉 미니)는 제목을 짧게 */
     const pr = chart.panes(), base = el.getBoundingClientRect(), mk = (txt, top) => { const d = document.createElement("div"); d.className = "paneTitle"; d.textContent = txt; d.style.cssText = "position:absolute;left:" + (CP ? 8 : 10) + "px;top:" + (top + (CP ? 3 : 4)) + "px;z-index:6;font:700 " + FS + "px 'Pretendard','Malgun Gothic','Nanum Gothic',sans-serif;color:#aebfdc;background:rgba(10,15,25,.78);padding:2px 7px;border-radius:5px;pointer-events:none"; el.appendChild(d); };
     subs.forEach((id, i) => { const p = pr[i + 1]; if (!p || !p.getHTMLElement()) return; mk(ST[id], p.getHTMLElement().getBoundingClientRect().top - base.top); });
+    /* PivotScope 칸 오른쪽 위에 지금 쓰는 화살표 기준(0.7=예비 없음, 낮추면 예비 표시)을 작게 적는다 */
+    const pi_ = subs.indexOf("pvs");
+    if (pi_ >= 0 && usePV && pr[pi_ + 1] && pr[pi_ + 1].getHTMLElement()) {
+      let aw = 64; try { aw = chart.priceScale("right").width() || 64; } catch (e) {}
+      const pv0 = opt.pvMin != null && opt.pvMin > 0 ? +opt.pvMin : 0.7, d1 = document.createElement("div"); d1.className = "paneTitle"; d1.textContent = "기준 " + pv0;
+      d1.style.cssText = "position:absolute;right:" + (aw + 8) + "px;top:" + (pr[pi_ + 1].getHTMLElement().getBoundingClientRect().top - base.top + (CP ? 3 : 4)) + "px;z-index:6;font:700 " + (CP ? 10 : 11.5) + "px 'Pretendard','Malgun Gothic','Nanum Gothic',sans-serif;color:" + (pv0 < 0.7 ? "#ffd84d" : "#8fa3c4") + ";background:rgba(10,15,25,.78);padding:1px 6px;border-radius:5px;pointer-events:none"; el.appendChild(d1);
+    }
     const lg = []; if (CP) lg.push("일봉 " + (opt.windowBars || cs.length) + "개" + (K.on !== false ? " · 켈트너(20/10/1.5)" : "")); else if (K.on !== false) lg.push("일봉 켈트너(20/10/1.5) — 중심선 주황 · 상하단 노랑" + (isDaily ? "" : " · 그날의 일봉 값(계단)"));
     const d = document.createElement("div"); d.className = "paneTitle"; d.textContent = lg.join(""); d.style.cssText = "position:absolute;left:" + (CP ? 8 : 10) + "px;top:" + (CP ? 5 : 6) + "px;z-index:6;font:700 " + FS + "px 'Pretendard','Malgun Gothic','Nanum Gothic',sans-serif;color:#c9d6ee;background:rgba(10,15,25,.78);padding:2px 7px;border-radius:5px;pointer-events:none"; if (lg.length) el.appendChild(d);
   }
