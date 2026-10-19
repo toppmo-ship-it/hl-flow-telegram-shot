@@ -430,6 +430,36 @@ class NightBand {
     c.restore();
   }
 }
+/* 매일 한국시간 오전 8시 세로 구분선 (분·시간봉 큰 차트 전용 — 격자선 대신) */
+class DayLines {
+  constructor() { this.xs = []; this.chart = null; this.req = null; }
+  attached(p) { this.chart = p.chart; this.req = p.requestUpdate; }
+  detached() {}
+  updateAllViews() {}
+  set(xs) { this.xs = xs; this.req && this.req(); }
+  paneViews() { const self = this; return [{ zOrder: () => "bottom", renderer: () => ({ draw: (t) => t.useMediaCoordinateSpace((s) => self.draw(s)) }) }]; }
+  draw({ context: c, mediaSize }) {
+    if (!this.chart) return;
+    const ts = this.chart.timeScale();
+    c.save(); c.strokeStyle = "rgba(140,165,210,.30)"; c.lineWidth = 1; c.beginPath();
+    this.xs.forEach((i) => { const x = lc(ts, i); if (x == null || x < 0 || x > mediaSize.width) return; c.moveTo(Math.round(x) + .5, 0); c.lineTo(Math.round(x) + .5, mediaSize.height); });
+    c.stroke(); c.restore();
+  }
+}
+/* 시각(UTC초+KST) → 소수 인덱스. 매일 hour시(KST)의 위치 목록 */
+function dayLineIdx(TT, hour) {
+  if (TT.length < 2) return [];
+  const dt = (TT[TT.length - 1] - TT[0]) / (TT.length - 1);
+  const fi = (t) => {
+    if (t <= TT[0]) return (t - TT[0]) / dt;
+    if (t >= TT[TT.length - 1]) return TT.length - 1 + (t - TT[TT.length - 1]) / dt;
+    let lo = 0, hi = TT.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (TT[m] <= t) lo = m; else hi = m; }
+    return lo + (t - TT[lo]) / (TT[hi] - TT[lo]);
+  };
+  const out = [], tEnd = TT[TT.length - 1] + 40 * dt;   /* TT 는 이미 KST 로 밀려 있어 UTC 시각 = 한국시각 */
+  for (let d = Math.floor(TT[0] / DAY) * DAY + hour * 3600; d <= tEnd; d += DAY) if (d >= TT[0] - DAY) out.push(fi(d));
+  return out;
+}
 /* RSI 과매수(위)·과매도(아래) 구간 노란 음영 */
 class RsiZones {
   constructor(ob, os) { this.ob = ob; this.os = os; this.series = null; this.req = null; }
@@ -780,7 +810,7 @@ function build(el, data, opt) {
   const chart = LW.createChart(el, {
     autoSize: true,
     layout: { background: { type: "solid", color: "#0a0f19" }, textColor: "#9fb1cf", fontFamily: '"Pretendard","Malgun Gothic","Nanum Gothic",system-ui,sans-serif', fontSize: opt.compact ? 11 : 14, attributionLogo: !opt.compact, panes: { separatorColor: "#34507f", separatorHoverColor: "#6f9bff", enableResize: false } },
-    grid: { vertLines: { color: "#101a2b" }, horzLines: { color: "#101a2b" } },
+    grid: (opt.compact || opt.iv === "1d") ? { vertLines: { color: "#101a2b" }, horzLines: { color: "#101a2b" } } : { vertLines: { visible: false }, horzLines: { visible: false } },   /* 큰 분·시간봉 차트: 기본 격자 끄고 매일 08:00 KST 세로선만 */
     rightPriceScale: { borderColor: "#1c2a44", scaleMargins: { top: 0.04, bottom: 0.04 } },
     timeScale: { borderColor: "#1c2a44", timeVisible: true, rightOffset: opt.rightPad != null ? opt.rightPad : 18, barSpacing: opt.barSpacing || 8,
       tickMarkFormatter: (t, type) => { const x = new Date(t * 1000), p = (n) => String(n).padStart(2, "0"), W = ["일", "월", "화", "수", "목", "금", "토"]; return type <= 2 ? (x.getUTCMonth() + 1) + "/" + x.getUTCDate() + "(" + W[x.getUTCDay()] + ")" : p(x.getUTCHours()) + ":" + p(x.getUTCMinutes()); } },
@@ -800,6 +830,7 @@ function build(el, data, opt) {
   main.attachPrimitive(ctl.band); main.attachPrimitive(ctl.overlay);
   const TT = cs.map((c) => c.time + KST), nights = weekendBands(TT);
   { const nb = new NightBand(); nb.set(nights, col.night); main.attachPrimitive(nb); ctl.nights = [nb]; }
+  if (!opt.compact && opt.iv !== "1d") { const dl = new DayLines(); dl.set(dayLineIdx(TT, 8)); main.attachPrimitive(dl); ctl.dayLines = dl; }
   const lw = (lvl) => [1, 1.4, 2, 2.8, 3.6][Math.min(5, Math.max(1, lvl || 2)) - 1];
 
   /* 일봉 켈트너: 일봉 차트면 그대로 선, 분·시간봉이면 그날의 일봉 값을 계단 수평선으로 */
@@ -811,12 +842,14 @@ function build(el, data, opt) {
     const sk = stepKeltner(cs, data.daily, dk);
     const st = isDaily ? { mid: [], up: [], lo: [], up1: [], lo1: [] } : sk;
     if (isDaily) data.daily.forEach((d, i) => { const v = dk[i]; if (!v || d.time < cs[0].time) return;   /* 캔들보다 앞선 날짜의 켈트너 점은 빼야 시간축에 빈 칸(앞쪽 공백)이 안 생김 */ st.mid.push({ time: d.time + KST, value: v.mid }); st.up.push({ time: d.time + KST, value: v.up }); st.lo.push({ time: d.time + KST, value: v.lo }); st.up1.push({ time: d.time + KST, value: v.up1 }); st.lo1.push({ time: d.time + KST, value: v.lo1 }); });
-    ctl.band.set(sk.rows, !isDaily, rgba(col.kShade, 0.13));
+    ctl.band.set(sk.rows, !isDaily, rgba(col.kShade, opt.compact ? 0.26 : 0.13));   /* 일봉 미니는 작아서 음영을 2배 진하게 */
     /* 스케일 모드 '가격만': 켈트너 선이 눈금 범위에 영향을 주지 않음(null) → 캔들 기준으로 눈금이 맞춰지고 선은 범위 밖이면 잘림 */
     const mk = (pts, color, w, lv) => { const s = chart.addSeries(LW.LineSeries, Object.assign({ color, lineWidth: lw(w), lineType: isDaily ? 0 : 1, priceLineVisible: false, lastValueVisible: lv !== false, crosshairMarkerVisible: false, priceFormat: { type: "price", precision: pf, minMove: Math.pow(10, -pf) } }, priceOnly ? { autoscaleInfoProvider: () => null } : {}), 0); s.setData(pts); return s; };
     const w1 = Math.max(1, (K.wB || 3) - 1);   /* 1.0 선은 1.5 선보다 한 단계 얇게 · 중심선은 1.5 설정과 같은 굵기 */
-    ctl.kel.mid = mk(st.mid, COL.kMid, K.wC); ctl.kel.up = mk(st.up, COL.kBand, K.wB); ctl.kel.lo = mk(st.lo, COL.kBand, K.wB);
-    ctl.kel.up1 = mk(st.up1, COL.kBand1, w1, false); ctl.kel.lo1 = mk(st.lo1, COL.kBand1, w1, false);
+    const thin = opt.compact ? 0.62 : 1;   /* 일봉 미니: 켈트너 상·하단선을 얇게 (중심선은 그대로) */
+    const mkB = (pts, color, w, lv) => { const s = mk(pts, color, w, lv); if (thin < 1) s.applyOptions({ lineWidth: Math.max(0.8, lw(w) * thin) }); return s; };
+    ctl.kel.mid = mk(st.mid, COL.kMid, K.wC); ctl.kel.up = mkB(st.up, COL.kBand, K.wB); ctl.kel.lo = mkB(st.lo, COL.kBand, K.wB);
+    ctl.kel.up1 = mkB(st.up1, COL.kBand1, w1, false); ctl.kel.lo1 = mkB(st.lo1, COL.kBand1, w1, false);
     /* 패턴 이름표가 피해야 할 선(캔들 번호 i, 값 v) — 계단선(분·시간봉)은 가로→세로로 따라감 */
     const ixOf = new Map(); cs.forEach((c, i) => ixOf.set(c.time + KST, i));
     ctl.obsLines = ["mid", "up", "lo", "up1", "lo1"].map((k) => ({ step: !isDaily, pts: (st[k] || []).map((p) => { const i = ixOf.get(p.time); return i == null ? null : [i, p.value]; }).filter(Boolean) }));
@@ -864,7 +897,7 @@ function build(el, data, opt) {
     }
   });
   if (!ctl.rsi) ctl.rsi = rsiArr(closes, 14);   /* 요약 문구용 RSI 값은 하단 패널과 상관없이 계속 계산 */
-  Object.keys(ctl.subSeries).forEach((k) => { const nb = new NightBand(); nb.set(nights, col.night); ctl.subSeries[k].attachPrimitive(nb); ctl.nights.push(nb); });
+  Object.keys(ctl.subSeries).forEach((k) => { const nb = new NightBand(); nb.set(nights, col.night); ctl.subSeries[k].attachPrimitive(nb); ctl.nights.push(nb); if (ctl.dayLines) { const dl2 = new DayLines(); dl2.set(ctl.dayLines.xs); ctl.subSeries[k].attachPrimitive(dl2); } });
   const ps = chart.panes(); ps[0].setStretchFactor(subs.length ? (opt.compact ? 4.4 : 6.5) : 1); subs.forEach((id, i) => ps[i + 1] && ps[i + 1].setStretchFactor(id === "rsi" ? 1.7 : id === "pvs" ? 2 : 1));
 
   /* ICT: 도형 + 지지·저항(전환 구분) */
