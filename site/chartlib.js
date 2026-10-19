@@ -902,7 +902,7 @@ function build(el, data, opt) {
     if (isDaily) data.daily.forEach((d, i) => { const v = dk[i]; if (!v || d.time < cs[0].time) return;   /* 캔들보다 앞선 날짜의 켈트너 점은 빼야 시간축에 빈 칸(앞쪽 공백)이 안 생김 */ st.mid.push({ time: d.time + KST, value: v.mid }); st.up.push({ time: d.time + KST, value: v.up }); st.lo.push({ time: d.time + KST, value: v.lo }); st.up1.push({ time: d.time + KST, value: v.up1 }); st.lo1.push({ time: d.time + KST, value: v.lo1 }); });
     ctl.band.set(sk.rows, !isDaily, rgba(col.kShade, opt.compact ? 0.26 : 0.13));   /* 일봉 미니는 작아서 음영을 2배 진하게 */
     /* 스케일 모드 '가격만': 켈트너 선이 눈금 범위에 영향을 주지 않음(null) → 캔들 기준으로 눈금이 맞춰지고 선은 범위 밖이면 잘림 */
-    const mk = (pts, color, w, lv) => { const s = chart.addSeries(LW.LineSeries, Object.assign({ color, lineWidth: lw(w), lineType: isDaily ? 0 : 1, priceLineVisible: false, lastValueVisible: lv !== false, crosshairMarkerVisible: false, priceFormat: { type: "price", precision: pf, minMove: Math.pow(10, -pf) } }, priceOnly ? { autoscaleInfoProvider: () => null } : {}), 0); s.setData(pts); return s; };
+    const mk = (pts, color, w, lv) => { const s = chart.addSeries(LW.LineSeries, Object.assign({ color, lineWidth: lw(w), lineType: isDaily ? 0 : 1, priceLineVisible: false, lastValueVisible: lv !== false && !opt.compact /* 일봉 미니: 켈트너선 가격 라벨(프라이스스케일 라벨)은 끄고 현재가만 */, crosshairMarkerVisible: false, priceFormat: { type: "price", precision: pf, minMove: Math.pow(10, -pf) } }, priceOnly ? { autoscaleInfoProvider: () => null } : {}), 0); s.setData(pts); return s; };
     const w1 = Math.max(1, (K.wB || 3) - 1);   /* 1.0 선은 1.5 선보다 한 단계 얇게 · 중심선은 1.5 설정과 같은 굵기 */
     /* 일봉 미니: 켈트너 상·하단선을 아주 얇게(1.0 / 안쪽 0.75px) + 더 진한 노랑으로 — 얇아도 또렷하게. 중심선은 그대로 */
     const mkB = (pts, color, w, lv) => { const s = mk(pts, opt.compact ? (lv === false ? "#ffd21f" : "#ffbf00") : color, w, lv); if (opt.compact) s.applyOptions({ lineWidth: lv === false ? 0.75 : 1 }); return s; };
@@ -1066,6 +1066,22 @@ function build(el, data, opt) {
   setTimeout(() => { titles(); pvsRender(); }, 60); ctl.titles = () => { titles(); pvsRender(); };
   /* 라이브 갱신용 */
   ctl.refreshAll = () => { drawKeltner(); if (ctl.vw) ctl.vw.set(cs); const r = drawIct(); drawPivot(); if (ctl.patLayer) { ctl.pat = root_.Patterns.detect(cs); ctl.patLayer.set(ctl.pat, winFrom, cs, Math.max(14, Math.round((cs.length - winFrom) * 0.09) - 2)); } return r; };
+  /* 봉 완성 카운트다운(트레이딩뷰처럼): 현재가 라벨 바로 아래. 분·시간봉은 초까지, 일봉 미니(compact)는 시간·분까지 */
+  const IVSEC = { "1m": 60, "3m": 180, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "2h": 7200, "4h": 14400, "8h": 28800, "12h": 43200, "1d": 86400, "3d": 259200, "1w": 604800 }, ivs = IVSEC[opt.iv];
+  if (ivs && opt.countdown !== false) {
+    const cd = document.createElement("div"); cd.className = "cdLabel"; el.appendChild(cd);
+    const fs = opt.compact ? 10 : 12, p2 = (n) => String(n).padStart(2, "0");
+    const tick = () => {
+      if (!el.isConnected || !cd.isConnected) { clearInterval(ctl.cdTimer); return; }
+      const lc = cs[cs.length - 1], y = main.priceToCoordinate(lc.close); let aw = 64; try { aw = chart.priceScale("right").width() || 64; } catch (e) {}
+      if (y == null) { cd.style.display = "none"; return; }
+      const rem = ivs - ((Math.floor(Date.now() / 1000) - lc.time) % ivs + ivs) % ivs, h = Math.floor(rem / 3600), m = Math.floor(rem % 3600 / 60), s = rem % 60;
+      cd.textContent = opt.compact ? (h ? h + "시간" + p2(m) + "분" : m + "분") : (h ? h + ":" + p2(m) + ":" + p2(s) : p2(m) + ":" + p2(s));
+      const bg = lc.close >= lc.open ? COL.up : COL.dn;
+      cd.style.cssText = "position:absolute;right:0;width:" + aw + "px;top:" + (y + (opt.compact ? 8 : 11)) + "px;z-index:7;box-sizing:border-box;text-align:center;pointer-events:none;font:700 " + fs + "px 'Pretendard','Malgun Gothic','Nanum Gothic',sans-serif;line-height:" + (fs + 5) + "px;color:#0a0f19;background:" + bg + ";border-radius:0 0 3px 3px;display:block";
+    };
+    tick(); setTimeout(tick, 80); ctl.cdTimer = setInterval(tick, 1000); ctl.cdTick = tick;
+  }
   ctl.quant = quantPrep; ctl.summary = () => summarize(ctl, cs, data.daily);
   return ctl;
 }
