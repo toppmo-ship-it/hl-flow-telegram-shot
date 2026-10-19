@@ -11,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { loadSiteInfo, loadUniverse, usdKrw, buildWeeklyTexts, buildSurgeText, pickRow, buildCardData, renderCard, flushCardCache, buildPatternRankText, applyCardCfg } from "./extras.mjs";
+import { loadSiteInfo, loadUniverse, usdKrw, buildWeeklyTexts, buildSurgeText, pickRow, buildCardData, renderCard, flushCardCache, buildPatternRankText, applyCardCfg, crispCanvas } from "./extras.mjs";
 import { buildReport } from "./report.mjs";
 import { sbPut } from "./sb.mjs";
 import { getMcap } from "./mcap.mjs";
@@ -403,10 +403,10 @@ async function main() {
   const idx = tk(q.idx, Array.isArray(cfg0.idx) ? cfg0.idx : DEF_CFG.idx), cmd = tk(q.cmd, Array.isArray(cfg0.cmd) ? cfg0.cmd : DEF_CFG.cmd);
   const lvl = (qv, cv, d) => Math.min(5, Math.max(1, Math.round(+(qv != null ? qv : cv) || d)));
   const sw = lvl(q.sw, cfg0.sw, 2), swi = lvl(q.swi, cfg0.swi, 3), swc = lvl(q.swc, cfg0.swc, 3);
-  const VW = R.w, dsf0 = Math.min(4, Math.max(1, +q.dsf || R.dsf));
+  const VW = R.w, dsf0 = Math.min(3, Math.max(1, Math.round(+q.dsf || 3)));   /* 선명도: 정수 3배(소수 배율은 글자·선이 번짐). 텔레그램 사진은 가로+세로 10000px 이하 */
   const vz = Math.min(300, Math.max(100, Math.round(+(q.vz != null ? q.vz : cfg0.vz) || 100)));
   const VH = R.fixed ? R.h : R.h + Math.round((vz / 100 - 1) * 0.6 * (R.h - 110));   /* 와이드(fixed)는 화면 비율을 지키려고 '세로 길이' 슬라이더를 적용하지 않음 — 폴드만 세로를 늘림 */
-  const dsf = Math.max(1, Math.min(dsf0, Math.sqrt(MAX_PIXELS / (VW * VH))));
+  const dsf = Math.max(1, Math.min(dsf0, Math.floor(Math.sqrt(MAX_PIXELS / (VW * VH))), Math.floor(10000 / (VW + VH))));
   const sendDoc = q.doc != null ? q.doc === "1" : cfg0.doc !== false;
   const bool = (qv, cv, old) => (qv != null ? qv === "1" : (cv != null ? !!cv : !!old));
   const lead = bool(q.lead, cfg0.lead, cfg0.coins), alt = bool(q.alt, cfg0.alt, cfg0.coins);
@@ -431,6 +431,7 @@ async function main() {
     });
     deadline = Math.max(deadline, Date.now() + 100000);   /* 크롬 재시도로 시간을 썼어도 데이터 수집 시간은 확보 */
     const page = await browser.newPage();
+    await crispCanvas(page);
     page.on("pageerror", (e) => log("페이지 오류:", String(e.message).slice(0, 160)));
     await page.goto(base + "/robots.txt", { waitUntil: "domcontentloaded", timeout: 20000 });
     if (store) await page.evaluate(seedInPage, store, iv);
@@ -454,8 +455,8 @@ async function main() {
     stage(58, ready ? "차트 사진 찍는 중" : "데이터 수집이 덜 끝남");
     await page.evaluate(() => { window.__shotFreeze = true; }).catch(() => {});
     await new Promise((r) => setTimeout(r, 1200));
-    let png = null;
-    if (ready) { png = await page.screenshot({ type: "png" }); log("캡처 PNG", Math.round(png.length / 1024) + "KB", Math.round(VW * dsf) + "x" + Math.round(VH * dsf)); }
+    let png = null, photoBuf = null;
+    if (ready) { png = await page.screenshot({ type: "png" }); log("캡처 PNG", Math.round(png.length / 1024) + "KB", Math.round(VW * dsf) + "x" + Math.round(VH * dsf)); photoBuf = png; if (png.length > 9.4e6) { photoBuf = await page.screenshot({ type: "jpeg", quality: 93 }); log("사진용 JPEG", Math.round(photoBuf.length / 1024) + "KB (원본 PNG는 문서로)"); } }   /* 텔레그램 사진 10MB 한도 */
     /* 저장본 갱신(다음 실행이 이어받음): 로컬 파일은 매번, Supabase 백업은 1시간 간격 */
     const dump = await page.evaluate(dumpInPage, iv).catch(() => null);
     if (dump && (Object.keys((dump.raw && dump.raw[iv]) || {}).length || Object.keys(dump.day || {}).length)) {
@@ -471,7 +472,7 @@ async function main() {
     else if (dry) log("dry 모드 — 차트 사진 전송 생략");
     else {
       cur = "report"; stage(64, "텔레그램으로 차트 사진 보내는 중");
-      const mid = await sendPhoto(png, "📈 흐름차트 · " + frame + " · " + ({ "4h": "4시간", "1h": "1시간", "8h": "8시간", "15m": "15분", "30m": "30분", "3m": "3분" }[iv] || iv) + "봉 · " + (lead || alt ? "" : "코인 제외 · ") + kstText());
+      const mid = await sendPhoto(photoBuf || png, "📈 흐름차트 · " + frame + " · " + ({ "4h": "4시간", "1h": "1시간", "8h": "8시간", "15m": "15분", "30m": "30분", "3m": "3분" }[iv] || iv) + "봉 · " + (lead || alt ? "" : "코인 제외 · ") + kstText());
       log("사진 전송", mid); stage(72, "차트 사진 전송 완료");
       { const s2 = loadState(); s2.lastFlow = Date.now(); saveState(s2); }
       if (sendDoc) {

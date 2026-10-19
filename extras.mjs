@@ -476,30 +476,34 @@ export function pickRow(uni, ticker, info) {
   const alias = info.alias[ticker] || ticker;
   return uni.find((r) => r.short === alias && r.dex === "xyz") || uni.find((r) => r.short === alias && r.dayNtl > 1e5) || (/^k?[A-Z0-9]{2,8}$/.test(ticker) ? { full: ticker, short: ticker, dex: "코인" } : null);
 }
+/* 차트 선명도(카드·가격흐름 사진 공통): 헤드리스 크롬은 ResizeObserver 의 devicePixelContentBoxSize 를 배율 없이(1배) 알려줘서 차트 캔버스가 1배로 그려진 뒤
+   사진에서 늘어나 흐릿해짐 → 실제 배율(devicePixelRatio)을 곱해 바로잡음. 일봉 미니(#mini)는 작아서 한 번 더 2배로(초과 표본추출) 그려 선·캔들 가장자리를 더 매끈하게 */
+export async function crispCanvas(page) {
+  if (page.__roFix) return;
+  page.__roFix = true;
+  await page.evaluateOnNewDocument(() => {
+    const RO = window.ResizeObserver; if (!RO) return;
+    window.ResizeObserver = class extends RO {
+      constructor(cb) {
+        super((entries, obs) => {
+          const d = window.devicePixelRatio || 1;
+          cb(entries.map((e) => {
+            const b = e.contentBoxSize && e.contentBoxSize[0]; if (!b) return e;
+            const f = e.target && e.target.closest && e.target.closest("#mini") ? 2 : 1;
+            const dp = [{ inlineSize: Math.round(b.inlineSize * d * f), blockSize: Math.round(b.blockSize * d * f) }];
+            return new Proxy(e, { get(t, k) { if (k === "devicePixelContentBoxSize") return dp; const v = t[k]; return typeof v === "function" ? v.bind(t) : v; } });
+          }), obs);
+        });
+      }
+    };
+  });
+}
 /* 카드 이미지 렌더(site/card.html) */
 export async function renderCard(page, base, data) {
   /* 선명도: 화면 크기는 그대로 두고 확대 배율(deviceScaleFactor)만 올림 — 최대 4배(정수), 큰 화면은 약 1400만 화소 이하로. 텔레그램 사진 10MB 를 넘으면 배율을 1씩 낮춰 다시 그림(최소 2배) */
   const dsf = data.dsf || (data.vp ? Math.max(2, Math.min(4, Math.floor(Math.sqrt(14e6 / (data.vp.w * data.vp.h)))))   /* 정수 배율만 써야 글자가 번지지 않음 */ : 2), cap0 = data.caption, det0 = data.detail;
   if (data.vp) await page.setViewport({ width: data.vp.w, height: data.vp.h, deviceScaleFactor: dsf });   /* 카드 사진 크기: 폴드 1200×1100 / 갤탭·PC 16:10 1600×1000 */
-  /* 차트 선명도: 헤드리스 크롬은 ResizeObserver 의 devicePixelContentBoxSize 를 배율 없이(1배) 알려줘서 차트 캔버스가 1배로 그려진 뒤 사진에서 늘어나 흐릿해짐 → 실제 배율(devicePixelRatio)을 곱한 값으로 바로잡음 */
-  if (!page.__roFix) {
-    page.__roFix = true;
-    await page.evaluateOnNewDocument(() => {
-      const RO = window.ResizeObserver; if (!RO) return;
-      window.ResizeObserver = class extends RO {
-        constructor(cb) {
-          super((entries, obs) => {
-            const d = window.devicePixelRatio || 1;
-            cb(entries.map((e) => {
-              const b = e.contentBoxSize && e.contentBoxSize[0]; if (!b) return e;
-              const dp = [{ inlineSize: Math.round(b.inlineSize * d), blockSize: Math.round(b.blockSize * d) }];
-              return new Proxy(e, { get(t, k) { if (k === "devicePixelContentBoxSize") return dp; const v = t[k]; return typeof v === "function" ? v.bind(t) : v; } });
-            }), obs);
-          });
-        }
-      };
-    });
-  }
+  await crispCanvas(page);
   await page.goto(base + "/card.html", { waitUntil: "domcontentloaded", timeout: 20000 });
   { const k = kst(Date.now()); data.stamp = k.getUTCFullYear() + "-" + p2(k.getUTCMonth() + 1) + "-" + p2(k.getUTCDate()) + "(" + WDK[k.getUTCDay()] + ") " + p2(k.getUTCHours()) + ":" + p2(k.getUTCMinutes()) + ":" + p2(k.getUTCSeconds()); }
   const sum = await page.evaluate((d) => window.renderCard(d), data);
