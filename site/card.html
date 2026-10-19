@@ -117,7 +117,9 @@ window.renderCard=function(d){
    const pos=function(){const cw=el.offsetWidth,chh=el.offsetHeight,w=Math.round(cw*frac),h=Math.min(Math.round(w/(narrow?1.15:1.7)),Math.round(chh*.55));
     mel.style.display="block";mel.style.width=w+"px";mel.style.height=h+"px";mel.style.left=(el.offsetLeft+6)+"px";mel.style.top=(el.offsetTop+chh-h-6)+"px";
     /* 미니가 덮은 메인 차트의 패널 제목은 숨김(일부만 삐져나와 지저분해 보이지 않게) */
-    const mr=mel.getBoundingClientRect();el.querySelectorAll(".paneTitle").forEach(function(t){const r=t.getBoundingClientRect();t.style.visibility=(r.left<mr.right&&r.right>mr.left&&r.top<mr.bottom&&r.bottom>mr.top)?"hidden":"visible";});};
+    const mr=mel.getBoundingClientRect();el.querySelectorAll(".paneTitle").forEach(function(t){const r=t.getBoundingClientRect();t.style.visibility=(r.left<mr.right&&r.right>mr.left&&r.top<mr.bottom&&r.bottom>mr.top)?"hidden":"visible";});
+    /* PivotScope 상태 문구(.pvStat)는 미니와 겹치면 미니 오른쪽 끝에서부터 시작하도록 옮김 */
+    el.querySelectorAll(".pvStat").forEach(function(t){const er=el.getBoundingClientRect(),r=t.getBoundingClientRect();if(r.left<mr.right&&r.right>mr.left&&r.top<mr.bottom&&r.bottom>mr.top)t.style.left=Math.round(mr.right-er.left+10)+"px";});};
    pos();
    const dcs=d.daily.map(function(c){return {time:c.time,open:c.open,high:c.high,low:c.low,close:c.close,volume:c.volume*(c.high+c.low+c.close)/3};});   /* 거래량 = 거래대금($) — 메인과 같은 기준 */
    const subs=[];if(mm.vol)subs.push("vol");if(mm.rsi)subs.push("rsi");
