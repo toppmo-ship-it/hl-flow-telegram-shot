@@ -962,7 +962,7 @@ function build(el, data, opt) {
     ctl.pvTextPane = tp;
   }
   const ps = chart.panes(); ps[0].setStretchFactor(subs.length ? (opt.compact ? 4.4 : 6.5) : 1); subs.forEach((id, i) => ps[i + 1] && ps[i + 1].setStretchFactor(id === "rsi" ? 1.7 : id === "pvs" ? 2 : 1));
-  if (ctl.pvTextPane != null && ps[ctl.pvTextPane]) ps[ctl.pvTextPane].setStretchFactor(1.5);
+  if (ctl.pvTextPane != null && ps[ctl.pvTextPane]) ps[ctl.pvTextPane].setStretchFactor(1.1);
 
   /* ICT: 도형 + 지지·저항(전환 구분) */
   const I = patMode ? {} : (opt.ict || {});
