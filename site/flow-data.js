@@ -769,7 +769,7 @@ F.startWS=onMids=>{
   ws.onerror=()=>{try{ws.close();}catch(e){}};
  };
  open();
- setInterval(()=>{if(dirty){dirty=false;F.recordTicks(mids);if(!document.hidden)onMids(mids);}},800);
+ setInterval(()=>{if(dirty){dirty=false;F.recordTicks(mids);onMids(mids);}},800);
  F.wsReopen=()=>{if(!ws||ws.readyState>1){try{ws&&ws.close();}catch(e){}retry=0;open();}};
 };
 

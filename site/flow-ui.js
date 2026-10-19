@@ -372,7 +372,7 @@ async function warmFrames(list){
   for(const r of list){
    const f=F.frameOf(r.k,r.iv);{const x=F.tk.m.pre;if(x)x.note=r.k+"·"+f.iv+" 받는 중";}F.tk.p("pre",++pd,list.length);
    if(f.key===F.frameObj().key)continue;
-   while(loading||document.hidden)await F.sleep(1500);
+   while(loading)await F.sleep(1500);
    const tickers=allTickers();
    const res=await F.fetchFast(f,tickers,null,4).catch(()=>null);
    if(res&&Object.keys(res.data).length>=Math.ceil(tickers.length*0.5)&&enough(Object.keys(res.data).length,res.total))F.saveFrame(f,res.data);
@@ -393,7 +393,7 @@ async function prefetchOthers(){
   let pd=0;F.tk.b("pre",order.length);
   for(const f of order){{const x=F.tk.m.pre;if(x)x.note=f.k+" 받는 중";}F.tk.p("pre",++pd,order.length);
    if(f.key===F.frameObj().key)continue;
-   while(loading||document.hidden)await F.sleep(1500);
+   while(loading)await F.sleep(1500);
    const c=F.mem[f.key]||await F.idbGet(f.key);
    if(c&&Date.now()-c.t<F.staleMs(f))continue;
    const tickers=allTickers();
@@ -1007,8 +1007,8 @@ async function init(){
  updateList();updateInfo();
  loadFrame(false);
  if(!SHOT&&!WARM)F.startWS(onMids);
- setInterval(()=>{if(!document.hidden&&!loading)fillMissing();},45000);   /* 받지 못한 종목 자동 재시도 */
- setInterval(()=>{updateInfo();liveFallback();if(!S.grid.length&&!loading&&!document.hidden)loadFrame(false);},5000);   /* 워치독: 화면이 비어 있으면 다시 시도 */
+ setInterval(()=>{if(!loading)fillMissing();},45000);   /* 받지 못한 종목 자동 재시도 */
+ setInterval(()=>{updateInfo();liveFallback();if(!S.grid.length&&!loading)loadFrame(false);},5000);   /* 워치독: 화면이 비어 있으면 다시 시도 */
  window.__flow=F;   /* 원격 점검용 */
  window.__warmInfo=()=>({loading,pre:prefetching,bg:warmN,grid:S.grid.length,n:Object.keys(cur).length,src:dataSrc});
 }
