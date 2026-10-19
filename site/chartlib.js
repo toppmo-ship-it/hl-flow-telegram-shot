@@ -786,10 +786,68 @@ function ictItems(a, o, col, th) {
   return items;
 }
 
+/* ───────── PivotScope 하단지표 (트뷰 PivotScope.pine 과 같은 규칙) ─────────
+   예고선 = (고점 가능성 − 저점 가능성) 각각 '평소값(13%) 빼고 2.2배'로 키운 한 줄. '근처' = 최근 300봉 중 상위 10%이면서 25 이상.
+   상태 문구: 근처 구간의 정점·삼각형 확인·앞으로의 확인 조건. 규칙(기준값·배수·한계)을 바꾸면 PivotScope.pine 도 같이 고칠 것. */
+const PVS = { base: 13, gain: 2.2, warn: 25, pct: 10, win: 300, lateK: 6, lateAmp: 1.5, slack: 0.25 };
+function pvsCalc(cs, pv) {
+  const n = cs.length, osc = new Float64Array(n).fill(NaN), thr = new Float64Array(n).fill(PVS.warn), near = new Uint8Array(n);
+  const amp = (p) => (p === p ? Math.max(0, p * 100 - PVS.base) * PVS.gain : NaN);
+  for (let i = 0; i < n; i++) { const a = amp(pv.top.pre[i]), b = amp(pv.bot.pre[i]); if (a === a && b === b) osc[i] = Math.max(-100, Math.min(100, a - b)); }
+  const ab = Array.from(osc, (v) => (v === v ? Math.abs(v) : 0)), k = Math.max(0, Math.ceil(PVS.win * (100 - PVS.pct) / 100 - 1e-9) - 1);
+  for (let i = PVS.win - 1; i < n; i++) { const w = ab.slice(i - PVS.win + 1, i + 1).sort((x, y) => x - y); thr[i] = Math.max(PVS.warn, w[k]); }
+  for (let i = 0; i < n; i++) near[i] = osc[i] === osc[i] && ab[i] >= thr[i] ? 1 : 0;
+  return { osc, thr, near, ab };
+}
+function pvsStatus(cs, pv, C) {
+  const n = cs.length, last = n - 1, osc = C.osc, thr = C.thr, near = C.near, ab = C.ab;
+  let pkAbs = 0, pkSign = 0, pkAge = 999, nearRun = 0, leaveAge = 999;
+  for (let i = 0; i < n; i++) {   /* 근처 구간의 정점·경과를 봉 순서대로 기억 */
+    if (osc[i] !== osc[i]) continue;
+    pkAge = Math.min(pkAge + 1, 999);
+    if (near[i]) { const sg = osc[i] >= 0 ? 1 : -1; nearRun = leaveAge === 0 ? nearRun + 1 : 1; leaveAge = 0; if (sg !== pkSign || ab[i] >= pkAbs) { pkSign = sg; pkAbs = ab[i]; pkAge = 0; } }
+    else { nearRun = 0; leaveAge = Math.min(leaveAge + 1, 999); if (leaveAge > 8) { pkSign = 0; pkAbs = 0; } }
+  }
+  let li = last; while (li > 0 && osc[li] !== osc[li]) li--;
+  const curAbs = osc[li] === osc[li] ? Math.abs(osc[li]) : 0, RED = "255,90,90", GRN = "53,212,154";
+  const out = { head: "평온", color: "rgba(150,165,190,.30)", lines: ["강도 " + Math.round(curAbs) + " (근처 기준 " + Math.round(thr[last]) + ")"] };
+  if (pkSign === 0) return out;
+  const top = pkSign === 1, side = top ? "고점" : "저점", close = cs[last].close, drop = pkAbs - curAbs, inNear = leaveAge === 0;
+  const stage = drop < 0.1 * pkAbs ? (pkAge === 0 ? "오르는 중" : "정점 부근") : "꺾임";
+  out.head = inNear ? side + " 근처 " + (top ? "▲" : "▼") + " " + stage : side + " 근처 벗어남 · 식는 중";
+  out.color = "rgba(" + (top ? RED : GRN) + "," + (inNear ? 0.85 : 0.4) + ")";
+  out.lines = [];
+  /* 1) 정점 이후 가격이 고점/저점 방향으로 갔는지 */
+  if (pkAge >= 1 && pkAge <= 200 && last - pkAge >= 0) {
+    const mv = (close / cs[last - pkAge].close - 1) * 100, dirOk = top ? -mv > 0 : mv > 0;
+    out.lines.push("정점 이후 가격 " + (mv >= 0 ? "+" : "−") + Math.abs(mv).toFixed(2) + "% → " + (dirOk ? "예상 방향(" + (top ? "하락" : "상승") + ")" : "반대로 진행 중"));
+  }
+  /* 2) 정점 부근 삼각형 신호 확인(예고선 정점 뒤 1~3봉 안에 고점/저점이 나오므로 그 부근을 찾음) */
+  let l2 = "삼각형 확인: 아직 없음";
+  for (let q = pv.signals.length - 1; q >= 0; q--) {
+    const g = pv.signals[q];
+    if (g.side === (top ? "top" : "bot") && g.pi >= last - pkAge - 2 && g.pi <= last - pkAge + 5) {
+      const st = g.dead ? "가짜(✕)로 깨짐" : g.tier >= 2 ? g.tier + "등급 확정" : "후보 수준(화살표 미표시)";
+      l2 = "삼각형 확인: " + (last - g.t) + "봉 전 · 확률 " + Math.round(g.p * 100) + "% · " + st; break;
+    }
+  }
+  out.lines.push(l2);
+  /* 3) 앞으로의 확인 조건: 실제 고점/저점 봉에서 목표 폭(1.5ATR)만큼 움직이면 '느린 확인' 신호. 정점을 넘어서면 가짜 */
+  if (pkAge <= 60) {
+    let ex = top ? cs[last].high : cs[last].low, exOff = 0;
+    for (let k = 0; k <= pkAge + 5 && last - k >= 0; k++) { const v = top ? cs[last - k].high : cs[last - k].low; if (top ? v >= ex : v <= ex) { ex = v; exOff = k; } }
+    const atrP = (top ? pv.top.atr : pv.bot.atr)[last], tgt = top ? ex - PVS.lateAmp * atrP : ex + PVS.lateAmp * atrP, failLv = top ? ex + PVS.slack * atrP : ex - PVS.slack * atrP;
+    let far = ex; for (let k = 0; k <= exOff; k++) { const v = top ? cs[last - k].low : cs[last - k].high; far = top ? Math.min(far, v) : Math.max(far, v); }
+    const reached = top ? far <= tgt : far >= tgt, leftN = PVS.lateK - exOff, tp = Math.abs((tgt / close - 1) * 100).toFixed(1), fp = Math.abs((failLv / close - 1) * 100).toFixed(1), mw = top ? "하락" : "상승";
+    out.lines.push(reached ? "목표 폭 " + mw + " 이미 달성 (정점 " + exOff + "봉 전)" : leftN > 0 ? "앞으로 " + leftN + "봉 안에 " + tp + "% " + mw + " 시 확인 신호 · 반대로 " + fp + "% 넘으면 가짜" : "확인 시간 지남 · 목표 폭(" + tp + "%) 미달");
+  }
+  return out;
+}
+
 /* ───────── 차트 만들기 ─────────
    data: { candles:[{time(UTC초),open,high,low,close,volume}], daily:[같은 형식, 일봉], precision? }
    opt : { iv, subs:["vol","rsi","st533","st2599"], rsiOB, rsiOS, kel:{on,wC,wB}, ict:{sr,struct,fvg,ob,liq,pd}, ... } */
-const SUB_TITLE = { vol: "거래량 (거래대금$) · 노랑선=20봉 평균", rsi: "RSI (14) · 노랑 음영 = 과매수(70↑)·과매도(30↓)", pvs: "PivotScope · 선 = 예고(곧 형성될 가능성) 위 빨강=고점·아래 초록=저점 · 막대 = 확정 후보 확률 · 점선 70% = 확정" };
+const SUB_TITLE = { vol: "거래량 (거래대금$) · 노랑선=20봉 평균", rsi: "RSI (14) · 노랑 음영 = 과매수(70↑)·과매도(30↓)", pvs: "PivotScope · 선 = 예고(곧 형성될 가능성) 위 빨강=고점·아래 초록=저점 · 굵은 구간 = 근처(상위 10%) · 점선 = 근처 기준" };
 /* 원화 간략 표기: 1.4천 · 520만 · 5.6억 · 24억 · 5500억 · 1.2조 */
 function fmtKrw(w) {
   if (!(w > 0)) return "0원";
@@ -869,13 +927,12 @@ function build(el, data, opt) {
       ctl.subSeries.vol = vs;
     } else if (id === "pvs") {
       /* PivotScope: 선(면) = 예고(앞으로 1~3봉 안에 고점이면 +, 저점이면 −) · 막대 = 확정 후보 확률(0.5↑) · 0선/후보 50/확정 70 */
-      const RED = "255,90,90", GRN = "53,212,154", pct = (v) => Math.abs(v).toFixed(0) + "%", fixed = () => ({ priceRange: { minValue: -100, maxValue: 100 } });
-      const bars = chart.addSeries(LW.HistogramSeries, { priceLineVisible: false, lastValueVisible: false, priceFormat: { type: "custom", formatter: pct, minMove: 1 }, autoscaleInfoProvider: fixed }, pane);
-      const osc = chart.addSeries(LW.BaselineSeries, { baseValue: { type: "price", price: 0 }, topLineColor: "rgba(" + RED + ",.95)", topFillColor1: "rgba(" + RED + ",.45)", topFillColor2: "rgba(" + RED + ",.04)", bottomLineColor: "rgba(" + GRN + ",.95)", bottomFillColor1: "rgba(" + GRN + ",.04)", bottomFillColor2: "rgba(" + GRN + ",.45)", lineWidth: 2, priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false, priceFormat: { type: "custom", formatter: pct, minMove: 1 }, autoscaleInfoProvider: fixed }, pane);
+      /* 트뷰와 같은 모양: 증폭한 한 줄(얇고 옅게) + '근처' 구간만 굵게 덧그림. 막대·음영·70% 점선은 없음 */
+      const pct = (v) => v.toFixed(0), fixed = () => ({ priceRange: { minValue: -100, maxValue: 100 } });
+      const so = { priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: { type: "custom", formatter: pct, minMove: 1 }, autoscaleInfoProvider: fixed };
+      const osc = chart.addSeries(LW.LineSeries, Object.assign({ lineWidth: 1 }, so), pane);
       osc.createPriceLine({ price: 0, color: "rgba(150,165,190,.55)", lineWidth: 1, lineStyle: 0, axisLabelVisible: false, title: "" });
-      if (!opt.compact) [50, -50].forEach((v) => osc.createPriceLine({ price: v, color: "rgba(150,165,190,.35)", lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: "" }));
-      [70, -70].forEach((v) => osc.createPriceLine({ price: v, color: "rgba(255,216,77,.85)", lineWidth: 1, lineStyle: 2, axisLabelVisible: !opt.compact, title: "" }));
-      ctl.subSeries.pvs = osc; ctl.pvBars = bars; ctl.pvOsc = osc;
+      ctl.subSeries.pvs = osc; ctl.pvBars = null; ctl.pvOsc = osc; ctl.pvHots = []; ctl.pvPane = pane; ctl.pvSo = so; ctl.pvThrLines = [];
     } else if (id === "rsi") {
       const r = rsiArr(closes, 14), ob = opt.rsiOB || 70, os = opt.rsiOS || 30;
       const s = chart.addSeries(LW.LineSeries, { color: COL.rsi, lineWidth: 2, priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false, priceFormat: { type: "custom", formatter: (v) => v.toFixed(1), minMove: 0.1 }, autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }) }, pane);
@@ -898,7 +955,14 @@ function build(el, data, opt) {
   });
   if (!ctl.rsi) ctl.rsi = rsiArr(closes, 14);   /* 요약 문구용 RSI 값은 하단 패널과 상관없이 계속 계산 */
   Object.keys(ctl.subSeries).forEach((k) => { const nb = new NightBand(); nb.set(nights, col.night); ctl.subSeries[k].attachPrimitive(nb); ctl.nights.push(nb); if (ctl.dayLines) { const dl2 = new DayLines(); dl2.set(ctl.dayLines.xs); ctl.subSeries[k].attachPrimitive(dl2); } });
+  /* PivotScope 상태 문구 전용 칸: 지표 칸 바로 아래에 빈 칸을 하나 더 두고 글자는 그 칸에만 올린다(지표를 가리지 않게). 작은 일봉 미니는 생략 */
+  if (!opt.compact && subs.includes("pvs")) {
+    const tp = subs.length + 1, dm = chart.addSeries(LW.LineSeries, { color: "rgba(0,0,0,0)", lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: { type: "custom", formatter: () => "", minMove: 1 }, autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 1 } }) }, tp);   /* 눈금 글자는 빈 문자열로 숨김(축 숨김 옵션은 오류) */
+    dm.setData(cs.map((c) => ({ time: T(c), value: 0.5 })));
+    ctl.pvTextPane = tp;
+  }
   const ps = chart.panes(); ps[0].setStretchFactor(subs.length ? (opt.compact ? 4.4 : 6.5) : 1); subs.forEach((id, i) => ps[i + 1] && ps[i + 1].setStretchFactor(id === "rsi" ? 1.7 : id === "pvs" ? 2 : 1));
+  if (ctl.pvTextPane != null && ps[ctl.pvTextPane]) ps[ctl.pvTextPane].setStretchFactor(1.5);
 
   /* ICT: 도형 + 지지·저항(전환 구분) */
   const I = patMode ? {} : (opt.ict || {});
@@ -940,20 +1004,38 @@ function build(el, data, opt) {
       if (!ctl.pvPre) { ctl.pvPre = new HollowArrows(); main.attachPrimitive(ctl.pvPre); }
       ctl.pvPre.setItems(pre, !!opt.compact);
       if (ctl.pvOsc) {
-        ctl.pvOsc.setData(cs.map((c, i) => { const u = pv.top.pre[i], d = pv.bot.pre[i]; return u === u && d === d ? { time: T(c), value: (u - d) * 100 } : { time: T(c) }; }));
-        const RED = [255, 90, 90], GRN = [53, 212, 154], hb = [];
-        cs.forEach((c, i) => {
-          const pt = pv.top.gate[i] ? pv.top.p[i] : 0, pb = pv.bot.gate[i] ? pv.bot.p[i] : 0, top = pt >= pb, p = top ? pt : pb;
-          if (p < 0.5) return;
-          const rgb = c.close >= c.open ? [255, 77, 93] : [79, 195, 255], al = p >= 0.85 ? 0.95 : p >= 0.7 ? 0.65 : 0.34;   /* 막대 색 = 그 봉의 캔들 색(상승 빨강·하락 파랑), 고점/저점은 위/아래 방향으로 구분 */
-          hb.push({ time: T(c), value: (top ? 1 : -1) * p * 100, color: "rgba(" + rgb[0] + "," + rgb[1] + "," + rgb[2] + "," + al + ")" });
-        });
-        ctl.pvBars.setData(hb);
+        const C = pvsCalc(cs, pv), rgba2 = (v, al) => (v >= 0 ? "rgba(255,90,90," : "rgba(53,212,154,") + al + ")";
+        ctl.pvOsc.setData(cs.map((c, i) => (C.osc[i] === C.osc[i] ? { time: T(c), value: C.osc[i], color: rgba2(C.osc[i], 0.45) } : { time: T(c) })));
+        /* '근처' 구간만 굵게. 빈 점으로는 선이 안 끊겨서(앞뒤 구간이 대각선으로 이어짐) 구간마다 선을 따로 만든다. 앞뒤 한 봉씩 이어서 한 봉짜리도 보이게 */
+        (ctl.pvHots || []).forEach((h) => { try { chart.removeSeries(h); } catch (e) {} }); ctl.pvHots = [];
+        const nI = (i) => (i >= 0 && i < cs.length && C.near[i] ? 1 : 0), runs = []; let cur = null;
+        for (let i = 0; i < cs.length; i++) {
+          if (C.osc[i] === C.osc[i] && (nI(i) || nI(i - 1) || nI(i + 1))) { if (!cur) { cur = []; runs.push(cur); } cur.push({ time: T(cs[i]), value: C.osc[i], color: rgba2(C.osc[i], 1) }); } else cur = null;
+        }
+        runs.slice(-150).forEach((r) => { if (r.length < 2) return; const h = chart.addSeries(LW.LineSeries, Object.assign({ lineWidth: opt.compact ? 3 : 4 }, ctl.pvSo), ctl.pvPane); h.setData(r); ctl.pvHots.push(h); });
+        (ctl.pvThrLines || []).forEach((l) => { try { ctl.pvOsc.removePriceLine(l); } catch (e) {} }); ctl.pvThrLines = [];
+        const tl = C.thr[cs.length - 1];   /* 지금의 '근처' 기준선(옅은 점선) */
+        [tl, -tl].forEach((v) => ctl.pvThrLines.push(ctl.pvOsc.createPriceLine({ price: v, color: "rgba(150,165,190,.40)", lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: "" })));
+        ctl.pvStat = pvsStatus(cs, pv, C);
       }
     } catch (e) { if (typeof console !== "undefined") console.warn("PivotScope 오류", e); }
     ctl.pv = pv;
     if (ctl.mk) ctl.mk.setMarkers(sw); else ctl.mk = LW.createSeriesMarkers(main, sw);
+    setTimeout(pvsRender, 80);   /* 칸 크기가 정해진 뒤에 글자 올림(라이브 갱신 때도 다시 그림) */
     return pv;
+  }
+  /* PivotScope 상태 문구: 전용 칸(아래 빈 칸)에만 올림 — 제목 + 핵심 3줄. 칸 높이에 맞춰 글자 크기 자동 */
+  function pvsRender() {
+    el.querySelectorAll(".pvStat").forEach((x) => x.remove());
+    const st = ctl.pvStat; if (!st || ctl.pvTextPane == null) return;
+    const pn = chart.panes()[ctl.pvTextPane]; if (!pn || !pn.getHTMLElement()) return;
+    const base = el.getBoundingClientRect(), r = pn.getHTMLElement().getBoundingClientRect(); if (r.height < 24) return;
+    let aw = 64; try { aw = chart.priceScale("right").width() || 64; } catch (e) {}
+    const lh = Math.max(11, Math.min(18, (r.height - 8) / (st.lines.length + 1.6))), box = document.createElement("div"); box.className = "pvStat";
+    box.style.cssText = "position:absolute;left:52px;right:" + (aw + 8) + "px;top:" + (r.top - base.top + 3) + "px;height:" + Math.max(10, r.height - 6) + "px;overflow:hidden;z-index:6;pointer-events:none;display:flex;flex-direction:column;justify-content:space-evenly;font-family:'Pretendard','Malgun Gothic','Nanum Gothic',sans-serif";
+    const h = document.createElement("div"); h.textContent = st.head; h.style.cssText = "align-self:flex-start;background:" + st.color + ";color:#fff;font-weight:800;font-size:" + (lh * 1.12).toFixed(1) + "px;line-height:1.25;padding:0 9px;border-radius:5px;white-space:nowrap"; box.appendChild(h);
+    st.lines.forEach((t) => { const d = document.createElement("div"); d.textContent = t; d.style.cssText = "font-weight:700;font-size:" + (lh * 0.84).toFixed(1) + "px;line-height:1.25;color:#d6e2f7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"; box.appendChild(d); });
+    el.appendChild(box);
   }
   drawPivot();
   if (LY.vwap) { ctl.vw = new NubiaLayer(); main.attachPrimitive(ctl.vw); ctl.vw.set(cs); }
@@ -967,7 +1049,7 @@ function build(el, data, opt) {
   /* 패널 제목(왼쪽 위) */
   function titles() {
     el.querySelectorAll(".paneTitle").forEach((x) => x.remove());
-    const CP = !!opt.compact, FS = CP ? 11 : 13, ST = CP ? { vol: "거래량", pvs: "PivotScope · 선=예고 막대=확정" } : SUB_TITLE;   /* 작은 차트(일봉 미니)는 제목을 짧게 */
+    const CP = !!opt.compact, FS = CP ? 11 : 13, ST = CP ? { vol: "거래량", pvs: "PivotScope · 선=예고 굵게=근처" } : SUB_TITLE;   /* 작은 차트(일봉 미니)는 제목을 짧게 */
     const pr = chart.panes(), base = el.getBoundingClientRect(), mk = (txt, top) => { const d = document.createElement("div"); d.className = "paneTitle"; d.textContent = txt; d.style.cssText = "position:absolute;left:" + (CP ? 8 : 10) + "px;top:" + (top + (CP ? 3 : 4)) + "px;z-index:6;font:700 " + FS + "px 'Pretendard','Malgun Gothic','Nanum Gothic',sans-serif;color:#aebfdc;background:rgba(10,15,25,.78);padding:2px 7px;border-radius:5px;pointer-events:none"; el.appendChild(d); };
     subs.forEach((id, i) => { const p = pr[i + 1]; if (!p || !p.getHTMLElement()) return; mk(ST[id], p.getHTMLElement().getBoundingClientRect().top - base.top); });
     /* PivotScope 칸 오른쪽 위에 지금 쓰는 화살표 기준(0.7=예비 없음, 낮추면 예비 표시)을 작게 적는다 */
@@ -981,7 +1063,7 @@ function build(el, data, opt) {
     const d = document.createElement("div"); d.className = "paneTitle"; d.textContent = lg.join(""); d.style.cssText = "position:absolute;left:" + (CP ? 8 : 10) + "px;top:" + (CP ? 5 : 6) + "px;z-index:6;font:700 " + FS + "px 'Pretendard','Malgun Gothic','Nanum Gothic',sans-serif;color:#c9d6ee;background:rgba(10,15,25,.78);padding:2px 7px;border-radius:5px;pointer-events:none"; if (lg.length) el.appendChild(d);
   }
   chart.timeScale().setVisibleLogicalRange({ from: winFrom, to: cs.length - 1 + Math.max(opt.rightPad != null ? opt.rightPad : 18, Math.round((cs.length - winFrom) * 0.09)) });   /* 오른쪽 여백 18봉: 최신 봉·가격 숫자가 겹치지 않게 */
-  setTimeout(titles, 60); ctl.titles = titles;
+  setTimeout(() => { titles(); pvsRender(); }, 60); ctl.titles = () => { titles(); pvsRender(); };
   /* 라이브 갱신용 */
   ctl.refreshAll = () => { drawKeltner(); if (ctl.vw) ctl.vw.set(cs); const r = drawIct(); drawPivot(); if (ctl.patLayer) { ctl.pat = root_.Patterns.detect(cs); ctl.patLayer.set(ctl.pat, winFrom, cs, Math.max(14, Math.round((cs.length - winFrom) * 0.09) - 2)); } return r; };
   ctl.quant = quantPrep; ctl.summary = () => summarize(ctl, cs, data.daily);
