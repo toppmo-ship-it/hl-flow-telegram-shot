@@ -846,8 +846,8 @@ function build(el, data, opt) {
     /* 스케일 모드 '가격만': 켈트너 선이 눈금 범위에 영향을 주지 않음(null) → 캔들 기준으로 눈금이 맞춰지고 선은 범위 밖이면 잘림 */
     const mk = (pts, color, w, lv) => { const s = chart.addSeries(LW.LineSeries, Object.assign({ color, lineWidth: lw(w), lineType: isDaily ? 0 : 1, priceLineVisible: false, lastValueVisible: lv !== false, crosshairMarkerVisible: false, priceFormat: { type: "price", precision: pf, minMove: Math.pow(10, -pf) } }, priceOnly ? { autoscaleInfoProvider: () => null } : {}), 0); s.setData(pts); return s; };
     const w1 = Math.max(1, (K.wB || 3) - 1);   /* 1.0 선은 1.5 선보다 한 단계 얇게 · 중심선은 1.5 설정과 같은 굵기 */
-    const thin = opt.compact ? 0.62 : 1;   /* 일봉 미니: 켈트너 상·하단선을 얇게 (중심선은 그대로) */
-    const mkB = (pts, color, w, lv) => { const s = mk(pts, color, w, lv); if (thin < 1) s.applyOptions({ lineWidth: Math.max(0.8, lw(w) * thin) }); return s; };
+    /* 일봉 미니: 켈트너 상·하단선을 아주 얇게(1.0 / 안쪽 0.75px) + 더 진한 노랑으로 — 얇아도 또렷하게. 중심선은 그대로 */
+    const mkB = (pts, color, w, lv) => { const s = mk(pts, opt.compact ? (lv === false ? "#ffd21f" : "#ffbf00") : color, w, lv); if (opt.compact) s.applyOptions({ lineWidth: lv === false ? 0.75 : 1 }); return s; };
     ctl.kel.mid = mk(st.mid, COL.kMid, K.wC); ctl.kel.up = mkB(st.up, COL.kBand, K.wB); ctl.kel.lo = mkB(st.lo, COL.kBand, K.wB);
     ctl.kel.up1 = mkB(st.up1, COL.kBand1, w1, false); ctl.kel.lo1 = mkB(st.lo1, COL.kBand1, w1, false);
     /* 패턴 이름표가 피해야 할 선(캔들 번호 i, 값 v) — 계단선(분·시간봉)은 가로→세로로 따라감 */

@@ -478,8 +478,8 @@ export function pickRow(uni, ticker, info) {
 }
 /* 카드 이미지 렌더(site/card.html) */
 export async function renderCard(page, base, data) {
-  /* 선명도: 화면 크기는 그대로 두고 확대 배율(deviceScaleFactor)만 올림 — 기본 3배, 큰 화면은 약 1200만 화소까지만. 텔레그램 사진 10MB 를 넘으면 2배로 다시 그림 */
-  const dsf = data.dsf || (data.vp ? Math.max(2, Math.min(3, Math.sqrt(12e6 / (data.vp.w * data.vp.h)))) : 2), cap0 = data.caption, det0 = data.detail;
+  /* 선명도: 화면 크기는 그대로 두고 확대 배율(deviceScaleFactor)만 올림 — 최대 4배(정수), 큰 화면은 약 1400만 화소 이하로. 텔레그램 사진 10MB 를 넘으면 배율을 1씩 낮춰 다시 그림(최소 2배) */
+  const dsf = data.dsf || (data.vp ? Math.max(2, Math.min(4, Math.floor(Math.sqrt(14e6 / (data.vp.w * data.vp.h)))))   /* 정수 배율만 써야 글자가 번지지 않음 */ : 2), cap0 = data.caption, det0 = data.detail;
   if (data.vp) await page.setViewport({ width: data.vp.w, height: data.vp.h, deviceScaleFactor: dsf });   /* 카드 사진 크기: 폴드 1200×1100 / 갤탭·PC 16:10 1600×1000 */
   await page.goto(base + "/card.html", { waitUntil: "domcontentloaded", timeout: 20000 });
   { const k = kst(Date.now()); data.stamp = k.getUTCFullYear() + "-" + p2(k.getUTCMonth() + 1) + "-" + p2(k.getUTCDate()) + "(" + WDK[k.getUTCDay()] + ") " + p2(k.getUTCHours()) + ":" + p2(k.getUTCMinutes()) + ":" + p2(k.getUTCSeconds()); }
@@ -508,7 +508,7 @@ export async function renderCard(page, base, data) {
     if (data.caption.length > 1000) data.caption = data.caption.slice(0, 997) + "…";
   }
   const png = await page.screenshot({ type: "png" });
-  if (png.length > 9.4e6 && dsf > 2 && data.vp) { data.dsf = 2; data.caption = cap0; data.detail = det0; return await renderCard(page, base, data); }   /* 텔레그램 사진 10MB 한도 → 2배로 재촬영 */
+  if (png.length > 9.4e6 && dsf > 2 && data.vp) { data.dsf = Math.max(2, dsf - 1); data.caption = cap0; data.detail = det0; return await renderCard(page, base, data); }   /* 텔레그램 사진 10MB 한도 → 배율을 낮춰 재촬영 */
   return png;
 }
 
