@@ -1032,7 +1032,7 @@ function build(el, data, opt) {
     const base = el.getBoundingClientRect(), r = pn.getHTMLElement().getBoundingClientRect(); if (r.height < 24) return;
     let aw = 64; try { aw = chart.priceScale("right").width() || 64; } catch (e) {}
     const lh = Math.max(11, Math.min(18, (r.height - 8) / (st.lines.length + 1.6))), box = document.createElement("div"); box.className = "pvStat";
-    box.style.cssText = "position:absolute;left:52px;right:" + (aw + 8) + "px;top:" + (r.top - base.top + 3) + "px;height:" + Math.max(10, r.height - 6) + "px;overflow:hidden;z-index:6;pointer-events:none;display:flex;flex-direction:column;justify-content:space-evenly;font-family:'Pretendard','Malgun Gothic','Nanum Gothic',sans-serif";
+    box.style.cssText = "position:absolute;right:" + (aw + 10) + "px;width:max-content;max-width:calc(100% - 70px);top:" + (r.top - base.top + 3) + "px;height:" + Math.max(10, r.height - 6) + "px;overflow:hidden;z-index:6;pointer-events:none;display:flex;flex-direction:column;align-items:flex-start;justify-content:space-evenly;font-family:'Pretendard','Malgun Gothic','Nanum Gothic',sans-serif";
     const h = document.createElement("div"); h.textContent = st.head; h.style.cssText = "align-self:flex-start;background:" + st.color + ";color:#fff;font-weight:800;font-size:" + (lh * 1.12).toFixed(1) + "px;line-height:1.25;padding:0 9px;border-radius:5px;white-space:nowrap"; box.appendChild(h);
     st.lines.forEach((t) => { const d = document.createElement("div"); d.textContent = t; d.style.cssText = "font-weight:700;font-size:" + (lh * 0.84).toFixed(1) + "px;line-height:1.25;color:#d6e2f7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"; box.appendChild(d); });
     el.appendChild(box);
