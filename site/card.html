@@ -16,7 +16,7 @@ html,body{margin:0;height:100%;background:radial-gradient(900px 420px at 15% -10
 #sub{margin-top:5px;font-size:16px;color:#8fa3c4;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #ttl{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:26px;font-weight:800;letter-spacing:.01em;text-shadow:0 0 14px rgba(120,200,255,.55)}
 #px{flex:none;white-space:nowrap;font-size:28px;font-weight:800;color:var(--gold);text-shadow:0 0 14px rgba(255,216,77,.5)}
-#ts{font-size:18px;color:#a9bddf;font-weight:700;margin-right:28px;letter-spacing:.01em;font-variant-numeric:tabular-nums;text-shadow:none}
+#ts{font-size:28px;color:#f2f7ff;font-weight:800;margin-left:28px;letter-spacing:.01em;font-variant-numeric:tabular-nums;text-shadow:0 0 12px rgba(160,190,255,.45)}   /* 시간은 가격과 같은 크기로 종목명 바로 왼쪽 */
 #px small{font-size:20px;color:var(--mute);font-weight:600;margin-right:8px}
 #chart{position:absolute;left:12px;right:12px;top:92px;bottom:84px;border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 0 22px rgba(60,140,255,.14)}
 .legend{position:absolute;left:24px;top:106px;z-index:5;font-size:15px;color:var(--mute);font-weight:600}
@@ -53,7 +53,7 @@ html.coin.t-lime #ctag{color:#071a08}
  #per{display:inline-block;margin-left:0;font-size:15px;padding:2px 10px;vertical-align:middle}
  #sub{margin-top:6px;font-size:14px}
  #px{display:flex;align-items:baseline;justify-content:flex-end;gap:10px;font-size:26px;width:100%}
- #ts{font-size:15px;margin-right:0}
+ #ts{font-size:26px;margin-left:0}
  #px small{font-size:17px;margin-right:6px}
  #px .pr{white-space:nowrap}
  #chart{position:relative;left:auto;right:auto;top:auto;bottom:auto;flex:1 1 auto;min-height:0;margin:0 0 8px}
@@ -86,7 +86,7 @@ const pad=n=>String(n).padStart(2,"0"),WD=["일","월","화","수","목","금","
 window.renderCard=function(d){
  { const h=document.documentElement; h.classList.remove("coin","t-fuchsia","t-lime"); if(d.theme){h.classList.add("coin","t-"+d.theme);} }   /* 코인 테마(없으면 주식 카드 그대로) */
  document.getElementById("ttl").textContent=d.ttl||d.title;document.getElementById("per").textContent=d.period||"";document.getElementById("sub").textContent=d.sub||"";
- document.getElementById("px").innerHTML="<span id=\"ts\">"+(d.stamp||"")+"</span><span class=\"pr\"><small>Price</small>$"+d.price+"</span>";
+ document.getElementById("px").innerHTML="<span class=\"pr\"><small>Price</small>$"+d.price+"</span><span id=\"ts\">"+(d.stamp||"")+"</span>";
  const el=document.getElementById("chart");
  document.getElementById("lg").style.top=(el.offsetTop+12)+"px";   /* 범례는 차트 맨 위에 맞춤 */
  const ctl=ChartLib.build(el,{candles:d.candles,daily:d.daily||[]},{iv:d.iv,mode:d.mode||"pattern",layers:d.layers||undefined,windowBars:d.windowBars,pvMin:d.pvMin,rightPad:(d.iv==="1d"?5:undefined),colors:d.colors,barSpacing:8,scale:d.scale||"all",kel:{on:true,wC:3,wB:3},ict:{sr:true,struct:true,fvg:true,ob:true,liq:true,pd:true}});

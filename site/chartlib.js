@@ -928,7 +928,7 @@ function build(el, data, opt) {
     } else if (id === "pvs") {
       /* PivotScope: 선(면) = 예고(앞으로 1~3봉 안에 고점이면 +, 저점이면 −) · 막대 = 확정 후보 확률(0.5↑) · 0선/후보 50/확정 70 */
       /* 트뷰와 같은 모양: 증폭한 한 줄(얇고 옅게) + '근처' 구간만 굵게 덧그림. 막대·음영·70% 점선은 없음 */
-      const pct = (v) => v.toFixed(0), fixed = () => ({ priceRange: { minValue: -100, maxValue: 100 } });
+      const pct = (v) => (v > 0 ? "+" : "") + v.toFixed(0), fixed = () => ({ priceRange: { minValue: -100, maxValue: 100 } });
       const so = { priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: { type: "custom", formatter: pct, minMove: 1 }, autoscaleInfoProvider: fixed };
       const osc = chart.addSeries(LW.LineSeries, Object.assign({ lineWidth: 1 }, so), pane);
       osc.createPriceLine({ price: 0, color: "rgba(150,165,190,.55)", lineWidth: 1, lineStyle: 0, axisLabelVisible: false, title: "" });
