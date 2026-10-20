@@ -932,6 +932,8 @@ function build(el, data, opt) {
       const so = { priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: { type: "custom", formatter: pct, minMove: 1 }, autoscaleInfoProvider: fixed };
       const osc = chart.addSeries(LW.LineSeries, Object.assign({ lineWidth: 1 }, so), pane);
       osc.createPriceLine({ price: 0, color: "rgba(150,165,190,.55)", lineWidth: 1, lineStyle: 0, axisLabelVisible: false, title: "" });
+      /* 오른쪽 축에 지금 선의 위치(부호 있는 수치)를 가격 라벨처럼 표시 — 양수 빨강 · 음수 초록. 마지막 한 점만 가진 안 보이는 선이 라벨만 그린다 */
+      ctl.pvLast = chart.addSeries(LW.LineSeries, Object.assign({}, so, { lineVisible: false, pointMarkersVisible: false, lastValueVisible: true, priceFormat: { type: "custom", formatter: (v) => (v > 0 ? "+" : "") + v.toFixed(0), minMove: 1 } }), pane);
       ctl.subSeries.pvs = osc; ctl.pvBars = null; ctl.pvOsc = osc; ctl.pvHots = []; ctl.pvPane = pane; ctl.pvSo = so; ctl.pvThrLines = [];
     } else if (id === "rsi") {
       const r = rsiArr(closes, 14), ob = opt.rsiOB || 70, os = opt.rsiOS || 30;
@@ -1006,6 +1008,7 @@ function build(el, data, opt) {
       if (ctl.pvOsc) {
         const C = pvsCalc(cs, pv), rgba2 = (v, al) => (v >= 0 ? "rgba(255,90,90," : "rgba(53,212,154,") + al + ")";
         ctl.pvOsc.setData(cs.map((c, i) => (C.osc[i] === C.osc[i] ? { time: T(c), value: C.osc[i], color: rgba2(C.osc[i], 0.45) } : { time: T(c) })));
+        if (ctl.pvLast) { let lj = cs.length - 1; while (lj > 0 && C.osc[lj] !== C.osc[lj]) lj--; const lv = C.osc[lj]; ctl.pvLast.setData(lv === lv ? [{ time: T(cs[lj]), value: lv, color: lv >= 0 ? "#ff5a5a" : "#35d49a" }] : []); }
         /* '근처' 구간만 굵게. 빈 점으로는 선이 안 끊겨서(앞뒤 구간이 대각선으로 이어짐) 구간마다 선을 따로 만든다. 앞뒤 한 봉씩 이어서 한 봉짜리도 보이게 */
         (ctl.pvHots || []).forEach((h) => { try { chart.removeSeries(h); } catch (e) {} }); ctl.pvHots = [];
         const nI = (i) => (i >= 0 && i < cs.length && C.near[i] ? 1 : 0), runs = []; let cur = null;
