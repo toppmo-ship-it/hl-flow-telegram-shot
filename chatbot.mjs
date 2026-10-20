@@ -352,7 +352,8 @@ async function doOiRank() {
 
 /* ── 상태·설정 ── */
 async function doStatus() {
-  const [last, st, cfg, mute] = await Promise.all([sbGet("tg_shot_last"), sbGet("tg_shot_status"), cfgGet(), sbGet("tg_bot_mute")]);
+  const [last0, st, cfg, mute, tr] = await Promise.all([sbGet("tg_shot_last"), sbGet("tg_shot_status"), cfgGet(), sbGet("tg_bot_mute"), sbGet("tg_trend_state")]);
+  const last = Object.assign({}, last0 || {}, tr && tr.last ? { trend: tr.last } : {});   /* 5프레임 추세 리포트는 따로 도는 작업(trend.yml) — 마지막 발송 시각을 따로 읽어 합침 */
   const co = C.bars ? Object.values(C.bars.c || {}).filter((e) => e.m && e.m.length > 130).length : 0;
   await say(F.statusText({ last, st, cfg, mute, up: C.up, snapAge: C.snapAt ? C.snapAt : null, bars: C.bars ? { ok: co, total: Object.keys(C.bars.c || {}).length } : null }));
 }

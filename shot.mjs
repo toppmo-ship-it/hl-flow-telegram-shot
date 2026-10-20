@@ -11,8 +11,6 @@ import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { buildTrendReport } from "./trendrep.mjs";
-import { buildTrendSpec } from "./trendspec.mjs";
 import { loadSiteInfo, loadUniverse, usdKrw, buildWeeklyTexts, buildSurgeText, pickRow, buildCardData, renderCard, flushCardCache, buildPatternRankText, applyCardCfg, crispCanvas } from "./extras.mjs";
 import { buildReport } from "./report.mjs";
 import { sbPut } from "./sb.mjs";
@@ -250,23 +248,6 @@ async function refreshStockList(dry) {
 }
 
 /* ── 하이퍼 리포트(사진): 탬퍼몽키 3분 리포트와 같은 구성. 데이터·섹션은 report.mjs, 그리기는 rep-render.js ── */
-/* 하이퍼 리포트와 같은 그리기(rep-render.js)로 spec 을 사진으로 — 5프레임 추세 리포트용. 10MB 넘으면 가로를 줄여 다시 */
-async function renderRepPhoto(spec, W0) {
-  const browser = await launchChrome({ executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome", headless: true, args: ["--no-sandbox", "--hide-scrollbars", "--disable-dev-shm-usage"], defaultViewport: { width: 1600, height: 1000 } });
-  try {
-    const page = await browser.newPage();
-    page.on("pageerror", (e) => log("추세 사진 페이지 오류:", String(e.message).slice(0, 160)));
-    await page.setContent("<html><body style='margin:0;background:#17181c'></body></html>");
-    await page.addScriptTag({ content: fs.readFileSync(path.join(ROOT, "rep-render.js"), "utf8") });
-    let buf = null;
-    for (let k = 0, w = W0; k < 3; k++, w = Math.round(w * 0.78)) {
-      const r = await page.evaluate((sp) => window.drawReport(sp), { header: spec.header, sections: spec.sections, foot: spec.foot, outW: w });
-      buf = Buffer.from(r.url.split(",")[1], "base64");
-      if (buf.length < 9.5e6) break;
-    }
-    return buf;
-  } finally { await browser.close(); }
-}
 const REP_W = { fcover: 1360, fwide: 2184, pcxl: 3200 };   /* 해상도 3종 → 리포트 가로 픽셀(세로는 내용만큼) */
 async function runReport({ cfg0, q, dry }) {
   const want = q.rep != null ? q.rep === "1" : cfg0.rep !== false;
@@ -328,14 +309,12 @@ async function runExtras({ cfg0, q, dry, base }) {
   let cards = manualCards ? cleanT(String(q.cards).split(",")) : (cardsOn ? cleanT(selectStockCards(cfg0, null)) : []);   /* 직접 고른 종목 — 자동 상위는 데이터를 받은 뒤 아래에서 더함 */
   const autoCards = !manualCards && cardsOn && (K.auto.on || K.sort !== false);   /* 자동정렬도 시세 목록(거래대금·분야)이 필요해서 같이 받음 */   /* 텔레그램 그룹 분당 20건 제한은 아래 발송 간격·429 재시도로 지킴 */
   const wantP = only ? (only.has("rank") && cfg0.rankPattern !== false) : flag(q.rankp, cfg0.rankPattern !== false);   /* 패턴 확률 순위(별도 메시지) — 기본 켬 */
-  const wantT = only ? only.has("trend") : flag(q.trend, cfg0.trendOn === true);   /* 5프레임 추세 정렬 리포트(별도 끄고켜기 · 기본 꺼짐). 항목별 지금 보내기는 꺼져 있어도 보냄 */
-  if (!wantW && !wantS && !wantP && !wantT && !cards.length && !autoCards) return;
+  if (!wantW && !wantS && !wantP && !cards.length && !autoCards) return;
   const st = loadState(), now = Date.now(), force = q.force === "1";
   const dueRank = (wantW || wantS) && (force || due(st.lastRank, +cfg0.rankEvery || 0));
   const dueCards = (cards.length || autoCards) && (force || due(st.lastCards, cfg0.cardEvery != null ? Math.min(240, +cfg0.cardEvery) : 0));
   const dueP = wantP && (force || due(st.lastPat, cfg0.rankPatEvery != null ? +cfg0.rankPatEvery : 60));
-  const dueT = wantT && (force || due(st.lastTrend, [5, 15, 30, 60].includes(+cfg0.trendEvery) ? +cfg0.trendEvery : 15));
-  if (!dueRank && !dueCards && !dueP && !dueT) { log("추가 기능: 아직 보낼 주기가 아님"); return; }
+  if (!dueRank && !dueCards && !dueP) { log("추가 기능: 아직 보낼 주기가 아님"); return; }
   const info = loadSiteInfo(SITE), uni = await getUni(), fx = await getFx();
   log("추가 기능 시작 — HIP-3 " + uni.length + "종목, 환율 " + fx.toFixed(1));
   if (dueCards && autoCards) { cards = cleanT(selectStockCards(cfg0, await stockRows())); log("종목 카드 목록(직접 " + K.picks.length + " + 자동 상위, 제외 " + K.exclude.length + "):", cards.join(",")); }
@@ -345,29 +324,6 @@ async function runExtras({ cfg0, q, dry, base }) {
     for (const t of tx) { if (dry) console.log("\n──── 패턴 확률 순위 ────\n" + t + "\n─────────────────────"); else await sendText(t); }
     log("패턴 확률 순위", tx.length + "건", dry ? "(dry — 출력만)" : "전송");
     st.lastPat = now; flushCardCache(CACHE);
-  }
-  if (dueT) {
-    stage(70, "5프레임 추세 정렬 계산 중");
-    const tsFile = path.join(CACHE, "trendstate.json");
-    let tprev = null; try { tprev = JSON.parse(fs.readFileSync(tsFile, "utf8")); } catch (e) {}
-    const tr = await buildTrendReport({ uni, info, fx, log, cacheDir: CACHE, topN: [30, 50, 80].includes(+cfg0.trendTop) ? +cfg0.trendTop : 50, minEok: cfg0.trendMinEok != null ? +cfg0.trendMinEok : 10, budgetMs: 150000, prev: tprev });
-    log("추세 정렬 리포트", tr.stats.n + "종목 · " + Math.round(tr.stats.ms / 1000) + "초" + (tr.stats.stale ? " · 갱신 지연 " + tr.stats.stale : ""));
-    const curPrev = cur; cur = "report";   /* 5프레임 추세 리포트는 리포트 전용 방(TG_CHAT_ID2)으로 — 비어 있으면 기본 방 */
-    try {
-    const wTr = REP_W[normRes(String(q.res || cfg0.res || "fwide"))] || 2184;
-    let photo = null;
-    try { photo = await renderRepPhoto(buildTrendSpec({ data: tr.data, info, fx }), wTr); } catch (e) { log("추세 사진 그리기 실패 — 글로 대신 보냅니다:", String((e && e.message) || e).slice(0, 140)); }
-    if (photo && process.env.SHOT_SAVE_TREND) fs.writeFileSync(process.env.SHOT_SAVE_TREND, photo);
-    if (dry) { log("추세 리포트 " + (photo ? "사진 " + Math.round(photo.length / 1024) + "KB" : "글") + " — dry 모드, 전송 생략"); if (!photo) console.log(tr.text); }
-    else {
-      if (photo) {
-        const mid = await sendPhoto(photo, buildTrendSpec({ data: tr.data, info, fx }).caption);
-        if (cfg0.doc !== false) { try { const d = new Date(now + 9 * 3600e3), p = (n) => String(n).padStart(2, "0"); await sendDocument(photo, "trend_" + d.getUTCFullYear() + p(d.getUTCMonth() + 1) + p(d.getUTCDate()) + "_" + p(d.getUTCHours()) + p(d.getUTCMinutes()) + ".png", mid); } catch (e) { log(String((e && e.message) || e)); } }
-      } else await sendText(tr.text);
-      try { fs.mkdirSync(CACHE, { recursive: true }); fs.writeFileSync(tsFile, JSON.stringify(tr.state)); } catch (e) {}
-    }
-    } finally { cur = curPrev; }
-    st.lastTrend = now;
   }
   if (dueRank) {
     stage(75, "순위 데이터 모으는 중");
@@ -540,13 +496,13 @@ async function main() {
   }
   if (manual) {   /* 누른 시각을 새 기준으로: 모든 주기가 그 시각부터 다시 시작, 5분 격자도 그 시각에 맞춤 */
     const T = Date.parse(sendCmd.at) || T0, s = loadState();
-    if (onlyCmd) { const K2 = { flow: ["lastFlow"], cards: ["lastCards"], rep: ["lastRep"], rank: ["lastRank", "lastPat"], trend: ["lastTrend"] }; onlyCmd.forEach((k) => (K2[k] || []).forEach((f) => { s[f] = T; })); }   /* 항목별: 보낸 것만 그 시각부터 다시 시작 */
-    else Object.assign(s, { lastFlow: T, lastCards: T, lastRep: T, lastRank: T, lastPat: T, lastTrend: T });
+    if (onlyCmd) { const K2 = { flow: ["lastFlow"], cards: ["lastCards"], rep: ["lastRep"], rank: ["lastRank", "lastPat"] }; onlyCmd.forEach((k) => (K2[k] || []).forEach((f) => { s[f] = T; })); }   /* 항목별: 보낸 것만 그 시각부터 다시 시작 */
+    else Object.assign(s, { lastFlow: T, lastCards: T, lastRep: T, lastRank: T, lastPat: T });
     saveState(s);
     if (!onlyCmd || onlyCmd.has("flow")) { try { fs.mkdirSync(CACHE, { recursive: true }); fs.writeFileSync(path.join(CACHE, "anchor.json"), JSON.stringify({ t: T })); } catch (e) {} }
     log("주기 기준을 " + new Date(T + 9 * 3600e3).toISOString().slice(11, 19) + " KST 로 새로 시작");
   }
-  if (!ONLY.size && !dry) { const sl = loadState(); await sbPut("tg_shot_last", { at: Date.now(), flow: sl.lastFlow || 0, cards: sl.lastCards || 0, rep: sl.lastRep || 0, rank: sl.lastRank || 0, pat: sl.lastPat || 0, trend: sl.lastTrend || 0, run: ST.run }); }   /* 챗봇 '상태' 명령이 읽음 */
+  if (!ONLY.size && !dry) { const sl = loadState(); await sbPut("tg_shot_last", { at: Date.now(), flow: sl.lastFlow || 0, cards: sl.lastCards || 0, rep: sl.lastRep || 0, rank: sl.lastRank || 0, pat: sl.lastPat || 0, run: ST.run }); }   /* 챗봇 '상태' 명령이 읽음 */
   log("끝", Math.round((Date.now() - T0) / 1000) + "초");
   ST.state = "done"; ST.pct = 100; ST.label = "완료"; ST.done = Date.now(); stLine("✅ 모두 끝 (" + Math.round((Date.now() - T0) / 1000) + "초)");
   await stFlush(true);
