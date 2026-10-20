@@ -1,3 +1,4 @@
+# (2026-10-20) 흐름차트 사진 전용 — 순위·카드는 shot-extras.yml, 하이퍼 리포트는 shot-report.yml 이 따로 맡음.
 name: telegram-chart
 
 on:
@@ -78,6 +79,7 @@ jobs:
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
 
           TG_CHAT_ID2: ${{ secrets.TG_CHAT_ID2 }}
+          SHOT_PARTS: flow
           SHOT_DRY: ${{ github.event.inputs.dry }}
           SHOT_OVERRIDES: ${{ github.event.inputs.overrides }}
           PATTERN_RANK_JSON: ${{ secrets.PATTERN_RANK_JSON }}

@@ -1,0 +1,101 @@
+# 하이퍼 리포트(사진) 전용 작업(2026-10-20 분리). shot.yml(흐름차트 사진)·shot-extras.yml(순위·카드)과 따로 돌아서 서로 안 막힘.
+# 같은 shot.mjs 를 SHOT_PARTS=report 로 실행. 캐시는 report-… 로 따로 둠.
+name: telegram-report
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"        # 안전망(워치독): 이어달리기가 끊겼을 때만 되살림. 이미 도는 실행이 있으면 아무것도 안 하고 끝남
+  workflow_dispatch:
+    inputs:
+      dry:
+        description: "true = 텔레그램으로 보내지 않고 캡처만(시험용)"
+        default: "false"
+      overrides:
+        description: "이번 한 번만 덮어쓸 설정 (예: res=pc&vz=200)"
+        default: ""
+
+concurrency:
+  group: telegram-report
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write      # 다음 실행을 스스로 이어 걸기 위해
+
+# 구조(2026-10-06 개편): 이어달리기를 "별도 작업(next)"이 아니라 같은 작업의 마지막 단계로 옮김.
+#  - 예전: 두 번째 작업이 러너를 못 받으면(GitHub 일시 장애) 사슬이 끊김 → 이제 러너 배정이 한 번뿐
+#  - 이어걸기 실패 시 5번 재시도, 캡처가 실패해도(if: always) 반드시 다음 실행을 걸음
+#  - cron은 워치독: 이미 실행 중/대기 중인 게 있으면 건너뛰어서 사진이 중복 발송되지 않음
+jobs:
+  shot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: 중복 실행 방지(워치독용)
+        id: guard
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            n=$(gh api "repos/${{ github.repository }}/actions/workflows/shot-report.yml/runs?per_page=20" \
+              --jq '[.workflow_runs[] | select(.id != ${{ github.run_id }}) | select(.status=="in_progress" or .status=="queued" or .status=="waiting" or .status=="pending")] | length' || echo 0)
+            if [ "${n:-0}" -gt 0 ]; then echo "이어달리기가 살아 있음(진행/대기 ${n}건) — 이번 cron은 건너뜀"; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+            echo "진행 중인 실행이 없음 — 사슬이 끊긴 것으로 보고 되살림"
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: steps.guard.outputs.skip != 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.guard.outputs.skip != 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+        if: steps.guard.outputs.skip != 'true'
+
+      - name: 한글 글꼴 설치
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          mkdir -p ~/.fonts
+          cp fonts/*.ttf ~/.fonts/
+          fc-cache -f
+
+      - name: 캔들 저장본 이어받기
+        if: steps.guard.outputs.skip != 'true'
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: report-${{ github.run_id }}
+          # 처음 한 번은 예전(통합) 작업의 저장본(store-)을 이어받아 상태·캔들이 비지 않게
+          restore-keys: |
+            report-
+            store-
+
+      - name: 차트 캡처 → 텔레그램
+        if: steps.guard.outputs.skip != 'true'
+        timeout-minutes: 12
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+
+          TG_CHAT_ID2: ${{ secrets.TG_CHAT_ID2 }}
+          SHOT_PARTS: report
+          SHOT_DRY: ${{ github.event.inputs.dry }}
+          SHOT_OVERRIDES: ${{ github.event.inputs.overrides }}
+          PATTERN_RANK_JSON: ${{ secrets.PATTERN_RANK_JSON }}
+        run: node shot.mjs
+
+      # 캡처가 실패·시간초과여도 반드시 실행(always). 시험용 dry 실행은 이어가지 않음.
+      - name: 다음 5분 칸까지 대기(지금 보내기 요청이 오면 즉시) 후 재실행
+        if: ${{ always() && steps.guard.outputs.skip != 'true' && github.event.inputs.dry != 'true' }}
+        run: |
+          # 기준(anchor) 5분 격자의 다음 칸까지 기다리되, 설정 페이지의 '지금 보내기' 요청이 오면 바로 끝냄
+          node waitnext.mjs
+          for i in 1 2 3 4 5; do
+            if gh workflow run shot-report.yml --repo "${{ github.repository }}" --ref "${{ github.ref_name }}"; then echo "다음 실행 예약 OK (시도 $i)"; exit 0; fi
+            echo "예약 실패 $i/5 — 20초 뒤 재시도"; sleep 20
+          done
+          echo "::error::다음 실행 예약에 5번 모두 실패 — cron 워치독이 되살릴 때까지 멈춤"; exit 1
