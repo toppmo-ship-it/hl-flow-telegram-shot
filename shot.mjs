@@ -11,6 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { buildTrendReport } from "./trendrep.mjs";
 import { loadSiteInfo, loadUniverse, usdKrw, buildWeeklyTexts, buildSurgeText, pickRow, buildCardData, renderCard, flushCardCache, buildPatternRankText, applyCardCfg, crispCanvas } from "./extras.mjs";
 import { buildReport } from "./report.mjs";
 import { sbPut } from "./sb.mjs";
@@ -309,12 +310,14 @@ async function runExtras({ cfg0, q, dry, base }) {
   let cards = manualCards ? cleanT(String(q.cards).split(",")) : (cardsOn ? cleanT(selectStockCards(cfg0, null)) : []);   /* 직접 고른 종목 — 자동 상위는 데이터를 받은 뒤 아래에서 더함 */
   const autoCards = !manualCards && cardsOn && (K.auto.on || K.sort !== false);   /* 자동정렬도 시세 목록(거래대금·분야)이 필요해서 같이 받음 */   /* 텔레그램 그룹 분당 20건 제한은 아래 발송 간격·429 재시도로 지킴 */
   const wantP = only ? (only.has("rank") && cfg0.rankPattern !== false) : flag(q.rankp, cfg0.rankPattern !== false);   /* 패턴 확률 순위(별도 메시지) — 기본 켬 */
-  if (!wantW && !wantS && !wantP && !cards.length && !autoCards) return;
+  const wantT = only ? only.has("trend") : flag(q.trend, cfg0.trendOn === true);   /* 5프레임 추세 정렬 리포트(별도 끄고켜기 · 기본 꺼짐). 항목별 지금 보내기는 꺼져 있어도 보냄 */
+  if (!wantW && !wantS && !wantP && !wantT && !cards.length && !autoCards) return;
   const st = loadState(), now = Date.now(), force = q.force === "1";
   const dueRank = (wantW || wantS) && (force || due(st.lastRank, +cfg0.rankEvery || 0));
   const dueCards = (cards.length || autoCards) && (force || due(st.lastCards, cfg0.cardEvery != null ? Math.min(240, +cfg0.cardEvery) : 0));
   const dueP = wantP && (force || due(st.lastPat, cfg0.rankPatEvery != null ? +cfg0.rankPatEvery : 60));
-  if (!dueRank && !dueCards && !dueP) { log("추가 기능: 아직 보낼 주기가 아님"); return; }
+  const dueT = wantT && (force || due(st.lastTrend, [5, 15, 30, 60].includes(+cfg0.trendEvery) ? +cfg0.trendEvery : 15));
+  if (!dueRank && !dueCards && !dueP && !dueT) { log("추가 기능: 아직 보낼 주기가 아님"); return; }
   const info = loadSiteInfo(SITE), uni = await getUni(), fx = await getFx();
   log("추가 기능 시작 — HIP-3 " + uni.length + "종목, 환율 " + fx.toFixed(1));
   if (dueCards && autoCards) { cards = cleanT(selectStockCards(cfg0, await stockRows())); log("종목 카드 목록(직접 " + K.picks.length + " + 자동 상위, 제외 " + K.exclude.length + "):", cards.join(",")); }
@@ -324,6 +327,16 @@ async function runExtras({ cfg0, q, dry, base }) {
     for (const t of tx) { if (dry) console.log("\n──── 패턴 확률 순위 ────\n" + t + "\n─────────────────────"); else await sendText(t); }
     log("패턴 확률 순위", tx.length + "건", dry ? "(dry — 출력만)" : "전송");
     st.lastPat = now; flushCardCache(CACHE);
+  }
+  if (dueT) {
+    stage(70, "5프레임 추세 정렬 계산 중");
+    const tsFile = path.join(CACHE, "trendstate.json");
+    let tprev = null; try { tprev = JSON.parse(fs.readFileSync(tsFile, "utf8")); } catch (e) {}
+    const tr = await buildTrendReport({ uni, info, fx, log, cacheDir: CACHE, topN: [30, 50, 80].includes(+cfg0.trendTop) ? +cfg0.trendTop : 50, minEok: cfg0.trendMinEok != null ? +cfg0.trendMinEok : 10, budgetMs: 150000, prev: tprev });
+    log("추세 정렬 리포트", tr.stats.n + "종목 · " + Math.round(tr.stats.ms / 1000) + "초" + (tr.stats.stale ? " · 갱신 지연 " + tr.stats.stale : ""));
+    if (dry) console.log("\n──── 5프레임 추세 정렬 ────\n" + tr.text + "\n─────────────────────");
+    else { await sendText(tr.text); try { fs.mkdirSync(CACHE, { recursive: true }); fs.writeFileSync(tsFile, JSON.stringify(tr.state)); } catch (e) {} }
+    st.lastTrend = now;
   }
   if (dueRank) {
     stage(75, "순위 데이터 모으는 중");
@@ -496,13 +509,13 @@ async function main() {
   }
   if (manual) {   /* 누른 시각을 새 기준으로: 모든 주기가 그 시각부터 다시 시작, 5분 격자도 그 시각에 맞춤 */
     const T = Date.parse(sendCmd.at) || T0, s = loadState();
-    if (onlyCmd) { const K2 = { flow: ["lastFlow"], cards: ["lastCards"], rep: ["lastRep"], rank: ["lastRank", "lastPat"] }; onlyCmd.forEach((k) => (K2[k] || []).forEach((f) => { s[f] = T; })); }   /* 항목별: 보낸 것만 그 시각부터 다시 시작 */
-    else Object.assign(s, { lastFlow: T, lastCards: T, lastRep: T, lastRank: T, lastPat: T });
+    if (onlyCmd) { const K2 = { flow: ["lastFlow"], cards: ["lastCards"], rep: ["lastRep"], rank: ["lastRank", "lastPat"], trend: ["lastTrend"] }; onlyCmd.forEach((k) => (K2[k] || []).forEach((f) => { s[f] = T; })); }   /* 항목별: 보낸 것만 그 시각부터 다시 시작 */
+    else Object.assign(s, { lastFlow: T, lastCards: T, lastRep: T, lastRank: T, lastPat: T, lastTrend: T });
     saveState(s);
     if (!onlyCmd || onlyCmd.has("flow")) { try { fs.mkdirSync(CACHE, { recursive: true }); fs.writeFileSync(path.join(CACHE, "anchor.json"), JSON.stringify({ t: T })); } catch (e) {} }
     log("주기 기준을 " + new Date(T + 9 * 3600e3).toISOString().slice(11, 19) + " KST 로 새로 시작");
   }
-  if (!ONLY.size && !dry) { const sl = loadState(); await sbPut("tg_shot_last", { at: Date.now(), flow: sl.lastFlow || 0, cards: sl.lastCards || 0, rep: sl.lastRep || 0, rank: sl.lastRank || 0, pat: sl.lastPat || 0, run: ST.run }); }   /* 챗봇 '상태' 명령이 읽음 */
+  if (!ONLY.size && !dry) { const sl = loadState(); await sbPut("tg_shot_last", { at: Date.now(), flow: sl.lastFlow || 0, cards: sl.lastCards || 0, rep: sl.lastRep || 0, rank: sl.lastRank || 0, pat: sl.lastPat || 0, trend: sl.lastTrend || 0, run: ST.run }); }   /* 챗봇 '상태' 명령이 읽음 */
   log("끝", Math.round((Date.now() - T0) / 1000) + "초");
   ST.state = "done"; ST.pct = 100; ST.label = "완료"; ST.done = Date.now(); stLine("✅ 모두 끝 (" + Math.round((Date.now() - T0) / 1000) + "초)");
   await stFlush(true);

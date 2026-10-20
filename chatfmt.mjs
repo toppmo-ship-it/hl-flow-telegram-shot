@@ -243,6 +243,7 @@ export function configText(c, mute, themes, prefs) {
     "     큰 일봉 차트(종목 일봉): " + (c.cardDailyDays || 120) + "개 (미니와 별개)",
     "📑 순위글: " + ((c.rankWeekly || c.rankSurge) ? esc([c.rankWeekly ? "거래대금" : "", c.rankSurge ? "급증" : ""].filter(Boolean).join("+")) + " · " + everyKo(c.rankEvery != null ? +c.rankEvery : 0) + "마다" : "끔"),
     "🧩 패턴 셋업 리포트: " + (c.rankPattern !== false ? "<b>" + everyKo(c.rankPatEvery != null ? +c.rankPatEvery : 60) + "</b>마다" : "<b>끔</b>"),
+    "🧭 5프레임 추세 정렬: " + (c.trendOn === true ? "<b>" + everyKo(+c.trendEvery || 15) + "</b>마다 · 상위 " + (+c.trendTop || 50) : "<b>끔</b>"),
     "🖼 해상도: " + (RESN[c.res] || RESN.fwide) + " · 원본 파일 " + (c.doc === false ? "끔" : "함께"),
     "🔕 조용히: " + (mute && +mute.until > Date.now() ? "<b>" + mdhm(+mute.until) + " KST 까지</b>" : "아님"),
   ];
@@ -262,6 +263,7 @@ export function statusText({ last, st, cfg, mute, up, snapAge, bars }) {
     L.push(row("🃏 카드", last.cards, +cfg.cardEvery || 5));
     L.push(row("📑 순위", last.rank, +cfg.rankEvery || 0));
     L.push(row("🧩 패턴", last.pat, cfg.rankPattern === false ? 0 : (cfg.rankPatEvery != null ? +cfg.rankPatEvery : 60)) + (cfg.rankPattern === false ? " (끔)" : ""));
+    if (cfg.trendOn === true || last.trend) L.push(row("🧭 추세", last.trend, cfg.trendOn === true ? (+cfg.trendEvery || 15) : 0) + (cfg.trendOn === true ? "" : " (끔)"));
   } else L.push("발송 기록이 아직 없어요");
   if (st && st.done) L.push("", "⛓ 사슬 마지막 실행: " + (st.state === "error" ? "❌ 오류" : "✅ 정상") + " · " + hm(st.done) + " (" + ago(st.done) + ") · #" + esc(st.run));
   L.push("🔕 조용히: " + (mute && +mute.until > Date.now() ? "<b>" + mdhm(+mute.until) + " KST 까지</b>" : "아님"));

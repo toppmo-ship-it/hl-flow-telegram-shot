@@ -105,7 +105,7 @@ export async function usdKrw(log) {
   try { const r = await fetch("https://open.er-api.com/v6/latest/USD"); const j = await r.json(); if (j && j.rates && j.rates.KRW) return j.rates.KRW; } catch (e) {}
   return 1350;
 }
-const coinLabel = (row, info) => {
+export const coinLabel = (row, info) => {
   const kmap = info.koFull || info.ko, ko = kmap[row.short] || kmap[Object.keys(info.alias).find((k) => info.alias[k] === row.short)];
   const flag = row.short === "SKHX" || row.short === "SMSN" ? " 🇰🇷" : "";
   /* 거래소명(xyz: 등)은 표시하지 않음 → '티커 (종목설명)'. 같은 티커가 다른 거래소에도 있을 때만 xyz 외 쪽에 ·거래소 를 붙여 구분 */
