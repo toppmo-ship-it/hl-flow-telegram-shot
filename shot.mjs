@@ -12,6 +12,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildTrendReport } from "./trendrep.mjs";
+import { buildTrendSpec } from "./trendspec.mjs";
 import { loadSiteInfo, loadUniverse, usdKrw, buildWeeklyTexts, buildSurgeText, pickRow, buildCardData, renderCard, flushCardCache, buildPatternRankText, applyCardCfg, crispCanvas } from "./extras.mjs";
 import { buildReport } from "./report.mjs";
 import { sbPut } from "./sb.mjs";
@@ -249,6 +250,23 @@ async function refreshStockList(dry) {
 }
 
 /* ── 하이퍼 리포트(사진): 탬퍼몽키 3분 리포트와 같은 구성. 데이터·섹션은 report.mjs, 그리기는 rep-render.js ── */
+/* 하이퍼 리포트와 같은 그리기(rep-render.js)로 spec 을 사진으로 — 5프레임 추세 리포트용. 10MB 넘으면 가로를 줄여 다시 */
+async function renderRepPhoto(spec, W0) {
+  const browser = await launchChrome({ executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome", headless: true, args: ["--no-sandbox", "--hide-scrollbars", "--disable-dev-shm-usage"], defaultViewport: { width: 1600, height: 1000 } });
+  try {
+    const page = await browser.newPage();
+    page.on("pageerror", (e) => log("추세 사진 페이지 오류:", String(e.message).slice(0, 160)));
+    await page.setContent("<html><body style='margin:0;background:#17181c'></body></html>");
+    await page.addScriptTag({ content: fs.readFileSync(path.join(ROOT, "rep-render.js"), "utf8") });
+    let buf = null;
+    for (let k = 0, w = W0; k < 3; k++, w = Math.round(w * 0.78)) {
+      const r = await page.evaluate((sp) => window.drawReport(sp), { header: spec.header, sections: spec.sections, foot: spec.foot, outW: w });
+      buf = Buffer.from(r.url.split(",")[1], "base64");
+      if (buf.length < 9.5e6) break;
+    }
+    return buf;
+  } finally { await browser.close(); }
+}
 const REP_W = { fcover: 1360, fwide: 2184, pcxl: 3200 };   /* 해상도 3종 → 리포트 가로 픽셀(세로는 내용만큼) */
 async function runReport({ cfg0, q, dry }) {
   const want = q.rep != null ? q.rep === "1" : cfg0.rep !== false;
@@ -334,8 +352,18 @@ async function runExtras({ cfg0, q, dry, base }) {
     let tprev = null; try { tprev = JSON.parse(fs.readFileSync(tsFile, "utf8")); } catch (e) {}
     const tr = await buildTrendReport({ uni, info, fx, log, cacheDir: CACHE, topN: [30, 50, 80].includes(+cfg0.trendTop) ? +cfg0.trendTop : 50, minEok: cfg0.trendMinEok != null ? +cfg0.trendMinEok : 10, budgetMs: 150000, prev: tprev });
     log("추세 정렬 리포트", tr.stats.n + "종목 · " + Math.round(tr.stats.ms / 1000) + "초" + (tr.stats.stale ? " · 갱신 지연 " + tr.stats.stale : ""));
-    if (dry) console.log("\n──── 5프레임 추세 정렬 ────\n" + tr.text + "\n─────────────────────");
-    else { await sendText(tr.text); try { fs.mkdirSync(CACHE, { recursive: true }); fs.writeFileSync(tsFile, JSON.stringify(tr.state)); } catch (e) {} }
+    const wTr = REP_W[normRes(String(q.res || cfg0.res || "fwide"))] || 2184;
+    let photo = null;
+    try { photo = await renderRepPhoto(buildTrendSpec({ data: tr.data, info, fx }), wTr); } catch (e) { log("추세 사진 그리기 실패 — 글로 대신 보냅니다:", String((e && e.message) || e).slice(0, 140)); }
+    if (photo && process.env.SHOT_SAVE_TREND) fs.writeFileSync(process.env.SHOT_SAVE_TREND, photo);
+    if (dry) { log("추세 리포트 " + (photo ? "사진 " + Math.round(photo.length / 1024) + "KB" : "글") + " — dry 모드, 전송 생략"); if (!photo) console.log(tr.text); }
+    else {
+      if (photo) {
+        const mid = await sendPhoto(photo, buildTrendSpec({ data: tr.data, info, fx }).caption);
+        if (cfg0.doc !== false) { try { const d = new Date(now + 9 * 3600e3), p = (n) => String(n).padStart(2, "0"); await sendDocument(photo, "trend_" + d.getUTCFullYear() + p(d.getUTCMonth() + 1) + p(d.getUTCDate()) + "_" + p(d.getUTCHours()) + p(d.getUTCMinutes()) + ".png", mid); } catch (e) { log(String((e && e.message) || e)); } }
+      } else await sendText(tr.text);
+      try { fs.mkdirSync(CACHE, { recursive: true }); fs.writeFileSync(tsFile, JSON.stringify(tr.state)); } catch (e) {}
+    }
     st.lastTrend = now;
   }
   if (dueRank) {

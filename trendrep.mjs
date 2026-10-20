@@ -153,8 +153,8 @@ export async function buildTrendReport({ uni, info, fx, log, cacheDir, topN, min
   /* 지난 리포트 대비: 강한 정렬(한쪽 4개↑)에 새로 들어옴 / 풀림 */
   const strong = (x) => (x.tier ? x.tier.dir : 0), state = {};
   items.forEach((x) => { state[x.r.short] = { s: strong(x), u: x.ups }; });
+  const nw = [], lost = [], prevMap = prev || {};
   if (prev && Object.keys(prev).length) {
-    const nw = [], lost = [];
     items.forEach((x) => { const p = prev[x.r.short], s = strong(x); if (!p) return; if (s !== 0 && p.s !== s) nw.push(x); else if (s === 0 && p.s !== 0) lost.push(x); });
     if (nw.length || lost.length) {
       L.push(""); L.push("🔄 지난 리포트 대비");
@@ -165,5 +165,6 @@ export async function buildTrendReport({ uni, info, fx, log, cacheDir, topN, min
 
   L.push("");
   L.push("※ 마감봉 기준 · 거래대금=24h 원화(환율 " + Math.round(fx) + ") · 가격 보증 아님, 방향 현황판" + (stale ? " · 일부 프레임 갱신 지연(" + stale + ")" : ""));
-  return { text: L.join("\n"), state, stats: { n: items.length, stale, nofetch, ms: Date.now() - T0 } };
+  const data = { items, secInfo, pl, pb, nw, lost, prev: prevMap, cnt: { aUp: cnt(1, "A"), bUp: cnt(1, "B"), bDn: cnt(-1, "B"), aDn: cnt(-1, "A"), mixed, short }, now, fx, stale };
+  return { text: L.join("\n"), state, data, stats: { n: items.length, stale, nofetch, ms: Date.now() - T0 } };
 }
