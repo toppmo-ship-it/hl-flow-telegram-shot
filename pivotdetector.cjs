@@ -121,6 +121,7 @@
   function analyze(cs, opt) {
     opt = opt || {};
     var t1 = opt.t1 != null ? opt.t1 : 0.5, t2 = opt.t2 != null ? opt.t2 : 0.7, t3 = opt.t3 != null ? opt.t3 : 0.85;
+    var pre = opt.pre != null ? Math.min(t1, opt.pre) : t1;   // 후보로 잡는 최소 확률(예비 화살표 포함) — 트뷰 PivotScope.pine 의 pMinC. 안 주면 t1
     var cd = opt.cooldown != null ? opt.cooldown : 5, slack = opt.slack != null ? opt.slack : 0.25, invBars = opt.invBars != null ? opt.invBars : 12;   // invBars: 신호 후 이 봉 수 안에 고점이 깨지면 가짜로 보고 지운다(그 뒤엔 영구 유지)
     var n = cs.length, o = new Float64Array(n), h = new Float64Array(n), l = new Float64Array(n), c = new Float64Array(n);
     for (var i = 0; i < n; i++) { o[i] = cs[i].open; h[i] = cs[i].high; l[i] = cs[i].low; c[i] = cs[i].close; }
@@ -135,15 +136,16 @@
     var S = { top: side(o, h, l, c, mdl, hr, dw), bot: side(no, nh, nl, nc, mdl, hr, dw) };
     var sigs = [];
     ["top", "bot"].forEach(function (sd) {
-      var R = S[sd], last = -1e9, live = [], byPi = {}, hh = sd === "top" ? h : nh;   // hh = 고점 기준 high
+      var R = S[sd], last = -1e9, lastP = -1e9, live = [], byPi = {}, hh = sd === "top" ? h : nh;   // hh = 고점 기준 high
       for (var t = 0; t < n; t++) {
         for (var q = 0; q < live.length; q++) { var s0 = live[q]; if (!s0.dead && t > s0.t && t - s0.t <= invBars && hh[t] > s0.lvl) { s0.dead = true; s0.deadAt = t; } }
-        if (!R.gate[t] || R.p[t] < t1) continue;
+        if (!R.gate[t] || R.p[t] < pre) continue;
         var pi = t - R.bs[t], ex = byPi[pi];
         if (ex) { if (R.p[t] > ex.p) ex.p = R.p[t]; continue; }         // 같은 고점이면 확률만 갱신(등급 상향)
-        if (t - last < cd) continue;
+        var mainSig = R.p[t] >= t1;   // t1 이상 = 기존 신호 / 미만 = 예비 전용(새 신호 간격을 따로 관리 — PivotScope.pine 과 같음)
+        if (t - (mainSig ? last : lastP) < cd) continue;
         var act = { side: sd, t: t, pi: pi, p: R.p[t], p0: R.p[t], lvl: hh[pi] + slack * R.atr[t], dead: false, deadAt: -1 };
-        sigs.push(act); live.push(act); byPi[pi] = act; last = t;
+        sigs.push(act); live.push(act); byPi[pi] = act; if (mainSig) last = t; else lastP = t;
         if (live.length > 40) live.shift();
       }
     });

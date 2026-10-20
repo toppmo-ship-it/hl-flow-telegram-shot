@@ -7,13 +7,15 @@ const WDK = ["일", "월", "화", "수", "목", "금", "토"], p2 = (n) => Strin
 const C = (t, o) => Object.assign({ t: String(t) }, o || {});
 const fmt = (n) => Math.round(n).toLocaleString("en-US");
 const eokCell = (e) => C(e >= 10000 ? (e / 10000).toFixed(1) + "조" : e >= 100 ? fmt(e) : e.toFixed(1));
-const frameCell = (f) => (f.d > 0 ? C("▲", { c: UP, b: true, bg: "rgba(255,99,99,0.18)" }) : f.d < 0 ? C("▼", { c: DN, b: true, bg: "rgba(84,150,255,0.18)" }) : C("?", { c: MUTE }));
+/* 큰 화살표(확정) = 굵고 진한 알약 / 작은 화살표(예비) = 가늘고 옅은 알약 — 트레이딩뷰에서 보는 큰·작은 화살표 구분과 같음 */
+const frameCell = (f) => (f.d > 0 ? (f.big ? C("▲", { c: UP, b: true, bg: "rgba(255,99,99,0.28)" }) : C("▲", { c: "#ff9a9a", sz: 0.82, bg: "rgba(255,99,99,0.08)" }))
+  : f.d < 0 ? (f.big ? C("▼", { c: DN, b: true, bg: "rgba(84,150,255,0.28)" }) : C("▼", { c: "#8fbaff", sz: 0.82, bg: "rgba(84,150,255,0.08)" })) : C("?", { c: MUTE }));
 const chgCell = (r) => { if (!r.px || !r.prev) return C("-", { c: MUTE }); const p = (r.px / r.prev - 1) * 100; return C((p >= 0 ? "+" : "") + p.toFixed(2) + "%", { c: p >= 0 ? UP : DN }); };
 const FR_COLS = TREND_TFS.map((t) => [t.ko, "c", ACC]);
 const cntCell = (x, dir) => (dir > 0 ? C("▲" + x.ups + "/5", { c: UP, b: true }) : C("▼" + x.downs + "/5", { c: DN, b: true }));
 
 export function buildTrendSpec({ data, info, fx, res }) {
-  const { items, secInfo, pl, pb, nw, lost, prev, cnt, now, stale } = data;
+  const { items, fixedItems, secInfo, pl, pb, nw, lost, prev, cnt, now, stale } = data;
   const kmap = info.koFull || info.ko || {}, koOf = (r) => { const k = kmap[r.short] || kmap[Object.keys(info.alias).find((a) => info.alias[a] === r.short)] || ""; return k && k !== r.short ? k : ""; };
   const secBy = Object.fromEntries(secInfo.map((s) => [s.name, s]));
   const d0 = new Date(now + 9 * 3600e3), hm = p2(d0.getUTCHours()) + ":" + p2(d0.getUTCMinutes()), md = (d0.getUTCMonth() + 1) + "/" + d0.getUTCDate() + "(" + WDK[d0.getUTCDay()] + ")";
@@ -24,6 +26,17 @@ export function buildTrendSpec({ data, info, fx, res }) {
     { label: "▼ 4/5", value: cnt.bDn, color: DN }, { label: "▼ 전부 일치", value: cnt.aDn, color: DN },
     { label: "혼조", value: cnt.mixed, color: "#b0b6c2" }, { label: "상승 속 눌림", value: pl.length, color: "#f2a65a" }, { label: "하락 속 반등", value: pb.length, color: "#7bd0c8" },
   ] });
+
+  /* ⓪ 지수 · 원자재 추세 — 거래대금 순위와 상관없이 고정 13종(하이퍼 리포트의 지수·원자재 박스와 같은 목록) */
+  if (fixedItems && fixedItems.length) {
+    const stat = (x) => { const u = x.ups, d = x.downs; return u === 5 ? ["강한 상승", UP] : d === 5 ? ["강한 하락", DN] : u >= 4 ? ["상승 우세", UP] : d >= 4 ? ["하락 우세", DN] : u > d ? ["약한 상승", "#ff9a9a"] : d > u ? ["약한 하락", "#8fbaff"] : ["혼조", "#b0b6c2"]; };
+    sections.push({
+      index: true, title: "⓪ 지수 · 원자재 추세", sub: "고정 " + fixedItems.length + "종 · 큰 프레임 → 작은 프레임 · 큰 칸=확정(큰 화살표) 작은 칸=예비(작은 화살표)",
+      cols: [["#", "c"], ["종목", "l"], ["이름", "l"], ["등락", "r"], ["억원", "r"], ...FR_COLS, ["일치", "c"], ["상태", "c"]],
+      rows: fixedItems.map((x, i) => { const st = stat(x), side = x.ups >= x.downs ? 1 : -1; return [C(i + 1, { c: MUTE }), C(x.r.short, { b: true }), C(koOf(x.r), { c: "#c9ced8" }), chgCell(x.r), eokCell(x.eok), ...x.fr.map(frameCell),
+        C(side > 0 ? "▲" + x.ups + "/" + x.known : "▼" + x.downs + "/" + x.known, { c: side > 0 ? UP : DN, b: true }), C(st[0], { c: st[1], b: true })]; }),
+    });
+  }
 
   /* ① 섹터 방향 — 프레임 평균이 높은(상승) 섹터부터 낮은(하락) 섹터 순 */
   const secRows = secInfo.filter((s) => s.kn >= 1).sort((a, b) => b.avg - a.avg || b.eok - a.eok).slice(0, 16);
@@ -81,9 +94,9 @@ export function buildTrendSpec({ data, info, fx, res }) {
   if (chgRows.length) sections.push({ half: true, title: "⑧ 지난 리포트 대비", sub: "강한 정렬(4/5↑)에 새로 들어옴 · 풀림", cols: [["구분", "c"], ["종목", "l"], ["변화", "c"], ...FR_COLS], rows: chgRows });
 
   return {
-    header: { title: "TM Trend Report · " + hm, sub: md + " " + hm + " KST · 거래대금 상위 " + items.length + "종목 · 1$=" + fmt(fx) + "원 환산 · 억원=한화 · 등락=전일대비", sub2: "프레임 큰→작은: 일 · 4H · 2H · 1H · 30M  |  ▲ = 마지막 확정 신호가 저점(상승)  ▼ = 고점(하락)  ? = 데이터 부족  |  일치 = 같은 방향 프레임 수" },
+    header: { title: "TM Trend Report · " + hm, sub: md + " " + hm + " KST · 거래대금 상위 " + items.length + "종목 · 1$=" + fmt(fx) + "원 환산 · 억원=한화 · 등락=전일대비", sub2: "프레임 큰→작은: 일 · 4H · 2H · 1H · 30M  |  ▲ = 마지막 화살표가 저점(상승)  ▼ = 고점(하락)  ·  진한 칸 = 큰(확정) 화살표 · 옅은 칸 = 작은(예비) 화살표  ? = 데이터 부족  |  일치 = 같은 방향 프레임 수" },
     sections,
-    foot: "방향 = PivotScope(작은 피벗) 마지막 확정 신호(확률 0.7↑·12봉 내 깨진 신호 제외) · 마감봉 기준 · 방향 현황판이며 진입 신호가 아님" + (stale ? " · 일부 프레임 갱신 지연(" + stale + ")" : ""),
+    foot: "방향 = 트레이딩뷰 PivotScope(작은 피벗)의 마지막 화살표(큰·작은 모두, ✕ 가짜 제외) · 마감봉 기준 · 방향 현황판이며 진입 신호가 아님" + (stale ? " · 일부 프레임 갱신 지연(" + stale + ")" : ""),
     caption: "🧭 5프레임 추세 정렬 · " + md + " " + hm + " KST\n▲전부 " + cnt.aUp + " · ▲4/5 " + cnt.bUp + " ┃ ▼4/5 " + cnt.bDn + " · ▼전부 " + cnt.aDn + " ┃ 혼조 " + cnt.mixed,
   };
 }

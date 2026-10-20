@@ -1,12 +1,13 @@
 /* 5프레임 추세 정렬 리포트 (임시 형식 — 사용자가 보고 다듬는 중)
-   프레임: 일봉 · 4H · 2H · 1H · 30M. 프레임별 방향 = PivotScope(작은 피벗, 확정 0.7↑, 12봉 내 깨진 가짜 제외)의 '마지막 확정 신호'
-   저점 신호 = 상승(▲) / 고점 신호 = 하락(▼). 횡보 없음. 마감된 봉만 사용 → 새 봉이 마감될 때만 방향이 바뀜(그래서 캐시가 잘 먹음).
+   프레임: 일봉 · 4H · 2H · 1H · 30M. 프레임별 방향 = 트레이딩뷰 PivotScope.pine 과 같은 규칙의 '마지막 화살표'(큰 화살표 + 작은 예비 화살표, 12봉 내 깨진 ✕ 가짜 제외)
+   저점 화살표 = 상승(▲) / 고점 화살표 = 하락(▼). 횡보 없음. 마감된 봉만 사용 → 새 봉이 마감될 때만 방향이 바뀜(그래서 캐시가 잘 먹음).
    구성: 시장 요약 → 섹터 방향 → 상승 정렬 티어(5/5, 4/5) → 하락 정렬 티어(4/5, 5/5) → 눌림·반등 → 지난 리포트 대비.
    각 티어 안은 섹터별로 묶고, 섹터 안은 24h 거래대금(원화) 순. */
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { hl, pool, coinLabel } from "./extras.mjs";
+import { hl, pool, coinLabel, pickRow } from "./extras.mjs";
+import { FIXED_INDEX } from "./repnames.mjs";
 
 const PV = createRequire(import.meta.url)("./pivotdetector.cjs");
 const KST_MS = 9 * 3600e3, WDK = ["일", "월", "화", "수", "목", "금", "토"], p2 = (n) => String(n).padStart(2, "0");
@@ -36,17 +37,22 @@ async function getBars(row, tf, st, log, canFetch) {
   return { rows, stale: false };
 }
 
-/* ── 프레임 하나의 방향: +1 상승 / -1 하락 / 0 미정 ── */
+/* ── 프레임 하나의 방향: +1 상승 / -1 하락 / 0 미정 ──
+   트레이딩뷰 PivotScope.pine 과 같은 규칙: 확률컷은 1시간봉 이상 0.50/0.70/0.85, 30분 이하 0.55/0.75/0.90(시간봉에 맞춰 자동),
+   예비(작은 속 빈 화살표) 표시 기준 0.5, 새 신호 간격 5봉(큰 화살표/예비는 간격을 따로), 12봉 안에 다시 깨지면 ✕ 가짜.
+   마지막 화살표 = 깨지지 않은 신호 중 피벗이 가장 오른쪽인 것(큰 화살표·작은 화살표 모두). big=true 면 큰(확정) 화살표 */
+export const TREND_PRE = 0.5;
 export function trendOf(rows, tf, now) {
   if (!rows) return { d: 0 };
   const closed = rows.filter((r) => r[0] + tf.ms <= now);
   if (closed.length < MIN_BARS) return { d: 0 };
   const cs = closed.map((r) => ({ time: r[0], open: r[1], high: r[2], low: r[3], close: r[4] }));
-  let pv; try { pv = PV.analyze(cs, { model: PV.models.small, t1: 0.5, t2: 0.7, t3: 0.85, cooldown: 5, invBars: 12 }); } catch (e) { return { d: 0 }; }
+  const htf = tf.ms >= 3600e3, t1 = htf ? 0.5 : 0.55, t2 = htf ? 0.7 : 0.75, t3 = htf ? 0.85 : 0.9;
+  let pv; try { pv = PV.analyze(cs, { model: PV.models.small, t1, t2, t3, pre: TREND_PRE, cooldown: 5, invBars: 12 }); } catch (e) { return { d: 0 }; }
   let best = null;
-  for (const g of pv.signals) { if (g.p < 0.7 || g.dead) continue; if (!best || g.pi > best.pi || (g.pi === best.pi && g.t > best.t)) best = g; }
+  for (const g of pv.signals) { if (g.dead) continue; if (!best || g.pi > best.pi || (g.pi === best.pi && g.t > best.t)) best = g; }
   if (!best) return { d: 0 };
-  return { d: best.side === "bot" ? 1 : -1, ago: cs.length - 1 - best.pi };
+  return { d: best.side === "bot" ? 1 : -1, big: best.p >= t2, p: best.p, ago: cs.length - 1 - best.pi };
 }
 
 /* ── 서식 ── */
@@ -64,9 +70,12 @@ export async function buildTrendReport({ uni, info, fx, log, cacheDir, topN, min
     if ((r.dayNtl * fx) / 1e8 < (minEok == null ? 10 : minEok)) continue;   /* 거래대금 너무 적은 종목은 정렬이 좋아도 뺌 */
     pick.push(r); if (pick.length >= (topN || 50)) break;
   }
+  /* 지수·원자재 고정 13종(하이퍼 리포트의 지수·원자재 박스와 같은 목록)은 거래대금이 작아도 항상 계산 — 사진 맨 위에 보여 줌 */
+  const fixedRows = FIXED_INDEX.map((t) => pickRow(uni, t, info)).filter((r) => r && r.full && r.dex !== "코인");
+  const topSet = new Set(pick.map((r) => r.full)), calc = pick.concat(fixedRows.filter((r) => !topSet.has(r.full)));
   let stale = 0, nofetch = 0;
-  const items = [];
-  await pool(pick, 3, async (r) => {
+  const all = [];
+  await pool(calc, 3, async (r) => {
     const fr = [];
     for (const tf of TREND_TFS) {
       const b = await getBars(r, tf, st, log, canFetch);
@@ -75,9 +84,12 @@ export async function buildTrendReport({ uni, info, fx, log, cacheDir, topN, min
       fr.push(trendOf(b.rows, tf, now));
     }
     const ups = fr.filter((x) => x.d > 0).length, downs = fr.filter((x) => x.d < 0).length;
-    items.push({ r, fr, ups, downs, known: ups + downs, eok: (r.dayNtl * fx) / 1e8 });
+    all.push({ r, fr, ups, downs, known: ups + downs, eok: (r.dayNtl * fx) / 1e8, inTop: topSet.has(r.full) });
   });
+  const items = all.filter((x) => x.inTop);
   saveStore(file, st);
+  const fixedItems = fixedRows.map((r) => all.find((x) => x.r.full === r.full)).filter(Boolean);
+  fixedItems.forEach((x) => { const t = x.known >= 4 && (x.downs === 0 || x.ups === 0 || (x.downs === 1 && x.ups >= 3) || (x.ups === 1 && x.downs >= 3)); x.fixedTier = t; });
   const secOf = (r) => secShort(info.sectorOf[r.short] || info.sectorOf[Object.keys(info.alias).find((k) => info.alias[k] === r.short)] || "기타");
   items.forEach((x) => { x.sec = secOf(x.r); });
 
@@ -165,6 +177,6 @@ export async function buildTrendReport({ uni, info, fx, log, cacheDir, topN, min
 
   L.push("");
   L.push("※ 마감봉 기준 · 거래대금=24h 원화(환율 " + Math.round(fx) + ") · 가격 보증 아님, 방향 현황판" + (stale ? " · 일부 프레임 갱신 지연(" + stale + ")" : ""));
-  const data = { items, secInfo, pl, pb, nw, lost, prev: prevMap, cnt: { aUp: cnt(1, "A"), bUp: cnt(1, "B"), bDn: cnt(-1, "B"), aDn: cnt(-1, "A"), mixed, short }, now, fx, stale };
+  const data = { items, fixedItems, secInfo, pl, pb, nw, lost, prev: prevMap, cnt: { aUp: cnt(1, "A"), bUp: cnt(1, "B"), bDn: cnt(-1, "B"), aDn: cnt(-1, "A"), mixed, short }, now, fx, stale };
   return { text: L.join("\n"), state, data, stats: { n: items.length, stale, nofetch, ms: Date.now() - T0 } };
 }
