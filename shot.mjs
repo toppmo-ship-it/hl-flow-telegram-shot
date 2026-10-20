@@ -352,6 +352,8 @@ async function runExtras({ cfg0, q, dry, base }) {
     let tprev = null; try { tprev = JSON.parse(fs.readFileSync(tsFile, "utf8")); } catch (e) {}
     const tr = await buildTrendReport({ uni, info, fx, log, cacheDir: CACHE, topN: [30, 50, 80].includes(+cfg0.trendTop) ? +cfg0.trendTop : 50, minEok: cfg0.trendMinEok != null ? +cfg0.trendMinEok : 10, budgetMs: 150000, prev: tprev });
     log("추세 정렬 리포트", tr.stats.n + "종목 · " + Math.round(tr.stats.ms / 1000) + "초" + (tr.stats.stale ? " · 갱신 지연 " + tr.stats.stale : ""));
+    const curPrev = cur; cur = "report";   /* 5프레임 추세 리포트는 리포트 전용 방(TG_CHAT_ID2)으로 — 비어 있으면 기본 방 */
+    try {
     const wTr = REP_W[normRes(String(q.res || cfg0.res || "fwide"))] || 2184;
     let photo = null;
     try { photo = await renderRepPhoto(buildTrendSpec({ data: tr.data, info, fx }), wTr); } catch (e) { log("추세 사진 그리기 실패 — 글로 대신 보냅니다:", String((e && e.message) || e).slice(0, 140)); }
@@ -364,6 +366,7 @@ async function runExtras({ cfg0, q, dry, base }) {
       } else await sendText(tr.text);
       try { fs.mkdirSync(CACHE, { recursive: true }); fs.writeFileSync(tsFile, JSON.stringify(tr.state)); } catch (e) {}
     }
+    } finally { cur = curPrev; }
     st.lastTrend = now;
   }
   if (dueRank) {
