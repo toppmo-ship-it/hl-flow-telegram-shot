@@ -109,14 +109,14 @@ async function runOnce({ manual, cfg }) {
         const r = await page.evaluate((c) => window.__shot.show(c), j.coin);
         if (!r.ok) { log("차트 로딩 실패:", j.coin, "(봉 " + r.n + ")"); fail++; continue; }
         const d = await page.evaluate((c) => window.__shot.describe(c), j.coin);
-        const stamp = (d.ko || d.short) + " · " + d.ivKo + " · " + now.text + (j.kind === "scan" ? " · 조건검색 " + j.i + "/" + j.n + (L.inv ? " · INVERSE" : "") : " · 기본");
+        const stamp = (d.ko ? d.ko + " (" + d.tk + ")" : d.tk || d.short) + (d.sector ? " · " + d.sector : "") + " · " + d.ivKo + " · " + now.text + (j.kind === "scan" ? " · 조건검색 " + j.i + "/" + j.n + (L.inv ? " · INVERSE" : "") : " · 기본");
         await page.evaluate((t) => window.__shot.stamp(t), stamp);
         await sleep(250);
         const buf = Buffer.from(await page.screenshot({ type: "png" }));   /* 원본(무손실) */
         const small = await sharp(buf).resize({ width: 2560, kernel: "lanczos3" }).sharpen({ sigma: 0.6, m1: 0.8, m2: 1.2 }).png({ compressionLevel: 9 }).toBuffer();   /* 사진용 2560x1440 */
         const nm = (d.tk || d.short).replace(/[^A-Za-z0-9가-힣._-]+/g, "_") + "_" + d.iv + "_" + now.ymd + "_" + now.hm + ".png";
         const sgn = d.chg == null ? "" : (d.chg >= 0 ? "+" : "") + d.chg.toFixed(2) + "%";
-        const cap = (j.kind === "scan" ? (L.inv ? "🔻" : "🔺") : "📌") + " " + (d.ko ? d.ko + " (" + d.tk + ")" : d.tk || d.short) + " · " + d.ivKo + "\n" + [fmtPx(d.px), sgn].filter(Boolean).join("  ") + (j.kind === "scan" ? "\n조건검색 " + j.i + "/" + j.n + (j.total > j.n ? " (통과 " + j.total + "종목 중)" : "") + (L.inv ? " · INVERSE 검색" : "") : "\n기본 시장 지표") + "\n" + nm;
+        const cap = (j.kind === "scan" ? (L.inv ? "🔻" : "🔺") : "📌") + " " + (d.ko ? d.ko + " (" + d.tk + ")" : d.tk || d.short) + (d.sector ? " · " + d.sector : "") + " · " + d.ivKo + "\n" + [fmtPx(d.px), sgn].filter(Boolean).join("  ") + (j.kind === "scan" ? "\n조건검색 " + j.i + "/" + j.n + (j.total > j.n ? " (통과 " + j.total + "종목 중)" : "") + (L.inv ? " · INVERSE 검색" : "") : "\n기본 시장 지표") + "\n" + nm;
         log((k + 1) + "/" + jobs.length, nm, Math.round(buf.length / 1024) + "KB 원본 · 사진 " + Math.round(small.length / 1024) + "KB", r.ms + "ms");
         if (SAVE_DIR) { fs.mkdirSync(SAVE_DIR, { recursive: true }); fs.writeFileSync(path.join(SAVE_DIR, String(k + 1).padStart(2, "0") + "_" + nm), buf); }
         if (DRY) { sent++; continue; }
