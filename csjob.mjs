@@ -8,6 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import puppeteer from "puppeteer-core";
+import sharp from "sharp";
 import { sbGet, sbPut } from "./sb.mjs";
 
 const BASE = (process.env.CS_URL || "https://hl-chartscan.vercel.app").replace(/\/$/, "");
@@ -76,7 +77,8 @@ async function runOnce({ manual, cfg }) {
   try {
     const row = await sbGet("chartscan_state_v1"), state = row && row.state;
     if (!state || !(state.cfgs || []).length) throw new Error("저장된 차트스캐너 설정이 없어요 (사이트를 한 번 열어 설정을 저장해 주세요)");
-    const W = 1920, H = 1080, DSF = [1.5, 2, 2.5, 3].includes(+cfg.scale) ? +cfg.scale : 2;
+    /* 선명도: 화면을 작게(1280x720) 잡고 4배로 그림 → 글자가 사진 안에서 상대적으로 크고, 원본은 5120x2880. 사진(미리보기)은 여기서 2560x1440으로 줄여(Lanczos) 텔레그램이 다시 줄이지 않게 함 */
+    const W = 1280, H = 720, DSF = [2, 3, 4].includes(+cfg.scale) ? +cfg.scale : 4;
     browser = await launch();
     const page = await browser.newPage();
     page.on("pageerror", (e) => log("페이지 오류:", String(e.message).slice(0, 140)));
@@ -110,15 +112,16 @@ async function runOnce({ manual, cfg }) {
         const stamp = (d.ko || d.short) + " · " + d.ivKo + " · " + now.text + (j.kind === "scan" ? " · 조건검색 " + j.i + "/" + j.n + (L.inv ? " · INVERSE" : "") : " · 기본");
         await page.evaluate((t) => window.__shot.stamp(t), stamp);
         await sleep(250);
-        const buf = Buffer.from(await page.screenshot({ type: "png" }));
+        const buf = Buffer.from(await page.screenshot({ type: "png" }));   /* 원본(무손실) */
+        const small = await sharp(buf).resize({ width: 2560, kernel: "lanczos3" }).sharpen({ sigma: 0.6, m1: 0.8, m2: 1.2 }).png({ compressionLevel: 9 }).toBuffer();   /* 사진용 2560x1440 */
         const nm = (d.tk || d.short).replace(/[^A-Za-z0-9가-힣._-]+/g, "_") + "_" + d.iv + "_" + now.ymd + "_" + now.hm + ".png";
         const sgn = d.chg == null ? "" : (d.chg >= 0 ? "+" : "") + d.chg.toFixed(2) + "%";
         const cap = (j.kind === "scan" ? (L.inv ? "🔻" : "🔺") : "📌") + " " + (d.ko ? d.ko + " (" + d.tk + ")" : d.tk || d.short) + " · " + d.ivKo + "\n" + [fmtPx(d.px), sgn].filter(Boolean).join("  ") + (j.kind === "scan" ? "\n조건검색 " + j.i + "/" + j.n + (j.total > j.n ? " (통과 " + j.total + "종목 중)" : "") + (L.inv ? " · INVERSE 검색" : "") : "\n기본 시장 지표") + "\n" + nm;
-        log((k + 1) + "/" + jobs.length, nm, Math.round(buf.length / 1024) + "KB", r.ms + "ms");
+        log((k + 1) + "/" + jobs.length, nm, Math.round(buf.length / 1024) + "KB 원본 · 사진 " + Math.round(small.length / 1024) + "KB", r.ms + "ms");
         if (SAVE_DIR) { fs.mkdirSync(SAVE_DIR, { recursive: true }); fs.writeFileSync(path.join(SAVE_DIR, String(k + 1).padStart(2, "0") + "_" + nm), buf); }
         if (DRY) { sent++; continue; }
         let mid = null;
-        if (buf.length < 9.5e6) { try { mid = await sendPhoto(buf, cap, nm); } catch (e) { log("사진 전송 실패:", String((e && e.message) || e).slice(0, 120)); } }
+        if (small.length < 9.5e6) { try { mid = await sendPhoto(small, cap, nm); } catch (e) { log("사진 전송 실패:", String((e && e.message) || e).slice(0, 120)); } }
         if (cfg.doc !== false || !mid) { try { await sendDocument(buf, nm, mid); } catch (e) { log("원본 전송 실패:", String((e && e.message) || e).slice(0, 120)); if (!mid) { fail++; continue; } } }
         sent++; await sleep(1200);   /* 텔레그램 분당 전송 제한(방당 ~20건) 여유 */
       } catch (e) { log("차트 실패:", j.coin, String((e && e.message) || e).slice(0, 140)); fail++; }
@@ -150,7 +153,7 @@ async function main() {
   if (st0) { S.last = +st0.last || 0; S.lastCmd = st0.lastCmd || ""; S.info = st0.info || null; }
   if (!DRY && (!tgToken() || !chatId())) { log("TG_BOT_TOKEN / TG_CHAT_ID 가 설정되지 않아 건너뜀"); return; }
   log("차트스캐너 사진 작업 시작 · 마지막 전송 " + (S.last ? new Date(S.last + 9 * 3600e3).toISOString().slice(5, 16).replace("T", " ") + " KST" : "없음") + (DRY ? " · dry" : "") + " · " + BASE);
-  if (ONCE) { const cfg = Object.assign({ max: 10, doc: true }, (await sbGet("cs_shot_cfg")) || {}, process.env.CS_CFG_JSON ? JSON.parse(process.env.CS_CFG_JSON) : {}); await runOnce({ manual: true, cfg }); return; }
+  if (ONCE) { const c0 = await sbGet("cs_shot_cmd"); S.lastCmd = c0 && c0.id ? c0.id : ""; const cfg = Object.assign({ max: 10, doc: true }, (await sbGet("cs_shot_cfg")) || {}, process.env.CS_CFG_JSON ? JSON.parse(process.env.CS_CFG_JSON) : {}); await runOnce({ manual: true, cfg }); return; }
   const end = Date.now() + LOOP_MS; await setStatus("idle", 0, "대기 중", true);
   while (Date.now() < end) {
     try { const did = await tick(); if (!did && S.status.state !== "idle" && S.status.state !== "done") await setStatus("idle", 0, "대기 중"); }
