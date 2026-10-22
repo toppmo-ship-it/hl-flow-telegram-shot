@@ -50,6 +50,14 @@ async function post(force) {
 }
 const setStatus = (state, pct, label, force) => { S.status = Object.assign({}, S.status, { state, pct: Math.round(pct), label }); return post(force); };
 
+/* 「지금 보내기」를 다시 눌렀거나(설정이 바뀐 것) 정기 전송 중에 끔으로 바꿨으면 → 진행 중이던 전송을 멈추고, 새 요청으로 처음부터 다시 */
+async function superseded(manual) {
+  const [cmd, cfg] = await Promise.all([sbGet("cs_shot_cmd"), manual ? null : sbGet("cs_shot_cfg")]);
+  if (cmd && cmd.id && cmd.id !== S.lastCmd) return "새 「지금 보내기」 요청";
+  if (!manual && cfg && cfg.on === false) return "전송을 껐음";
+  return "";
+}
+
 /* ── 한 번 만들어서 보내기 ── */
 async function launch() {
   let err;
@@ -80,6 +88,7 @@ async function runOnce({ manual, cfg }) {
     if (!(await page.evaluate(() => window.__shot.booted()))) throw new Error("차트스캐너가 시작되지 않았어요");
     await setStatus("running", 14, "조건검색 결과 계산 중", true);
     const L = await page.evaluate(() => window.__shot.list());
+    { const why = await superseded(manual); if (why) { log("⏹ 중지 — " + why); S.again = true; await setStatus("idle", 0, "중지됨 (" + why + ")", true); return false; } }
     log("조건검색 " + L.rows.length + "종목 통과 (범위 " + L.universe + "종목, 계산 " + L.scanned + ") · 인버스 " + (L.inv ? "켬" : "끔"));
     const max = [5, 10, 15, 20].includes(+cfg.max) ? +cfg.max : 10;
     /* 가장 중요한 종목이 맨 마지막: 일반 검색은 상승이 큰 종목, 인버스 검색은 하락이 큰(마이너스가 가장 큰) 종목 */
@@ -92,6 +101,7 @@ async function runOnce({ manual, cfg }) {
     let sent = 0, fail = 0; const now = kstParts(Date.now());
     for (let k = 0; k < jobs.length; k++) {
       const j = jobs[k];
+      { const why = k > 0 ? await superseded(manual) : ""; if (why) { log("⏹ 중지 — " + why + " (" + k + "/" + jobs.length + "장 보낸 뒤)"); S.again = true; await setStatus("idle", 0, "중지됨 (" + why + ") — 새로 시작", true); return false; } }
       await setStatus("running", 18 + 76 * k / jobs.length, "차트 " + (k + 1) + "/" + jobs.length + " 찍는 중", false);
       try {
         const r = await page.evaluate((c) => window.__shot.show(c), j.coin);
@@ -146,7 +156,7 @@ async function main() {
     try { const did = await tick(); if (!did && S.status.state !== "idle" && S.status.state !== "done") await setStatus("idle", 0, "대기 중"); }
     catch (e) { log("오류:", String((e && e.message) || e).slice(0, 200)); S.retryAt = Date.now() + 60000; await setStatus("error", 0, "오류: " + String((e && e.message) || e).slice(0, 80), true); }
     if (Date.now() - lastPost > 60000) await post(true);
-    await sleep(TICK_MS);
+    if (S.again) S.again = false; else await sleep(TICK_MS);   /* 중지하고 새 요청으로 다시 시작할 땐 기다리지 않고 바로 */
   }
   log("이번 실행 종료(다음 실행이 이어받음)");
 }
