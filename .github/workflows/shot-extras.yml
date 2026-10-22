@@ -99,3 +99,12 @@ jobs:
             echo "예약 실패 $i/5 — 20초 뒤 재시도"; sleep 20
           done
           echo "::error::다음 실행 예약에 5번 모두 실패 — cron 워치독이 되살릴 때까지 멈춤"; exit 1
+
+      # 캐시 저장소(저장소당 10GB)가 가득 차지 않게: 이 작업의 예전 캐시는 최신 3개만 남기고 지움(실행마다 새 캐시가 쌓여 10GB를 채웠음)
+      - name: 오래된 캐시 정리
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ids=$(gh cache list --repo "${{ github.repository }}" --key "extras-" --sort created_at --order desc --limit 1000 --json id --jq '.[3:][].id' || true)
+          n=0; for id in $ids; do gh cache delete "$id" --repo "${{ github.repository }}" >/dev/null 2>&1 && n=$((n+1)); done; echo "지운 캐시 $n개 (extras-)"
