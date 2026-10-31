@@ -19,7 +19,7 @@
     if (src === "scan") {
       arr(ctx.scan).slice().sort(function (a, b) { return ctx.inv ? a.chg - b.chg : b.chg - a.chg; }).slice(0, max).forEach(function (r) { add({ t: r.t, coin: r.coin, src: "scan" }); });   /* 상승(인버스면 하락)이 큰 순으로 max 개 */
     } else {
-      var K = CP.norm({ on: true, max: max, picks: src === "pick" ? arr(cfg.picks) : [], exclude: arr(cfg.exclude), sort: false,
+      var K = CP.norm({ on: true, max: src === "pick" ? 30 : max, picks: src === "pick" ? arr(cfg.picks) : [], exclude: arr(cfg.exclude), sort: false,
         auto: { on: src === "auto", by: cfg.auto && cfg.auto.by, dir: cfg.auto && cfg.auto.dir, n: cfg.auto && cfg.auto.n }, filter: cfg.filter || {} }, "stock");
       CP.pick(rows || [], K, "stock").forEach(function (x) { add({ t: x.t, src: x.src }); });
     }
