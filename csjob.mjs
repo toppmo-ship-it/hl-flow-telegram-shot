@@ -31,14 +31,15 @@ const kstParts = (t) => { const d = new Date(t + 9 * 3600e3); return { ymd: "" +
 /* ── 텔레그램 글(캡션) 서식 ──
    1줄 이름·분야·시간대 / 2줄 현재가·24시간 등락률·24시간 거래대금 / 3줄 이 사진 시간대의 추세 / 4줄 일·4시간·2시간·1시간 추세
    화살표 모양은 차트와 같은 세 가지: 노란 굵은 화살표(강, 개수만큼) · 흰 빈 화살표(약) · 작은 형광 확인 화살표 — 마지막으로 생긴 화살표 기준 */
-const AR = { yellow: { up: "⬆", down: "⬇" }, hollow: { up: "⇧", down: "⇩" }, neon: { up: "↑", down: "↓" } }, DOT = { yellow: "🟡", hollow: "⚪", neon: "🟢" };
+const AR = { yellow: { up: "⬆️", down: "⬇️" }, hollow: { up: "⬆️", down: "⬇️" }, neon: { up: "⬆️", down: "⬇️" } }   /* 방향은 크고 또렷한 화살표 이모지(위/아래), 종류는 앞의 동그라미 색(노랑=강 · 흰=약 · 초록=형광 확인) */, DOT = { yellow: "🟡", hollow: "⚪", neon: "🟢" };
 const TYPE_KO = { yellow: "노란 화살표(강)", hollow: "빈 화살표(약)", neon: "형광 확인 화살표" };
 const ageTxt = (sec) => { const m = Math.floor(sec / 60); if (m < 1) return "방금"; if (m < 60) return m + "M 전"; const h = Math.floor(m / 60); if (h < 24) return h + "H " + (m % 60) + "M 전"; const d = Math.floor(h / 24); return d + "D " + (h % 24) + "H 전"; };
 const arrowIcon = (r) => (r.type === "yellow" ? DOT.yellow + AR.yellow[r.dir].repeat(r.n || 1) : DOT[r.type] + AR[r.type][r.dir]);
 const dirKo = (r) => (r.dir === "up" ? "상승" : "하락");
 const trendLine = (ivFull, r) => (!r || r.none ? "⚪ " + ivFull + " 추세 신호 없음" + (r && r.why ? " (" + r.why + ")" : "") : arrowIcon(r) + " " + ivFull + " " + dirKo(r) + "추세 · " + TYPE_KO[r.type] + (r.type === "yellow" && r.n > 1 ? " ×" + r.n : "") + " · " + ageTxt(r.ageSec));
 const FRAMES = [["1d", "일"], ["4h", "4시간"], ["2h", "2시간"], ["1h", "1시간"]];
-const framesLines = (map) => FRAMES.map(([k, ko]) => { const r = map[k]; return ko + " " + (!r || r.none ? "⚪ -" : arrowIcon(r) + " " + dirKo(r) + " · " + ageTxt(r.ageSec)); });
+const TYPE_SHORT = { yellow: "노랑(강)", hollow: "흰(약)", neon: "형광" };
+const framesLines = (map) => FRAMES.map(([k, ko]) => { const r = map[k]; return ko + " " + (!r || r.none ? "➖ 신호 없음" : arrowIcon(r) + " " + dirKo(r) + " · " + TYPE_SHORT[r.type] + " · " + ageTxt(r.ageSec)); });
 const fmtPx = (v) => (v == null || !isFinite(v) ? "" : Math.abs(v) >= 1000 ? v.toLocaleString("en-US", { maximumFractionDigits: 2 }) : Math.abs(v) >= 1 ? v.toFixed(2) : v.toPrecision(4));
 
 /* ── 텔레그램 ── */
