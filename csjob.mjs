@@ -19,7 +19,7 @@ const SRC_KO = { scan: "조건검색", auto: "자동 상위", pick: "직접 선�
 
 const BASE = (process.env.CS_URL || "https://hl-chartscan.vercel.app").replace(/\/$/, "");
 const DRY = /^(1|true)$/i.test(process.env.CS_DRY || ""), ONCE = /^(1|true)$/i.test(process.env.CS_ONCE || "");
-const LOOP_MS = +process.env.CS_LOOP_MS || 22 * 60000, TICK_MS = 20000;
+const LOOP_MS = +process.env.CS_LOOP_MS || 22 * 60000, TICK_MS = 4000;
 const SAVE_DIR = process.env.CS_SAVE || "";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log(new Date(Date.now() + 9 * 3600e3).toISOString().slice(11, 19), ...a);
@@ -100,6 +100,10 @@ async function runOnce({ manual, cfg }) {
   await note(manual ? "📤 「지금 보내기」 요청을 받았어요 — 지금 설정으로 시작" : "⏰ 정해진 주기가 되어 시작해요");
   const hb = setInterval(() => { post(true).catch(() => {}); }, 15000);
   let browser = null;
+  /* 즉시 중단: 새 「지금 보내기」·설정 변경·끔이 들어오면 3초 안에 감지 → 지금 하던 일(차트 불러오기·사진 찍기·전송 준비)을 그 자리에서 끊고 크롬을 닫고 처음부터 다시 */
+  const ctl = { abort: "" };
+  const wd = setInterval(() => { if (!ctl.abort) superseded(manual).then((why) => { if (why && !ctl.abort) ctl.abort = why; }).catch(() => {}); }, 3000);
+  const guard = (pr) => new Promise((res, rej) => { const t = setInterval(() => { if (ctl.abort) { clearInterval(t); rej(new Error("ABORT")); } }, 250); Promise.resolve(pr).then((v) => { clearInterval(t); res(v); }, (e) => { clearInterval(t); rej(e); }); });
   try {
     const row = await sbGet("chartscan_state_v1"), state = row && row.state;
     if (!state || !(state.cfgs || []).length) throw new Error("저장된 차트스캐너 설정이 없어요 (사이트를 한 번 열어 설정을 저장해 주세요)");
@@ -107,20 +111,20 @@ async function runOnce({ manual, cfg }) {
     await note("저장된 차트 설정(지표·눈금·테마·조건검색식)을 불러왔어요");
     const W = 1280, H = 720, DSF = [2, 3, 4].includes(+cfg.scale) ? +cfg.scale : 4;
     await note("크롬 브라우저를 실행하는 중 (원본 " + (DSF * 1280) + "×" + (DSF * 720) + ")");
-    browser = await launch();
+    { const bp = launch(); try { browser = await guard(bp); } catch (e) { bp.then((b) => b.close()).catch(() => {}); throw e; } }
     const page = await browser.newPage();
     page.on("pageerror", (e) => log("페이지 오류:", String(e.message).slice(0, 140)));
     await page.setViewport({ width: W, height: H, deviceScaleFactor: DSF });
     await page.evaluateOnNewDocument((st, saved) => { try { localStorage.setItem("hlcs_state_v1", st); if (saved) localStorage.setItem("hlcs_scr_saved_v1", saved); } catch (e) { /* 무시 */ } }, JSON.stringify(state), row.saved || "");
     await setStatus("running", 8, "차트스캐너 여는 중", true); await note("브트 차트 사이트를 여는 중");
-    await page.goto(BASE + "/?shot=1", { waitUntil: "domcontentloaded", timeout: 90000 });
-    await page.waitForFunction(() => window.__shot, { timeout: 60000 });
-    if (!(await page.evaluate(() => window.__shot.booted()))) throw new Error("차트스캐너가 시작되지 않았어요");
+    await guard(page.goto(BASE + "/?shot=1", { waitUntil: "domcontentloaded", timeout: 90000 }));
+    await guard(page.waitForFunction(() => window.__shot, { timeout: 60000 }));
+    if (!(await guard(page.evaluate(() => window.__shot.booted())))) throw new Error("차트스캐너가 시작되지 않았어요");
     /* 조건검색 계산은 출처가 「조건검색」일 때만 (자동 상위·직접 선택은 필요 없어서 1~2분 아낌) */
     const useScan = cfg.src !== "pick" && cfg.src !== "auto";
     if (useScan) { await setStatus("running", 14, "조건검색 결과 계산 중", true); await note("사이트 준비 완료 — 조건검색 계산 중 (종목마다 일봉·지표 확인, 1~2분)"); }
     else await note("사이트 준비 완료 — " + (SRC_KO[cfg.src] || "") + " 모드라 조건검색 계산은 건너뛰어요");
-    const L = useScan ? await page.evaluate(() => window.__shot.list()) : { rows: [], inv: false, universe: 0, scanned: 0 };
+    const L = useScan ? await guard(page.evaluate(() => window.__shot.list())) : { rows: [], inv: false, universe: 0, scanned: 0 };
     { const why = await superseded(manual); if (why) { await note("⏹ 중지 — " + why + (why === "설정이 바뀜" ? " → 새 설정으로 처음부터 다시 시작해요" : "")); S.again = true; await setStatus("idle", 0, "중지됨 (" + why + ")", true, null); return false; } }
     if (useScan) await note("조건검색 계산 끝 — " + L.rows.length + "종목 통과 (범위 " + L.universe + "종목)" + (L.inv ? " · 인버스 검색" : ""));
     log("조건검색 " + L.rows.length + "종목 통과 (범위 " + L.universe + "종목, 계산 " + L.scanned + ") · 인버스 " + (L.inv ? "켬" : "끔"));
@@ -128,7 +132,7 @@ async function runOnce({ manual, cfg }) {
     const sl = await sbGet("tg_stock_list"), rows = sl && Array.isArray(sl.rows) && sl.rows.length ? sl.rows : null;
     if (!rows) log("⚠ 종목 목록 스냅샷(tg_stock_list)이 없어 분야별 정렬 없이 보냄");
     const plan = SP.plan(cfg, { rows, inv: !!L.inv, scan: L.rows.map((r) => ({ t: r.short, coin: r.coin, chg: r.chg })) });
-    const need = plan.filter((x) => !x.coin).map((x) => x.t), pairs = need.length ? await page.evaluate((n) => window.__shot.resolvePairs(n), need) : [], cm = {}; pairs.forEach((p) => { if (p.coin) cm[p.t] = p.coin; });
+    const need = plan.filter((x) => !x.coin).map((x) => x.t), pairs = need.length ? await guard(page.evaluate((n) => window.__shot.resolvePairs(n), need)) : [], cm = {}; pairs.forEach((p) => { if (p.coin) cm[p.t] = p.coin; });
     const dropped = plan.filter((x) => !x.coin && !cm[x.t]).map((x) => x.t); if (dropped.length) log("거래소에서 못 찾은 종목(건너뜀): " + dropped.join(","));
     const cnt = {}, seq = {}; plan.forEach((x) => { cnt[x.src] = (cnt[x.src] || 0) + 1; });
     const jobs = plan.map((x) => Object.assign({}, x, { coin: x.coin || cm[x.t] })).filter((x) => x.coin).map((x) => { seq[x.src] = (seq[x.src] || 0) + 1; return Object.assign(x, { kind: x.src === "tail" ? "macro" : "scan", i: seq[x.src], n: cnt[x.src] }); });
@@ -143,19 +147,19 @@ async function runOnce({ manual, cfg }) {
       const stage = (txt, f) => setStatus("running", 18 + 76 * (k + f) / jobs.length, (k + 1) + "/" + jobs.length + " " + j.t + " — " + txt, true, { k: k + 1, n: jobs.length, t: j.t, stage: txt });
       await stage("차트 불러오는 중 (봉·지표 계산)", 0.05);
       try {
-        const r = await page.evaluate((c, o) => window.__shot.show(c, o), j.coin, shotOpt);
+        const r = await guard(page.evaluate((c, o) => window.__shot.show(c, o), j.coin, shotOpt));
         if (!r.ok) { await note("⚠ " + j.t + " 차트를 못 불러왔어요 (봉 " + r.n + "개) — 건너뜀"); fail++; continue; }
         await stage("사진 찍는 중", 0.5);
         const d = await page.evaluate((c) => window.__shot.describe(c), j.coin);
         const stamp = (d.ko ? d.ko + " (" + d.tk + ")" : d.tk || d.short) + (d.sector ? " · " + d.sector : "") + " · " + d.ivKo + " · " + now.text + (j.kind === "scan" ? " · " + srcKo + " " + j.i + "/" + j.n + (cfg.src === "scan" && L.inv ? " · INVERSE" : "") : " · 기본");
         await page.evaluate((t) => window.__shot.stamp(t), stamp);
         await sleep(250);
-        const buf = Buffer.from(await page.screenshot({ type: "png" }));   /* 원본(무손실) */
+        const buf = Buffer.from(await guard(page.screenshot({ type: "png" })));   /* 원본(무손실) */
         await stage("사진 보정 중 (2560×1440)", 0.62);
         const small = await sharp(buf).resize({ width: 2560, kernel: "lanczos3" }).sharpen({ sigma: 0.6, m1: 0.8, m2: 1.2 }).png({ compressionLevel: 9 }).toBuffer();   /* 사진용 2560x1440 */
         const nm = (d.tk || d.short).replace(/[^A-Za-z0-9가-힣._-]+/g, "_") + "_" + d.iv + "_" + now.ymd + "_" + now.hm + ".png";
         let tmap = {};
-        try { await stage("추세 화살표 계산 중", 0.66); const ivs = [...new Set([d.iv, ...FRAMES.map((f) => f[0])])], rs = await page.evaluate((c, a) => window.__shot.trends(c, a), j.coin, ivs); ivs.forEach((v, q) => { tmap[v] = rs[q]; }); }
+        try { await stage("추세 화살표 계산 중", 0.66); const ivs = [...new Set([d.iv, ...FRAMES.map((f) => f[0])])], rs = await guard(page.evaluate((c, a) => window.__shot.trends(c, a), j.coin, ivs)); ivs.forEach((v, q) => { tmap[v] = rs[q]; }); }
         catch (e) { log("추세 계산 실패(글에서 뺌):", j.t, String((e && e.message) || e).slice(0, 80)); tmap = null; }
         const sgn = d.chg == null ? "" : (d.chg >= 0 ? "+" : "") + d.chg.toFixed(2) + "%";
         const cap = [
@@ -168,17 +172,23 @@ async function runOnce({ manual, cfg }) {
         if (SAVE_DIR) { fs.mkdirSync(SAVE_DIR, { recursive: true }); fs.writeFileSync(path.join(SAVE_DIR, String(k + 1).padStart(2, "0") + "_" + nm), buf); }
         if (DRY) { sent++; continue; }
         let mid = null, docOk = false;
-        if (small.length < 9.5e6) { await stage("텔레그램으로 사진 전송 중", 0.72); try { mid = await sendPhoto(small, cap, nm); } catch (e) { await note("⚠ " + j.t + " 사진 전송 실패: " + String((e && e.message) || e).slice(0, 80)); } }
-        if (cfg.doc !== false || !mid) { await stage("원본 파일(PNG) 전송 중", 0.88); try { await sendDocument(buf, nm, mid); docOk = true; } catch (e) { await note("⚠ " + j.t + " 원본 전송 실패: " + String((e && e.message) || e).slice(0, 80)); if (!mid) { fail++; continue; } } }
+        if (small.length < 9.5e6) { await stage("텔레그램으로 사진 전송 중", 0.72); try { mid = await guard(sendPhoto(small, cap, nm)); } catch (e) { if (ctl.abort) throw e; await note("⚠ " + j.t + " 사진 전송 실패: " + String((e && e.message) || e).slice(0, 80)); } }
+        if (cfg.doc !== false || !mid) { await stage("원본 파일(PNG) 전송 중", 0.88); try { await guard(sendDocument(buf, nm, mid)); docOk = true; } catch (e) { if (ctl.abort) throw e; await note("⚠ " + j.t + " 원본 전송 실패: " + String((e && e.message) || e).slice(0, 80)); if (!mid) { fail++; continue; } } }
         sent++; await note("✔ " + (k + 1) + "/" + jobs.length + " " + j.t + " 전송 완료 (사진 " + Math.round(small.length / 1024) + "KB" + (docOk ? " + 원본 " + Math.round(buf.length / 1024) + "KB" : "") + ")"); await sleep(1200);   /* 텔레그램 분당 전송 제한(방당 ~20건) 여유 */
-      } catch (e) { await note("⚠ " + j.t + " 실패: " + String((e && e.message) || e).slice(0, 100)); fail++; }
+      } catch (e) { if (ctl.abort) throw e; await note("⚠ " + j.t + " 실패: " + String((e && e.message) || e).slice(0, 100)); fail++; }
     }
     S.last = Date.now(); S.retryAt = 0; S.info = { sent, fail, scan: picked.length, macro: macroCoins.length, passed: L.rows.length, src: cfg.src || "scan", inv: !!L.inv, sec: Math.round((Date.now() - t0) / 1000) };
     await note("🎉 모두 끝 — " + sent + "장 전송" + (fail ? " (실패 " + fail + ")" : "") + " · " + S.info.sec + "초");
     await setStatus("done", 100, "완료 · " + sent + "장 · " + S.info.sec + "초", true, null);
     log("전송 완료 " + sent + "장 (실패 " + fail + ") " + S.info.sec + "초");
     return true;
-  } finally { clearInterval(hb); if (browser) await browser.close().catch(() => {}); }
+  } catch (e) {
+    if (ctl.abort) {
+      const why = ctl.abort; await note("⏹ 즉시 중지 — " + why + (why === "설정이 바뀜" || /지금 보내기/.test(why) ? " → 지금 설정으로 처음부터 다시 시작해요" : ""));
+      S.again = true; await setStatus("idle", 0, "중지됨 (" + why + ")", true, null); return false;
+    }
+    throw e;
+  } finally { clearInterval(hb); clearInterval(wd); if (browser) await browser.close().catch(() => {}); }
 }
 
 /* ── 정해진 주기(시계 격자): 설정한 분마다, 봉이 막 마감한 뒤(+45초)에 맞춰 (하루 = 한국 아침 9시) ── */
