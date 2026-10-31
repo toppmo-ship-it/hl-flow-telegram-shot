@@ -38,7 +38,7 @@ const arrowIcon = (r) => (r.type === "yellow" ? DOT.yellow + AR.yellow[r.dir].re
 const dirKo = (r) => (r.dir === "up" ? "상승" : "하락");
 const trendLine = (ivFull, r) => (!r || r.none ? "⚪ " + ivFull + " 추세 신호 없음" + (r && r.why ? " (" + r.why + ")" : "") : arrowIcon(r) + " " + ivFull + " " + dirKo(r) + "추세 · " + TYPE_KO[r.type] + (r.type === "yellow" && r.n > 1 ? " ×" + r.n : "") + " · " + ageTxt(r.ageSec));
 const FRAMES = [["1d", "일"], ["4h", "4시간"], ["2h", "2시간"], ["1h", "1시간"]];
-const framesLine = (map) => FRAMES.map(([k, ko]) => { const r = map[k]; return ko + " " + (!r || r.none ? "⚪ -" : arrowIcon(r) + " " + dirKo(r) + " " + ageTxt(r.ageSec)); }).join(" · ");
+const framesLines = (map) => FRAMES.map(([k, ko]) => { const r = map[k]; return ko + " " + (!r || r.none ? "⚪ -" : arrowIcon(r) + " " + dirKo(r) + " · " + ageTxt(r.ageSec)); });
 const fmtPx = (v) => (v == null || !isFinite(v) ? "" : Math.abs(v) >= 1000 ? v.toLocaleString("en-US", { maximumFractionDigits: 2 }) : Math.abs(v) >= 1 ? v.toFixed(2) : v.toPrecision(4));
 
 /* ── 텔레그램 ── */
@@ -162,11 +162,9 @@ async function runOnce({ manual, cfg }) {
         try { await stage("추세 화살표 계산 중", 0.66); const ivs = [...new Set([d.iv, ...FRAMES.map((f) => f[0])])], rs = await guard(page.evaluate((c, a) => window.__shot.trends(c, a), j.coin, ivs)); ivs.forEach((v, q) => { tmap[v] = rs[q]; }); }
         catch (e) { log("추세 계산 실패(글에서 뺌):", j.t, String((e && e.message) || e).slice(0, 80)); tmap = null; }
         const sgn = d.chg == null ? "" : (d.chg >= 0 ? "+" : "") + d.chg.toFixed(2) + "%";
-        const cap = [
-          (d.ko ? d.ko + " (" + d.tk + ")" : d.tk || d.short) + (d.sector ? " · " + d.sector : "") + " · " + d.ivFull,
-          ["현재가 " + fmtPx(d.px), sgn ? "24시간 등락률 " + sgn : "", d.vKrw ? "24시간 거래대금 " + d.vKrw : ""].filter(Boolean).join(" · "),
-          tmap ? trendLine(d.ivFull, tmap[d.iv]) : "", tmap ? framesLine(tmap) : "",
-        ].filter(Boolean).join("\n");
+        const head = (d.ko ? d.ko + " (" + d.tk + ")" : d.tk || d.short) + (d.sector ? " · " + d.sector : "") + " · " + d.ivFull;
+        const info = ["현재가 " + fmtPx(d.px), sgn ? "24시간 등락률 " + sgn : "", d.vKrw ? "24시간 거래대금 " + d.vKrw : ""].filter(Boolean);
+        const cap = [head, ...info, ...(tmap ? ["", trendLine(d.ivFull, tmap[d.iv]), "", ...framesLines(tmap)] : [])].join("\n");   /* 정보마다 한 줄씩, 묶음 사이는 빈 줄 */
         if (DRY) log("글 ↓\n" + cap);
         log((k + 1) + "/" + jobs.length, nm, Math.round(buf.length / 1024) + "KB 원본 · 사진 " + Math.round(small.length / 1024) + "KB", r.ms + "ms");
         if (SAVE_DIR) { fs.mkdirSync(SAVE_DIR, { recursive: true }); fs.writeFileSync(path.join(SAVE_DIR, String(k + 1).padStart(2, "0") + "_" + nm), buf); }
