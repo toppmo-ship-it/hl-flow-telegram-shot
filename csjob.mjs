@@ -28,6 +28,17 @@ const tgToken = () => clean(process.env.TG_BOT_TOKEN).replace(/^bot/i, "");
 const chatId = () => clean(process.env.TG_CHAT_ID);   /* 종목 카드와 같은 기본 방 */
 const pad = (n) => String(n).padStart(2, "0");
 const kstParts = (t) => { const d = new Date(t + 9 * 3600e3); return { ymd: "" + d.getUTCFullYear() + pad(d.getUTCMonth() + 1) + pad(d.getUTCDate()), hm: pad(d.getUTCHours()) + pad(d.getUTCMinutes()), text: d.getUTCFullYear() + "-" + pad(d.getUTCMonth() + 1) + "-" + pad(d.getUTCDate()) + " " + pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes()) + " KST" }; };
+/* ── 텔레그램 글(캡션) 서식 ──
+   1줄 이름·분야·시간대 / 2줄 현재가·24시간 등락률·24시간 거래대금 / 3줄 이 사진 시간대의 추세 / 4줄 일·4시간·2시간·1시간 추세
+   화살표 모양은 차트와 같은 세 가지: 노란 굵은 화살표(강, 개수만큼) · 흰 빈 화살표(약) · 작은 형광 확인 화살표 — 마지막으로 생긴 화살표 기준 */
+const AR = { yellow: { up: "⬆", down: "⬇" }, hollow: { up: "⇧", down: "⇩" }, neon: { up: "↑", down: "↓" } }, DOT = { yellow: "🟡", hollow: "⚪", neon: "🟢" };
+const TYPE_KO = { yellow: "노란 화살표(강)", hollow: "빈 화살표(약)", neon: "형광 확인 화살표" };
+const ageTxt = (sec) => { const m = Math.floor(sec / 60); if (m < 1) return "방금"; if (m < 60) return m + "M 전"; const h = Math.floor(m / 60); if (h < 24) return h + "H " + (m % 60) + "M 전"; const d = Math.floor(h / 24); return d + "D " + (h % 24) + "H 전"; };
+const arrowIcon = (r) => (r.type === "yellow" ? DOT.yellow + AR.yellow[r.dir].repeat(r.n || 1) : DOT[r.type] + AR[r.type][r.dir]);
+const dirKo = (r) => (r.dir === "up" ? "상승" : "하락");
+const trendLine = (ivFull, r) => (!r || r.none ? "⚪ " + ivFull + " 추세 신호 없음" + (r && r.why ? " (" + r.why + ")" : "") : arrowIcon(r) + " " + ivFull + " " + dirKo(r) + "추세 · " + TYPE_KO[r.type] + (r.type === "yellow" && r.n > 1 ? " ×" + r.n : "") + " · " + ageTxt(r.ageSec));
+const FRAMES = [["1d", "일"], ["4h", "4시간"], ["2h", "2시간"], ["1h", "1시간"]];
+const framesLine = (map) => FRAMES.map(([k, ko]) => { const r = map[k]; return ko + " " + (!r || r.none ? "⚪ -" : arrowIcon(r) + " " + dirKo(r) + " " + ageTxt(r.ageSec)); }).join(" · ");
 const fmtPx = (v) => (v == null || !isFinite(v) ? "" : Math.abs(v) >= 1000 ? v.toLocaleString("en-US", { maximumFractionDigits: 2 }) : Math.abs(v) >= 1 ? v.toFixed(2) : v.toPrecision(4));
 
 /* ── 텔레그램 ── */
@@ -143,8 +154,16 @@ async function runOnce({ manual, cfg }) {
         await stage("사진 보정 중 (2560×1440)", 0.62);
         const small = await sharp(buf).resize({ width: 2560, kernel: "lanczos3" }).sharpen({ sigma: 0.6, m1: 0.8, m2: 1.2 }).png({ compressionLevel: 9 }).toBuffer();   /* 사진용 2560x1440 */
         const nm = (d.tk || d.short).replace(/[^A-Za-z0-9가-힣._-]+/g, "_") + "_" + d.iv + "_" + now.ymd + "_" + now.hm + ".png";
+        let tmap = {};
+        try { await stage("추세 화살표 계산 중", 0.66); const ivs = [...new Set([d.iv, ...FRAMES.map((f) => f[0])])], rs = await page.evaluate((c, a) => window.__shot.trends(c, a), j.coin, ivs); ivs.forEach((v, q) => { tmap[v] = rs[q]; }); }
+        catch (e) { log("추세 계산 실패(글에서 뺌):", j.t, String((e && e.message) || e).slice(0, 80)); tmap = null; }
         const sgn = d.chg == null ? "" : (d.chg >= 0 ? "+" : "") + d.chg.toFixed(2) + "%";
-        const cap = (j.kind === "scan" ? (cfg.src === "scan" ? (L.inv ? "🔻" : "🔺") : cfg.src === "pick" ? "✋" : "🤖") : "📌") + " " + (d.ko ? d.ko + " (" + d.tk + ")" : d.tk || d.short) + (d.sector ? " · " + d.sector : "") + " · " + d.ivKo + "\n" + [fmtPx(d.px), sgn].filter(Boolean).join("  ") + (j.kind === "scan" ? "\n" + srcKo + " " + j.i + "/" + j.n + (cfg.src === "scan" && total > j.n ? " (통과 " + total + "종목 중)" : "") + (cfg.src === "scan" && L.inv ? " · INVERSE 검색" : "") : "\n기본 시장 지표") + "\n" + nm;
+        const cap = [
+          (d.ko ? d.ko + " (" + d.tk + ")" : d.tk || d.short) + (d.sector ? " · " + d.sector : "") + " · " + d.ivFull,
+          ["현재가 " + fmtPx(d.px), sgn ? "24시간 등락률 " + sgn : "", d.vKrw ? "24시간 거래대금 " + d.vKrw : ""].filter(Boolean).join(" · "),
+          tmap ? trendLine(d.ivFull, tmap[d.iv]) : "", tmap ? framesLine(tmap) : "",
+        ].filter(Boolean).join("\n");
+        if (DRY) log("글 ↓\n" + cap);
         log((k + 1) + "/" + jobs.length, nm, Math.round(buf.length / 1024) + "KB 원본 · 사진 " + Math.round(small.length / 1024) + "KB", r.ms + "ms");
         if (SAVE_DIR) { fs.mkdirSync(SAVE_DIR, { recursive: true }); fs.writeFileSync(path.join(SAVE_DIR, String(k + 1).padStart(2, "0") + "_" + nm), buf); }
         if (DRY) { sent++; continue; }
