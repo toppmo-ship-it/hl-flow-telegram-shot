@@ -168,8 +168,11 @@ async function runOnce({ manual, cfg }) {
     let nextK = 0, takenK = 0; const LOOK = nw * 2 + 1;   /* 보내기보다 너무 앞서 만들지 않게(메모리) */
     const render = async (pg, k) => {
       const j = jobs[k], T0 = Date.now(), LAP = [], lap = (n) => LAP.push(n + " " + ((Date.now() - T0) / 1000).toFixed(1));
+      /* 추세 계산은 차트 그리기와 동시에 시작(네트워크 기다리는 시간을 겹침) — 결과는 아래에서 받음 */
+      const ivs0 = [...new Set([...(shotOpt.iv && shotOpt.iv !== "auto" ? [shotOpt.iv] : []), ...FRAMES.map((f) => f[0])])];
+      const trendP = pg.evaluate((c, a) => window.__shot.trends(c, a), j.coin, ivs0).then((rs) => ({ rs }), (e) => ({ e }));
       const r = await pg.evaluate((c, o) => window.__shot.show(c, o), j.coin, shotOpt);
-      if (!r.ok) return { skip: "차트를 못 불러왔어요 (봉 " + r.n + "개)" };
+      if (!r.ok) { await trendP; return { skip: "차트를 못 불러왔어요 (봉 " + r.n + "개)" }; }
       lap("차트(" + (r.marks || "") + ")");
       const d = await pg.evaluate((c) => window.__shot.describe(c), j.coin);
       const stamp = (d.ko ? d.ko + " (" + d.tk + ")" : d.tk || d.short) + (d.sector ? " · " + d.sector : "") + " · " + d.ivKo + " · " + now.text + (j.kind === "scan" ? " · " + srcKo + " " + j.i + "/" + j.n + (cfg.src === "scan" && L.inv ? " · INVERSE" : "") : " · 기본");
@@ -180,8 +183,11 @@ async function runOnce({ manual, cfg }) {
       const small = await sharp(buf).resize({ width: 2560, kernel: "lanczos3" }).sharpen({ sigma: 0.6, m1: 0.8, m2: 1.2 }).png({ compressionLevel: 9 }).toBuffer();   /* 사진용 2560x1440 */
       const nm = (d.tk || d.short).replace(/[^A-Za-z0-9가-힣._-]+/g, "_") + "_" + d.iv + "_" + now.ymd + "_" + now.hm + ".png";
       lap("보정"); let tmap = {};
-      try { const ivs = [...new Set([d.iv, ...FRAMES.map((f) => f[0])])], rs = await pg.evaluate((c, a) => window.__shot.trends(c, a), j.coin, ivs); ivs.forEach((v, q) => { tmap[v] = rs[q]; }); }
-      catch (e) { log("추세 계산 실패(글에서 뺌):", j.t, String((e && e.message) || e).slice(0, 80)); tmap = null; }
+      try {
+        const tr = await trendP; if (tr.e) throw tr.e; const have = {}; ivs0.forEach((v, q) => { have[v] = tr.rs[q]; });
+        if (!(d.iv in have)) { const x = await pg.evaluate((c, a) => window.__shot.trends(c, a), j.coin, [d.iv]); have[d.iv] = x[0]; }
+        tmap = have;
+      } catch (e) { log("추세 계산 실패(글에서 뺌):", j.t, String((e && e.message) || e).slice(0, 80)); tmap = null; }
       lap("추세");
       const sgn = d.chg == null ? "" : (d.chg >= 0 ? "+" : "") + d.chg.toFixed(2) + "%";
       const head = (d.ko ? d.ko + " (" + d.tk + ")" : d.tk || d.short) + (d.sector ? " · " + d.sector : "") + " · " + d.ivFull;
