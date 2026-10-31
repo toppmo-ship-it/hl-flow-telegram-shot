@@ -30,7 +30,7 @@ const chatId = () => clean(process.env.TG_CHAT_ID);   /* 종목 카드와 같은
 const pad = (n) => String(n).padStart(2, "0");
 const kstParts = (t) => { const d = new Date(t + 9 * 3600e3); return { ymd: "" + d.getUTCFullYear() + pad(d.getUTCMonth() + 1) + pad(d.getUTCDate()), hm: pad(d.getUTCHours()) + pad(d.getUTCMinutes()), text: d.getUTCFullYear() + "-" + pad(d.getUTCMonth() + 1) + "-" + pad(d.getUTCDate()) + " " + pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes()) + " KST" }; };
 /* ── 텔레그램 글(캡션) 서식 ──
-   1줄 이름·분야·시간대 / 2줄 현재가·24시간 등락률·24시간 거래대금 / 3줄 이 사진 시간대의 추세 / 4줄 일·4시간·2시간·1시간 추세
+   1줄 이름·분야·시간대 / 2줄 등락률·거래대금 / 3줄 이 사진 시간대의 추세 / 4줄 일·4시간·2시간·1시간 추세
    화살표 모양은 차트와 같은 세 가지: 노란 굵은 화살표(강, 개수만큼) · 흰 빈 화살표(약) · 작은 형광 확인 화살표 — 마지막으로 생긴 화살표 기준 */
 const AR = { yellow: { up: "⬆️", down: "⬇️" }, hollow: { up: "⇧", down: "⇩" }, neon: { up: "↑", down: "↓" } }, DOT = { yellow: "🟡", hollow: "⚪", neon: "🟢" };   /* 차트·신호 내역과 같은 구분: 노란 굵은 화살표(개수만큼 🟡) · 흰 속 빈 화살표(⚪ ⇧⇩) · 작은 형광 확인 화살표(🟢 ↑↓) */
 const TYPE_KO = { yellow: "노란 화살표(강)", hollow: "빈 화살표(약)", neon: "형광 확인 화살표" };
@@ -40,7 +40,7 @@ const dirKo = (r) => (r.dir === "up" ? "상승" : "하락");
 const trendLine = (ivFull, r) => (!r || r.none ? "⚪ " + ivFull + " 추세 신호 없음" + (r && r.why ? " (" + r.why + ")" : "") : arrowIcon(r) + " " + ivFull + " " + dirKo(r) + "추세 · " + TYPE_KO[r.type] + (r.type === "yellow" && r.n > 1 ? " ×" + r.n : "") + " · " + ageTxt(r.ageSec));
 const FRAMES = [["1d", "일"], ["4h", "4시간"], ["2h", "2시간"], ["1h", "1시간"]];
 const sideKo = (r) => (r.dir === "up" ? "저점·상승전환 전" : "고점·하락전환 전");
-const sigTxt = (r) => arrowIcon(r) + " " + sideKo(r) + (r.type === "yellow" ? " (노란 화살표 " + (r.n || 1) + "개)" : " (흰 빈 화살표)") + (r.p != null ? " · 확률 " + r.p + "%" : "") + " · " + ageTxt(r.ageSec);   /* 신호 내역 목록과 같은 표현 */
+const sigTxt = (r) => arrowIcon(r) + " " + sideKo(r) + (r.type === "yellow" ? " (노란 화살표 " + (r.n || 1) + "개)" : " (흰 빈 화살표)") + " · " + ageTxt(r.ageSec);   /* 신호 내역 목록과 같은 표현 */
 const framesLines = (map) => FRAMES.map(([k, ko]) => { const r = map[k]; if (!r || r.none) return ko + " ➖ 신호 없음";
   const a = r.sigLast ? sigTxt(r.sigLast) : "", b = r.neonLast ? arrowIcon(r.neonLast) + " " + dirKo(r.neonLast) + " 형광 확인 · " + ageTxt(r.neonLast.ageSec) : "";
   return ko + " " + (a && b ? a + "\n   → " + b : a || b || "➖ 신호 없음"); });
@@ -191,7 +191,7 @@ async function runOnce({ manual, cfg }) {
       lap("추세");
       const sgn = d.chg == null ? "" : (d.chg >= 0 ? "+" : "") + d.chg.toFixed(2) + "%";
       const head = (d.ko ? d.ko + " (" + d.tk + ")" : d.tk || d.short) + (d.sector ? " · " + d.sector : "") + " · " + d.ivFull;
-      const info = ["현재가 " + fmtPx(d.px), sgn ? "24시간 등락률 " + sgn : "", d.vKrw ? "24시간 거래대금 " + d.vKrw : ""].filter(Boolean);
+      const info = [sgn ? "등락률 " + sgn : "", d.vKrw ? "거래대금 " + d.vKrw : ""].filter(Boolean);
       const cap = [head, ...info, ...(tmap ? ["", trendLine(d.ivFull, tmap[d.iv]), "", ...framesLines(tmap)] : [])].join("\n");   /* 정보마다 한 줄씩, 묶음 사이는 빈 줄 */
       return { buf, small, cap, nm, lap: LAP.join(" "), ms: r.ms };
     };
