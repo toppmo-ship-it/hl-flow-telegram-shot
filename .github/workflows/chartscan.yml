@@ -18,7 +18,8 @@ on:
 
 concurrency:
   group: chartscan-photos
-  cancel-in-progress: false
+  # 코드를 올린(push) 실행만 지금 돌던 이어달리기를 즉시 끊고 새 코드로 교체. 이어달리기(workflow_dispatch)·워치독(cron)은 끊지 않고 기다림(워치독이 살아 있는 작업을 죽이면 안 되므로)
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 permissions:
   contents: read
