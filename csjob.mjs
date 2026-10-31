@@ -105,10 +105,13 @@ async function runOnce({ manual, cfg }) {
     await page.goto(BASE + "/?shot=1", { waitUntil: "domcontentloaded", timeout: 90000 });
     await page.waitForFunction(() => window.__shot, { timeout: 60000 });
     if (!(await page.evaluate(() => window.__shot.booted()))) throw new Error("차트스캐너가 시작되지 않았어요");
-    await setStatus("running", 14, "조건검색 결과 계산 중", true); await note("사이트 준비 완료 — 조건검색 계산 중 (종목마다 일봉·지표 확인, 1~2분)");
-    const L = await page.evaluate(() => window.__shot.list());
+    /* 조건검색 계산은 출처가 「조건검색」일 때만 (자동 상위·직접 선택은 필요 없어서 1~2분 아낌) */
+    const useScan = cfg.src !== "pick" && cfg.src !== "auto";
+    if (useScan) { await setStatus("running", 14, "조건검색 결과 계산 중", true); await note("사이트 준비 완료 — 조건검색 계산 중 (종목마다 일봉·지표 확인, 1~2분)"); }
+    else await note("사이트 준비 완료 — " + (SRC_KO[cfg.src] || "") + " 모드라 조건검색 계산은 건너뛰어요");
+    const L = useScan ? await page.evaluate(() => window.__shot.list()) : { rows: [], inv: false, universe: 0, scanned: 0 };
     { const why = await superseded(manual); if (why) { await note("⏹ 중지 — " + why + (why === "설정이 바뀜" ? " → 새 설정으로 처음부터 다시 시작해요" : "")); S.again = true; await setStatus("idle", 0, "중지됨 (" + why + ")", true, null); return false; } }
-    await note("조건검색 계산 끝 — " + L.rows.length + "종목 통과 (범위 " + L.universe + "종목)" + (L.inv ? " · 인버스 검색" : ""));
+    if (useScan) await note("조건검색 계산 끝 — " + L.rows.length + "종목 통과 (범위 " + L.universe + "종목)" + (L.inv ? " · 인버스 검색" : ""));
     log("조건검색 " + L.rows.length + "종목 통과 (범위 " + L.universe + "종목, 계산 " + L.scanned + ") · 인버스 " + (L.inv ? "켬" : "끔"));
     /* 무엇을 어떤 순서로: 설정창 「종목」 탭의 출처(조건검색/자동 상위/직접 선택) → shotplan.js 가 순서까지 정함 (맨 끝 = 지수·원자재·금리, 그 앞은 큰 분야·큰 거래대금 순 — 옛 텔레그램 사이트와 같음) */
     const sl = await sbGet("tg_stock_list"), rows = sl && Array.isArray(sl.rows) && sl.rows.length ? sl.rows : null;
