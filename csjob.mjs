@@ -61,7 +61,7 @@ const note = (m) => { log(m); S.lines.push({ t: Date.now(), m }); if (S.lines.le
 /* 설정 읽기: 서버 설정 + (시험용) 환경변수 덮어쓰기 */
 const mergeCfg = (c0) => Object.assign({}, c0 || {}, process.env.CS_CFG_JSON ? JSON.parse(process.env.CS_CFG_JSON) : {});
 /* 보내는 내용에 영향을 주는 설정만 비교(켜기/주기는 따로 봄) — 바뀌면 진행 중이던 전송을 새 설정으로 처음부터 다시 */
-const sigOf = (c) => JSON.stringify([c.max, c.doc, c.scale, c.iv, c.days, c.dailyDays, c.src, c.picks, c.exclude, c.sort, c.auto, c.filter, c.tail]);
+const sigOf = (c) => JSON.stringify([c.max, c.doc, c.scale, c.iv, c.days, c.dailyDays, c.bars, c.mini, c.src, c.picks, c.exclude, c.sort, c.auto, c.filter, c.tail]);
 
 /* 「지금 보내기」를 다시 눌렀거나(설정이 바뀐 것) 정기 전송 중에 끔으로 바꿨으면 → 진행 중이던 전송을 멈추고, 새 요청으로 처음부터 다시 */
 async function superseded(manual) {
@@ -122,8 +122,8 @@ async function runOnce({ manual, cfg }) {
     const cnt = {}, seq = {}; plan.forEach((x) => { cnt[x.src] = (cnt[x.src] || 0) + 1; });
     const jobs = plan.map((x) => Object.assign({}, x, { coin: x.coin || cm[x.t] })).filter((x) => x.coin).map((x) => { seq[x.src] = (seq[x.src] || 0) + 1; return Object.assign(x, { kind: x.src === "tail" ? "macro" : "scan", i: seq[x.src], n: cnt[x.src] }); });
     const picked = jobs.filter((j) => j.kind === "scan"), macroCoins = jobs.filter((j) => j.kind === "macro"), srcKo = SRC_KO[cfg.src] || SRC_KO.scan, total = cfg.src === "scan" ? L.rows.length : picked.length;
-    const shotOpt = { iv: cfg.iv || "auto", days: +cfg.days || 0, dailyDays: +cfg.dailyDays || 0 };
-    await note("보낼 목록 확정: " + jobs.length + "장 (" + srcKo + " " + picked.length + " + 시장 지표 " + macroCoins.length + ") · 시간대 " + (shotOpt.iv === "auto" ? "내 화면 그대로" : shotOpt.iv) + (shotOpt.days ? " " + shotOpt.days + "일" : ""));
+    const shotOpt = { iv: cfg.iv || "auto", days: +cfg.days || 0, dailyDays: +cfg.dailyDays || 0, bars: +cfg.bars || 0, mini: cfg.mini !== false };   /* 미니차트는 기본 켬 */
+    await note("보낼 목록 확정: " + jobs.length + "장 (" + srcKo + " " + picked.length + " + 시장 지표 " + macroCoins.length + ") · 시간대 " + (shotOpt.iv === "auto" ? "내 화면 그대로" : shotOpt.iv) + (shotOpt.days ? " " + shotOpt.days + "일" : "") + " · 미니차트 " + (shotOpt.mini ? "켬" : "끔"));
     await note("보내는 순서: " + jobs.map((j) => j.t).join(" → "));
     let sent = 0, fail = 0; const now = kstParts(Date.now());
     for (let k = 0; k < jobs.length; k++) {
