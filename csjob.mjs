@@ -1,5 +1,5 @@
 /* 차트스캐너 텔레그램 자동 사진 전용 작업(GitHub Actions: chartscan.yml) — 다른 발송(흐름차트·카드·리포트·추세)과 완전히 따로 돈다.
-   - 한 번 시작하면 CS_LOOP_MS(기본 22분) 동안 20초마다: ① 차트스캐너 상단 「텔레그램」 버튼의 「지금 보내기」(cs_shot_cmd) ② 정해 둔 주기(5/15/30분, 시계 격자)를 확인
+   - 한 번 시작하면 CS_LOOP_MS(기본 22분) 동안 20초마다: ① 차트스캐너 상단 「텔레그램」 버튼의 「지금 보내기」(cs_shot_cmd) ② 정해 둔 주기(5/10/15/30분·1/4시간·하루, 시계 격자)를 확인
    - 하는 일: 사용자가 마지막에 저장한 차트스캐너 설정(chartscan_state_v1: 선택한 칸의 지표·눈금·시간대·테마·인버스·조건검색식)을 그대로 읽어
      헤드리스 크롬으로 https://hl-chartscan.vercel.app/?shot=1 (촬영 모드: 아무것도 저장 안 함)을 열고 → 조건검색 결과를 걸러서 → 종목마다 고화질 사진으로 찍어 텔레그램 기본 방으로 보냄
    - 순서: 조건검색 결과(가장 중요한 종목이 맨 마지막 — 인버스면 하락이 가장 큰 종목) → 맨 끝에 항상 나스닥 · S&P500 · 브렌트유 · 미국10년물
@@ -11,6 +11,12 @@ import puppeteer from "puppeteer-core";
 import sharp from "sharp";
 import { sbGet, sbPut } from "./sb.mjs";
 
+/* 사이트(브트 설정창)와 같은 공용 파일: 종목 고르기·순서 규칙 — 미리 본 순서 그대로 보냄. 실행기 폴더는 ES 모듈이라 require 가 안 되어 파일을 읽어 module 로 실행 */
+const loadUmd = (rel) => { const m = { exports: {} }; new Function("module", "exports", fs.readFileSync(new URL(rel, import.meta.url), "utf8"))(m, m.exports); return m.exports; };
+const CP = loadUmd("./site/cardpick.js"), SP = loadUmd("./site/shotplan.js").make(CP);
+const EVERYS = [5, 10, 15, 30, 60, 240, 1440];   /* 보내는 주기(분) — 브트 설정창과 같은 7단계 */
+const SRC_KO = { scan: "조건검색", auto: "자동 상위", pick: "직접 선택" };
+
 const BASE = (process.env.CS_URL || "https://hl-chartscan.vercel.app").replace(/\/$/, "");
 const DRY = /^(1|true)$/i.test(process.env.CS_DRY || ""), ONCE = /^(1|true)$/i.test(process.env.CS_ONCE || "");
 const LOOP_MS = +process.env.CS_LOOP_MS || 22 * 60000, TICK_MS = 20000;
@@ -20,7 +26,6 @@ const log = (...a) => console.log(new Date(Date.now() + 9 * 3600e3).toISOString(
 const clean = (v) => String(v || "").trim().replace(/^["'`]+|["'`]+$/g, "").trim();
 const tgToken = () => clean(process.env.TG_BOT_TOKEN).replace(/^bot/i, "");
 const chatId = () => clean(process.env.TG_CHAT_ID);   /* 종목 카드와 같은 기본 방 */
-const MACRO = ["XYZ100", "SP500", "BRENTOIL", "10Y"];   /* 나스닥100 · S&P500 · 브렌트유 · 미국10년물 — 항상 맨 끝 */
 const pad = (n) => String(n).padStart(2, "0");
 const kstParts = (t) => { const d = new Date(t + 9 * 3600e3); return { ymd: "" + d.getUTCFullYear() + pad(d.getUTCMonth() + 1) + pad(d.getUTCDate()), hm: pad(d.getUTCHours()) + pad(d.getUTCMinutes()), text: d.getUTCFullYear() + "-" + pad(d.getUTCMonth() + 1) + "-" + pad(d.getUTCDate()) + " " + pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes()) + " KST" }; };
 const fmtPx = (v) => (v == null || !isFinite(v) ? "" : Math.abs(v) >= 1000 ? v.toLocaleString("en-US", { maximumFractionDigits: 2 }) : Math.abs(v) >= 1 ? v.toFixed(2) : v.toPrecision(4));
@@ -92,31 +97,34 @@ async function runOnce({ manual, cfg }) {
     const L = await page.evaluate(() => window.__shot.list());
     { const why = await superseded(manual); if (why) { log("⏹ 중지 — " + why); S.again = true; await setStatus("idle", 0, "중지됨 (" + why + ")", true); return false; } }
     log("조건검색 " + L.rows.length + "종목 통과 (범위 " + L.universe + "종목, 계산 " + L.scanned + ") · 인버스 " + (L.inv ? "켬" : "끔"));
-    const max = [5, 10, 15, 20].includes(+cfg.max) ? +cfg.max : 10;
-    /* 가장 중요한 종목이 맨 마지막: 일반 검색은 상승이 큰 종목, 인버스 검색은 하락이 큰(마이너스가 가장 큰) 종목 */
-    const macroCoins = await page.evaluate((n) => window.__shot.resolve(n), MACRO);
-    const macroSet = new Set(macroCoins);
-    const byImp = L.rows.filter((r) => !macroSet.has(r.coin)).sort((a, b) => (L.inv ? a.chg - b.chg : b.chg - a.chg));   /* 중요한 순(가장 중요한 것이 앞) */
-    const picked = byImp.slice(0, max).reverse();   /* 거꾸로 → 가장 중요한 것이 맨 마지막 */
-    const jobs = picked.map((r, i) => ({ coin: r.coin, kind: "scan", i: i + 1, n: picked.length, total: byImp.length })).concat(macroCoins.map((c) => ({ coin: c, kind: "macro" })));
-    log("보낼 차트 " + jobs.length + "장 (조건검색 " + picked.length + " + 기본 " + macroCoins.length + ")");
+    /* 무엇을 어떤 순서로: 설정창 「종목」 탭의 출처(조건검색/자동 상위/직접 선택) → shotplan.js 가 순서까지 정함 (맨 끝 = 지수·원자재·금리, 그 앞은 큰 분야·큰 거래대금 순 — 옛 텔레그램 사이트와 같음) */
+    const sl = await sbGet("tg_stock_list"), rows = sl && Array.isArray(sl.rows) && sl.rows.length ? sl.rows : null;
+    if (!rows) log("⚠ 종목 목록 스냅샷(tg_stock_list)이 없어 분야별 정렬 없이 보냄");
+    const plan = SP.plan(cfg, { rows, inv: !!L.inv, scan: L.rows.map((r) => ({ t: r.short, coin: r.coin, chg: r.chg })) });
+    const need = plan.filter((x) => !x.coin).map((x) => x.t), pairs = need.length ? await page.evaluate((n) => window.__shot.resolvePairs(n), need) : [], cm = {}; pairs.forEach((p) => { if (p.coin) cm[p.t] = p.coin; });
+    const dropped = plan.filter((x) => !x.coin && !cm[x.t]).map((x) => x.t); if (dropped.length) log("거래소에서 못 찾은 종목(건너뜀): " + dropped.join(","));
+    const cnt = {}, seq = {}; plan.forEach((x) => { cnt[x.src] = (cnt[x.src] || 0) + 1; });
+    const jobs = plan.map((x) => Object.assign({}, x, { coin: x.coin || cm[x.t] })).filter((x) => x.coin).map((x) => { seq[x.src] = (seq[x.src] || 0) + 1; return Object.assign(x, { kind: x.src === "tail" ? "macro" : "scan", i: seq[x.src], n: cnt[x.src] }); });
+    const picked = jobs.filter((j) => j.kind === "scan"), macroCoins = jobs.filter((j) => j.kind === "macro"), srcKo = SRC_KO[cfg.src] || SRC_KO.scan, total = cfg.src === "scan" ? L.rows.length : picked.length;
+    const shotOpt = { iv: cfg.iv || "auto", days: +cfg.days || 0, dailyDays: +cfg.dailyDays || 0 };
+    log("보낼 차트 " + jobs.length + "장 (" + srcKo + " " + picked.length + " + 시장 지표 " + macroCoins.length + ") · 시간대 " + shotOpt.iv + (shotOpt.days ? " " + shotOpt.days + "일" : ""));
     let sent = 0, fail = 0; const now = kstParts(Date.now());
     for (let k = 0; k < jobs.length; k++) {
       const j = jobs[k];
       { const why = k > 0 ? await superseded(manual) : ""; if (why) { log("⏹ 중지 — " + why + " (" + k + "/" + jobs.length + "장 보낸 뒤)"); S.again = true; await setStatus("idle", 0, "중지됨 (" + why + ") — 새로 시작", true); return false; } }
       await setStatus("running", 18 + 76 * k / jobs.length, "차트 " + (k + 1) + "/" + jobs.length + " 찍는 중", false);
       try {
-        const r = await page.evaluate((c) => window.__shot.show(c), j.coin);
+        const r = await page.evaluate((c, o) => window.__shot.show(c, o), j.coin, shotOpt);
         if (!r.ok) { log("차트 로딩 실패:", j.coin, "(봉 " + r.n + ")"); fail++; continue; }
         const d = await page.evaluate((c) => window.__shot.describe(c), j.coin);
-        const stamp = (d.ko ? d.ko + " (" + d.tk + ")" : d.tk || d.short) + (d.sector ? " · " + d.sector : "") + " · " + d.ivKo + " · " + now.text + (j.kind === "scan" ? " · 조건검색 " + j.i + "/" + j.n + (L.inv ? " · INVERSE" : "") : " · 기본");
+        const stamp = (d.ko ? d.ko + " (" + d.tk + ")" : d.tk || d.short) + (d.sector ? " · " + d.sector : "") + " · " + d.ivKo + " · " + now.text + (j.kind === "scan" ? " · " + srcKo + " " + j.i + "/" + j.n + (cfg.src === "scan" && L.inv ? " · INVERSE" : "") : " · 기본");
         await page.evaluate((t) => window.__shot.stamp(t), stamp);
         await sleep(250);
         const buf = Buffer.from(await page.screenshot({ type: "png" }));   /* 원본(무손실) */
         const small = await sharp(buf).resize({ width: 2560, kernel: "lanczos3" }).sharpen({ sigma: 0.6, m1: 0.8, m2: 1.2 }).png({ compressionLevel: 9 }).toBuffer();   /* 사진용 2560x1440 */
         const nm = (d.tk || d.short).replace(/[^A-Za-z0-9가-힣._-]+/g, "_") + "_" + d.iv + "_" + now.ymd + "_" + now.hm + ".png";
         const sgn = d.chg == null ? "" : (d.chg >= 0 ? "+" : "") + d.chg.toFixed(2) + "%";
-        const cap = (j.kind === "scan" ? (L.inv ? "🔻" : "🔺") : "📌") + " " + (d.ko ? d.ko + " (" + d.tk + ")" : d.tk || d.short) + (d.sector ? " · " + d.sector : "") + " · " + d.ivKo + "\n" + [fmtPx(d.px), sgn].filter(Boolean).join("  ") + (j.kind === "scan" ? "\n조건검색 " + j.i + "/" + j.n + (j.total > j.n ? " (통과 " + j.total + "종목 중)" : "") + (L.inv ? " · INVERSE 검색" : "") : "\n기본 시장 지표") + "\n" + nm;
+        const cap = (j.kind === "scan" ? (cfg.src === "scan" ? (L.inv ? "🔻" : "🔺") : cfg.src === "pick" ? "✋" : "🤖") : "📌") + " " + (d.ko ? d.ko + " (" + d.tk + ")" : d.tk || d.short) + (d.sector ? " · " + d.sector : "") + " · " + d.ivKo + "\n" + [fmtPx(d.px), sgn].filter(Boolean).join("  ") + (j.kind === "scan" ? "\n" + srcKo + " " + j.i + "/" + j.n + (cfg.src === "scan" && total > j.n ? " (통과 " + total + "종목 중)" : "") + (cfg.src === "scan" && L.inv ? " · INVERSE 검색" : "") : "\n기본 시장 지표") + "\n" + nm;
         log((k + 1) + "/" + jobs.length, nm, Math.round(buf.length / 1024) + "KB 원본 · 사진 " + Math.round(small.length / 1024) + "KB", r.ms + "ms");
         if (SAVE_DIR) { fs.mkdirSync(SAVE_DIR, { recursive: true }); fs.writeFileSync(path.join(SAVE_DIR, String(k + 1).padStart(2, "0") + "_" + nm), buf); }
         if (DRY) { sent++; continue; }
@@ -126,18 +134,18 @@ async function runOnce({ manual, cfg }) {
         sent++; await sleep(1200);   /* 텔레그램 분당 전송 제한(방당 ~20건) 여유 */
       } catch (e) { log("차트 실패:", j.coin, String((e && e.message) || e).slice(0, 140)); fail++; }
     }
-    S.last = Date.now(); S.retryAt = 0; S.info = { sent, fail, scan: picked.length, macro: macroCoins.length, passed: L.rows.length, inv: !!L.inv, sec: Math.round((Date.now() - t0) / 1000) };
+    S.last = Date.now(); S.retryAt = 0; S.info = { sent, fail, scan: picked.length, macro: macroCoins.length, passed: L.rows.length, src: cfg.src || "scan", inv: !!L.inv, sec: Math.round((Date.now() - t0) / 1000) };
     await setStatus("done", 100, "완료 · " + sent + "장 · " + S.info.sec + "초", true);
     log("전송 완료 " + sent + "장 (실패 " + fail + ") " + S.info.sec + "초");
     return true;
   } finally { clearInterval(hb); if (browser) await browser.close().catch(() => {}); }
 }
 
-/* ── 정해진 주기(시계 격자): 5/15/30분마다, 봉이 막 마감한 뒤(+45초)에 맞춰 ── */
+/* ── 정해진 주기(시계 격자): 설정한 분마다, 봉이 막 마감한 뒤(+45초)에 맞춰 (하루 = 한국 아침 9시) ── */
 const slotOf = (t, every) => Math.floor((t - 45000) / (every * 60000));
 async function tick() {
   const [cfg0, cmd, mute] = await Promise.all([sbGet("cs_shot_cfg"), sbGet("cs_shot_cmd"), sbGet("tg_bot_mute")]);
-  const cfg = Object.assign({}, cfg0 || {}, process.env.CS_CFG_JSON ? JSON.parse(process.env.CS_CFG_JSON) : {}), every = [5, 15, 30].includes(+cfg.every) ? +cfg.every : 5, now = Date.now();
+  const cfg = Object.assign({}, cfg0 || {}, process.env.CS_CFG_JSON ? JSON.parse(process.env.CS_CFG_JSON) : {}), every = EVERYS.includes(+cfg.every) ? +cfg.every : 5, now = Date.now();
   if (cmd && cmd.id && cmd.id !== S.lastCmd) {   /* 상단 「텔레그램」 → 「지금 보내기」 — 꺼져 있어도 보냄 */
     S.lastCmd = cmd.id; log("📤 「지금 보내기」 요청 (" + cmd.id + ")");
     await post(true); await runOnce({ manual: true, cfg }); return true;
