@@ -129,7 +129,7 @@ async function runOnce({ manual, cfg }) {
     await guard(page.waitForFunction(() => window.__shot, { timeout: 60000 }));
     if (!(await guard(page.evaluate(() => window.__shot.booted())))) throw new Error("차트스캐너가 시작되지 않았어요");
     /* 사진 만들기를 크롬 2개가 나눠서 함(속도). 두 번째 크롬은 조건검색 계산과 겹쳐서 미리 띄움. 보내는 순서는 아래에서 번호순으로 따로 지킴 */
-    const NW = Math.max(1, Math.min(3, +process.env.CS_WORKERS || 2));
+    const NW = Math.max(1, Math.min(3, +process.env.CS_WORKERS || (os.cpus().length >= 4 ? 3 : 2)));   /* 서버 CPU가 4개면 크롬 3개 */
     const mkExtra = async () => {
       const b = await launch(); extra.push(b);
       const pg = await b.newPage(); pg.on("pageerror", (e) => log("페이지 오류(2):", String(e.message).slice(0, 140)));
