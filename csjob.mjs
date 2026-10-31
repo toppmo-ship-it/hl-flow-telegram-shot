@@ -175,8 +175,7 @@ async function runOnce({ manual, cfg }) {
       if (!r.ok) { await trendP; return { skip: r.bad ? "차트 가격 눈금이 이상해(다른 종목 값이 섞임) 보내지 않음" : "차트를 못 불러왔어요 (봉 " + r.n + "개)" }; }
       lap("차트(" + (r.marks || "") + ")");
       const d = await pg.evaluate((c) => window.__shot.describe(c), j.coin);
-      const stamp = (d.ko ? d.ko + " (" + d.tk + ")" : d.tk || d.short) + (d.sector ? " · " + d.sector : "") + " · " + d.ivKo + " · " + now.text + (j.kind === "scan" ? " · " + srcKo + " " + j.i + "/" + j.n + (cfg.src === "scan" && L.inv ? " · INVERSE" : "") : " · 기본");
-      await pg.evaluate((t) => window.__shot.stamp(t), stamp);
+      await pg.evaluate(() => window.__shot.stamp(""));   /* 사진 왼쪽 아래 이름·시각·순서 글자는 넣지 않음 */
       lap("정보"); await sleep(120);
       const buf = Buffer.from(await pg.screenshot({ type: "png" }));   /* 원본(무손실) */
       lap("촬영");
