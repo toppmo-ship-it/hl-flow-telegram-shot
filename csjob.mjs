@@ -102,7 +102,7 @@ async function runOnce({ manual, cfg }) {
   await setStatus("running", 3, manual ? "「지금 보내기」 처리 시작" : "정기 전송 시작", true);
   await note(manual ? "📤 「지금 보내기」 요청을 받았어요 — 지금 설정으로 시작" : "⏰ 정해진 주기가 되어 시작해요");
   const hb = setInterval(() => { post(true).catch(() => {}); }, 15000);
-  let browser = null;
+  let browser = null; const extra = [];   /* extra = 추가로 띄운 크롬들(닫을 때 같이) */
   /* 즉시 중단: 새 「지금 보내기」·설정 변경·끔이 들어오면 3초 안에 감지 → 지금 하던 일(차트 불러오기·사진 찍기·전송 준비)을 그 자리에서 끊고 크롬을 닫고 처음부터 다시 */
   const ctl = { abort: "" };
   const wd = setInterval(() => { if (!ctl.abort) superseded(manual).then((why) => { if (why && !ctl.abort) ctl.abort = why; }).catch(() => {}); }, 3000);
@@ -123,6 +123,18 @@ async function runOnce({ manual, cfg }) {
     await guard(page.goto(BASE + "/?shot=1", { waitUntil: "domcontentloaded", timeout: 90000 }));
     await guard(page.waitForFunction(() => window.__shot, { timeout: 60000 }));
     if (!(await guard(page.evaluate(() => window.__shot.booted())))) throw new Error("차트스캐너가 시작되지 않았어요");
+    /* 사진 만들기를 크롬 2개가 나눠서 함(속도). 두 번째 크롬은 조건검색 계산과 겹쳐서 미리 띄움. 보내는 순서는 아래에서 번호순으로 따로 지킴 */
+    const NW = Math.max(1, Math.min(3, +process.env.CS_WORKERS || 2));
+    const mkExtra = async () => {
+      const b = await launch(); extra.push(b);
+      const pg = await b.newPage(); pg.on("pageerror", (e) => log("페이지 오류(2):", String(e.message).slice(0, 140)));
+      await pg.setViewport({ width: W, height: H, deviceScaleFactor: DSF });
+      await pg.evaluateOnNewDocument((st, saved) => { try { localStorage.setItem("hlcs_state_v1", st); if (saved) localStorage.setItem("hlcs_scr_saved_v1", saved); } catch (e) { /* 무시 */ } }, JSON.stringify(state), row.saved || "");
+      await pg.goto(BASE + "/?shot=1", { waitUntil: "domcontentloaded", timeout: 90000 }); await pg.waitForFunction(() => window.__shot, { timeout: 60000 });
+      if (!(await pg.evaluate(() => window.__shot.booted()))) throw new Error("두 번째 차트가 시작되지 않았어요");
+      return pg;
+    };
+    const extraP = Array.from({ length: NW - 1 }, () => mkExtra().catch((e) => { log("추가 크롬 준비 실패(하나로 진행):", String((e && e.message) || e).slice(0, 100)); return null; }));
     /* 조건검색 계산은 출처가 「조건검색」일 때만 (자동 상위·직접 선택은 필요 없어서 1~2분 아낌) */
     const useScan = cfg.src !== "pick" && cfg.src !== "auto";
     if (useScan) { await setStatus("running", 14, "조건검색 결과 계산 중", true); await note("사이트 준비 완료 — 조건검색 계산 중 (종목마다 일봉·지표 확인, 1~2분)"); }
@@ -143,52 +155,66 @@ async function runOnce({ manual, cfg }) {
     const shotOpt = { iv: cfg.iv || "auto", days: +cfg.days || 0, dailyDays: +cfg.dailyDays || 0, bars: +cfg.bars || 0, mini: cfg.mini !== false };   /* 미니차트는 기본 켬 */
     await note("보낼 목록 확정: " + jobs.length + "장 (" + srcKo + " " + picked.length + " + 시장 지표 " + macroCoins.length + ") · 시간대 " + (shotOpt.iv === "auto" ? "내 화면 그대로" : shotOpt.iv) + (shotOpt.days ? " " + shotOpt.days + "일" : "") + " · 미니차트 " + (shotOpt.mini ? "켬" : "끔"));
     await note("보내는 순서: " + jobs.map((j) => j.t).join(" → "));
-    let sent = 0, fail = 0, sendQ = Promise.resolve(), sendPend = 0; const now = kstParts(Date.now());
+    let sent = 0, fail = 0; const now = kstParts(Date.now());
+    const pages = [page]; for (const ep of extraP) { const pg = await guard(ep); if (pg) pages.push(pg); }
+    const nw = Math.max(1, Math.min(pages.length, jobs.length)); await note("사진 만드는 크롬 " + nw + "개로 나눠서 진행 (보내는 순서는 그대로)");
+    /* ── 만들기: 크롬마다 다음 번호를 가져가 사진·글을 만들어 번호 칸에 넣음 / 보내기: 번호순으로 한 장씩 꺼내 보냄 → 순서는 항상 그대로 ── */
+    const slot = jobs.map(() => { let res; const pr = new Promise((r) => { res = r; }); return { pr, res }; });
+    let nextK = 0, takenK = 0; const LOOK = nw * 2 + 1;   /* 보내기보다 너무 앞서 만들지 않게(메모리) */
+    const render = async (pg, k) => {
+      const j = jobs[k], T0 = Date.now(), LAP = [], lap = (n) => LAP.push(n + " " + ((Date.now() - T0) / 1000).toFixed(1));
+      const r = await pg.evaluate((c, o) => window.__shot.show(c, o), j.coin, shotOpt);
+      if (!r.ok) return { skip: "차트를 못 불러왔어요 (봉 " + r.n + "개)" };
+      lap("차트");
+      const d = await pg.evaluate((c) => window.__shot.describe(c), j.coin);
+      const stamp = (d.ko ? d.ko + " (" + d.tk + ")" : d.tk || d.short) + (d.sector ? " · " + d.sector : "") + " · " + d.ivKo + " · " + now.text + (j.kind === "scan" ? " · " + srcKo + " " + j.i + "/" + j.n + (cfg.src === "scan" && L.inv ? " · INVERSE" : "") : " · 기본");
+      await pg.evaluate((t) => window.__shot.stamp(t), stamp);
+      lap("정보"); await sleep(120);
+      const buf = Buffer.from(await pg.screenshot({ type: "png" }));   /* 원본(무손실) */
+      lap("촬영");
+      const small = await sharp(buf).resize({ width: 2560, kernel: "lanczos3" }).sharpen({ sigma: 0.6, m1: 0.8, m2: 1.2 }).png({ compressionLevel: 9 }).toBuffer();   /* 사진용 2560x1440 */
+      const nm = (d.tk || d.short).replace(/[^A-Za-z0-9가-힣._-]+/g, "_") + "_" + d.iv + "_" + now.ymd + "_" + now.hm + ".png";
+      lap("보정"); let tmap = {};
+      try { const ivs = [...new Set([d.iv, ...FRAMES.map((f) => f[0])])], rs = await pg.evaluate((c, a) => window.__shot.trends(c, a), j.coin, ivs); ivs.forEach((v, q) => { tmap[v] = rs[q]; }); }
+      catch (e) { log("추세 계산 실패(글에서 뺌):", j.t, String((e && e.message) || e).slice(0, 80)); tmap = null; }
+      lap("추세");
+      const sgn = d.chg == null ? "" : (d.chg >= 0 ? "+" : "") + d.chg.toFixed(2) + "%";
+      const head = (d.ko ? d.ko + " (" + d.tk + ")" : d.tk || d.short) + (d.sector ? " · " + d.sector : "") + " · " + d.ivFull;
+      const info = ["현재가 " + fmtPx(d.px), sgn ? "24시간 등락률 " + sgn : "", d.vKrw ? "24시간 거래대금 " + d.vKrw : ""].filter(Boolean);
+      const cap = [head, ...info, ...(tmap ? ["", trendLine(d.ivFull, tmap[d.iv]), "", ...framesLines(tmap)] : [])].join("\n");   /* 정보마다 한 줄씩, 묶음 사이는 빈 줄 */
+      return { buf, small, cap, nm, lap: LAP.join(" "), ms: r.ms };
+    };
+    const worker = async (pg) => {
+      for (;;) {
+        if (ctl.abort) return;
+        while (nextK < jobs.length && nextK - takenK >= LOOK) { await sleep(100); if (ctl.abort) return; }
+        const k = nextK++; if (k >= jobs.length) return;
+        let out; try { out = await render(pg, k); } catch (e) { out = { err: e }; }
+        slot[k].res(out);
+      }
+    };
+    const workers = pages.slice(0, nw).map((pg) => worker(pg)); workers.forEach((w) => w.catch(() => {}));
     for (let k = 0; k < jobs.length; k++) {
-      const j = jobs[k]; const T0 = Date.now(), LAP = []; const lap = (n) => LAP.push(n + " " + ((Date.now() - T0) / 1000).toFixed(1));
-      { const why = ""; if (ctl.abort) throw new Error("ABORT"); if (why) { await note("⏹ 중지 — " + why + " (" + k + "/" + jobs.length + "장 보낸 뒤)" + (why === "설정이 바뀜" ? " → 새 설정으로 처음부터 다시 시작해요" : "")); S.again = true; await setStatus("idle", 0, "중지됨 (" + why + ") — 새로 시작", true, null); return false; } }
-      const stage = (txt, f) => void setStatus("running", 18 + 76 * (k + f) / jobs.length, (k + 1) + "/" + jobs.length + " " + j.t + " — " + txt, true, { k: k + 1, n: jobs.length, t: j.t, stage: txt });
-      stage("차트 불러오는 중 (봉·지표 계산)", 0.05);
-      try {
-        const r = await guard(page.evaluate((c, o) => window.__shot.show(c, o), j.coin, shotOpt));
-        if (!r.ok) { await note("⚠ " + j.t + " 차트를 못 불러왔어요 (봉 " + r.n + "개) — 건너뜀"); fail++; continue; }
-        lap("차트"); stage("사진 찍는 중", 0.5);
-        const d = await page.evaluate((c) => window.__shot.describe(c), j.coin);
-        const stamp = (d.ko ? d.ko + " (" + d.tk + ")" : d.tk || d.short) + (d.sector ? " · " + d.sector : "") + " · " + d.ivKo + " · " + now.text + (j.kind === "scan" ? " · " + srcKo + " " + j.i + "/" + j.n + (cfg.src === "scan" && L.inv ? " · INVERSE" : "") : " · 기본");
-        await page.evaluate((t) => window.__shot.stamp(t), stamp);
-        lap("정보"); await sleep(250);
-        const buf = Buffer.from(await guard(page.screenshot({ type: "png" })));   /* 원본(무손실) */
-        lap("촬영"); stage("사진 보정 중 (2560×1440)", 0.62);
-        const small = await sharp(buf).resize({ width: 2560, kernel: "lanczos3" }).sharpen({ sigma: 0.6, m1: 0.8, m2: 1.2 }).png({ compressionLevel: 9 }).toBuffer();   /* 사진용 2560x1440 */
-        const nm = (d.tk || d.short).replace(/[^A-Za-z0-9가-힣._-]+/g, "_") + "_" + d.iv + "_" + now.ymd + "_" + now.hm + ".png";
-        lap("보정"); let tmap = {};
-        try { stage("추세 화살표 계산 중", 0.66); const ivs = [...new Set([d.iv, ...FRAMES.map((f) => f[0])])], rs = await guard(page.evaluate((c, a) => window.__shot.trends(c, a), j.coin, ivs)); ivs.forEach((v, q) => { tmap[v] = rs[q]; }); }
-        catch (e) { log("추세 계산 실패(글에서 뺌):", j.t, String((e && e.message) || e).slice(0, 80)); tmap = null; }
-        lap("추세"); log("단계시간(초) " + j.t + ": " + LAP.join(" · "));
-        const sgn = d.chg == null ? "" : (d.chg >= 0 ? "+" : "") + d.chg.toFixed(2) + "%";
-        const head = (d.ko ? d.ko + " (" + d.tk + ")" : d.tk || d.short) + (d.sector ? " · " + d.sector : "") + " · " + d.ivFull;
-        const info = ["현재가 " + fmtPx(d.px), sgn ? "24시간 등락률 " + sgn : "", d.vKrw ? "24시간 거래대금 " + d.vKrw : ""].filter(Boolean);
-        const cap = [head, ...info, ...(tmap ? ["", trendLine(d.ivFull, tmap[d.iv]), "", ...framesLines(tmap)] : [])].join("\n");   /* 정보마다 한 줄씩, 묶음 사이는 빈 줄 */
-        if (DRY) log("글 ↓\n" + cap);
-        log((k + 1) + "/" + jobs.length, nm, Math.round(buf.length / 1024) + "KB 원본 · 사진 " + Math.round(small.length / 1024) + "KB", r.ms + "ms");
-        if (SAVE_DIR) { fs.mkdirSync(SAVE_DIR, { recursive: true }); fs.writeFileSync(path.join(SAVE_DIR, String(k + 1).padStart(2, "0") + "_" + nm), buf); }
-        if (DRY) { sent++; continue; }
-        /* 보내기는 줄(순서 유지)에 넣고, 보내는 동안 다음 종목 차트를 바로 그림 — 한 번에 2장까지만 밀리게 */
-        if (sendPend >= 2) await guard(sendQ);
-        sendPend++;
-        sendQ = sendQ.then(async () => {
-          try {
-            if (ctl.abort) return;
-          let mid = null, docOk = false;
-          if (small.length < 9.5e6) { try { mid = await guard(sendPhoto(small, cap, nm)); } catch (e) { if (ctl.abort) throw e; await note("⚠ " + j.t + " 사진 전송 실패: " + String((e && e.message) || e).slice(0, 80)); } }
-          if (cfg.doc !== false || !mid) { try { await guard(sendDocument(buf, nm, mid)); docOk = true; } catch (e) { if (ctl.abort) throw e; await note("⚠ " + j.t + " 원본 전송 실패: " + String((e && e.message) || e).slice(0, 80)); if (!mid) { fail++; return; } } }
-          sent++; await note("✔ " + (k + 1) + "/" + jobs.length + " " + j.t + " 전송 완료 (사진 " + Math.round(small.length / 1024) + "KB" + (docOk ? " + 원본 " + Math.round(buf.length / 1024) + "KB" : "") + ")"); await sleep(1200);   /* 텔레그램 분당 전송 제한(방당 ~20건) 여유 */
-          } catch (e) { if (!ctl.abort) { await note("⚠ " + j.t + " 전송 실패: " + String((e && e.message) || e).slice(0, 100)); fail++; } }
-          finally { sendPend--; }
-        });
-      } catch (e) { if (ctl.abort) throw e; await note("⚠ " + j.t + " 실패: " + String((e && e.message) || e).slice(0, 100)); fail++; }
+      if (ctl.abort) throw new Error("ABORT");
+      const j = jobs[k];
+      void setStatus("running", 18 + 76 * k / jobs.length, (k + 1) + "/" + jobs.length + " " + j.t + " — 만드는 중", true, { k: k + 1, n: jobs.length, t: j.t, stage: "만드는 중" });
+      const R = await guard(slot[k].pr); takenK = k + 1;
+      if (R.err) { if (ctl.abort) throw R.err; await note("⚠ " + j.t + " 실패: " + String((R.err && R.err.message) || R.err).slice(0, 100)); fail++; continue; }
+      if (R.skip) { await note("⚠ " + j.t + " " + R.skip + " — 건너뜀"); fail++; continue; }
+      const { buf, small, cap, nm } = R;
+      log("단계시간(초) " + j.t + ": " + R.lap);
+      if (DRY) log("글 ↓\n" + cap);
+      log((k + 1) + "/" + jobs.length, nm, Math.round(buf.length / 1024) + "KB 원본 · 사진 " + Math.round(small.length / 1024) + "KB", R.ms + "ms");
+      if (SAVE_DIR) { fs.mkdirSync(SAVE_DIR, { recursive: true }); fs.writeFileSync(path.join(SAVE_DIR, String(k + 1).padStart(2, "0") + "_" + nm), buf); }
+      if (DRY) { sent++; continue; }
+      void setStatus("running", 18 + 76 * (k + 0.8) / jobs.length, (k + 1) + "/" + jobs.length + " " + j.t + " — 텔레그램으로 전송 중", true, { k: k + 1, n: jobs.length, t: j.t, stage: "전송 중" });
+      const ts = Date.now(); let mid = null, docOk = false;
+      if (small.length < 9.5e6) { try { mid = await guard(sendPhoto(small, cap, nm)); } catch (e) { if (ctl.abort) throw e; await note("⚠ " + j.t + " 사진 전송 실패: " + String((e && e.message) || e).slice(0, 80)); } }
+      if (cfg.doc !== false || !mid) { try { await guard(sendDocument(buf, nm, mid)); docOk = true; } catch (e) { if (ctl.abort) throw e; await note("⚠ " + j.t + " 원본 전송 실패: " + String((e && e.message) || e).slice(0, 80)); if (!mid) { fail++; continue; } } }
+      sent++; await note("✔ " + (k + 1) + "/" + jobs.length + " " + j.t + " 전송 완료 (사진 " + Math.round(small.length / 1024) + "KB" + (docOk ? " + 원본 " + Math.round(buf.length / 1024) + "KB" : "") + ") · 만들기 " + R.lap + " · 전송 " + ((Date.now() - ts) / 1000).toFixed(1));
+      await sleep(500);   /* 텔레그램 분당 전송 제한(방당 ~20건) 여유 — 한도에 걸리면 위에서 알려준 시간만큼 자동 대기 */
     }
-    await guard(sendQ);   /* 보내기 줄이 다 빠질 때까지 */
+    await Promise.all(workers);
     S.last = Date.now(); S.retryAt = 0; S.info = { sent, fail, scan: picked.length, macro: macroCoins.length, passed: L.rows.length, src: cfg.src || "scan", inv: !!L.inv, sec: Math.round((Date.now() - t0) / 1000) };
     await note("🎉 모두 끝 — " + sent + "장 전송" + (fail ? " (실패 " + fail + ")" : "") + " · " + S.info.sec + "초");
     await setStatus("done", 100, "완료 · " + sent + "장 · " + S.info.sec + "초", true, null);
@@ -200,7 +226,7 @@ async function runOnce({ manual, cfg }) {
       S.again = true; await setStatus("idle", 0, "중지됨 (" + why + ")", true, null); return false;
     }
     throw e;
-  } finally { clearInterval(hb); clearInterval(wd); if (browser) await browser.close().catch(() => {}); }
+  } finally { clearInterval(hb); clearInterval(wd); if (browser) await browser.close().catch(() => {}); for (const b of extra) await b.close().catch(() => {}); }
 }
 
 /* ── 정해진 주기(시계 격자): 설정한 분마다, 봉이 막 마감한 뒤(+45초)에 맞춰 (하루 = 한국 아침 9시) ── */
