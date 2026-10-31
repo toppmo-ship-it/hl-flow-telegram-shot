@@ -5,6 +5,7 @@
    - 순서: 조건검색 결과(가장 중요한 종목이 맨 마지막 — 인버스면 하락이 가장 큰 종목) → 맨 끝에 항상 나스닥 · S&P500 · 브렌트유 · 미국10년물
    - 사진(미리보기) + 원본 PNG 파일(BTC_4h_20261023_0607.png 형식)을 같이 보냄(원본은 설정에서 끌 수 있음)
    환경변수: TG_BOT_TOKEN · TG_CHAT_ID · CHROME_PATH(선택) · CS_URL(시험용 주소) · CS_DRY=1(보내지도 저장하지도 않고 사진만 CS_SAVE 폴더에) · CS_ONCE=1(한 번 만들고 끝) · CS_CFG_JSON(설정 덮어쓰기) */
+import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 import puppeteer from "puppeteer-core";
@@ -161,7 +162,7 @@ async function runOnce({ manual, cfg }) {
     await note("보내는 순서: " + jobs.map((j) => j.t).join(" → "));
     let sent = 0, fail = 0; const now = kstParts(Date.now());
     const pages = [page]; for (const ep of extraP) { const pg = await guard(ep); if (pg) pages.push(pg); }
-    const nw = Math.max(1, Math.min(pages.length, jobs.length)); await note("사진 만드는 크롬 " + nw + "개로 나눠서 진행 (보내는 순서는 그대로)");
+    const nw = Math.max(1, Math.min(pages.length, jobs.length)); await note("사진 만드는 크롬 " + nw + "개로 나눠서 진행 (보내는 순서는 그대로) · 서버 CPU " + os.cpus().length + "개 · 메모리 " + Math.round(os.totalmem() / 1e9) + "GB");
     /* ── 만들기: 크롬마다 다음 번호를 가져가 사진·글을 만들어 번호 칸에 넣음 / 보내기: 번호순으로 한 장씩 꺼내 보냄 → 순서는 항상 그대로 ── */
     const slot = jobs.map(() => { let res; const pr = new Promise((r) => { res = r; }); return { pr, res }; });
     let nextK = 0, takenK = 0; const LOOK = nw * 2 + 1;   /* 보내기보다 너무 앞서 만들지 않게(메모리) */
@@ -169,7 +170,7 @@ async function runOnce({ manual, cfg }) {
       const j = jobs[k], T0 = Date.now(), LAP = [], lap = (n) => LAP.push(n + " " + ((Date.now() - T0) / 1000).toFixed(1));
       const r = await pg.evaluate((c, o) => window.__shot.show(c, o), j.coin, shotOpt);
       if (!r.ok) return { skip: "차트를 못 불러왔어요 (봉 " + r.n + "개)" };
-      lap("차트");
+      lap("차트(" + (r.marks || "") + ")");
       const d = await pg.evaluate((c) => window.__shot.describe(c), j.coin);
       const stamp = (d.ko ? d.ko + " (" + d.tk + ")" : d.tk || d.short) + (d.sector ? " · " + d.sector : "") + " · " + d.ivKo + " · " + now.text + (j.kind === "scan" ? " · " + srcKo + " " + j.i + "/" + j.n + (cfg.src === "scan" && L.inv ? " · INVERSE" : "") : " · 기본");
       await pg.evaluate((t) => window.__shot.stamp(t), stamp);
