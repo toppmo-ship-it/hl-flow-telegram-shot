@@ -8,7 +8,7 @@
    · 시험: 알림 센터 「시험 알림 보내기」 → 'cs_push_cmd' 를 5초 안에 읽어 모든 기기로 보냄
    환경변수: VAPID_PRIVATE_KEY(푸시 서명 비밀키 — GitHub 비밀값), CSA_MAX_MIN(실행 분, 기본 335), CSA_DRY=1(전송·저장 안 함 — 화면에만), CSA_STATE_FILE=파일(시험: 서버 설정 대신 읽음), CSA_FORCE_DIV=1(시험: 기준선 없이 바로 알림) */
 import fs from "node:fs";
-import webpush from "web-push";
+import * as webpush from "web-push";
 import { sbGet, sbPut, sbUpdate, SBU, SBK } from "./sb.mjs";
 import { PV } from "./cs/pivotscope.js";
 import { detectShapes } from "./cs/shapes.js";
