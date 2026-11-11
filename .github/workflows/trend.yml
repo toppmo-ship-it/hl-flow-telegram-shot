@@ -39,6 +39,14 @@ jobs:
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
+      # chartscan-photos 사슬 감시(2026-11-12): 그쪽 이어달리기가 '시작 실패'로 끊기면 자기 cron(GitHub가 6~8시간에 한 번만 돌림)으로는 못 살아나서, 자주 도는 이 작업이 대신 되살림. 실패해도 이 작업엔 영향 없음
+      - name: chartscan-photos 사슬 감시
+        continue-on-error: true
+        run: |
+          n=$(gh api "repos/${{ github.repository }}/actions/workflows/chartscan.yml/runs?per_page=20" \
+            --jq '[.workflow_runs[] | select(.status=="in_progress" or .status=="queued" or .status=="waiting" or .status=="pending")] | length' || echo 1)
+          if [ "${n:-1}" = "0" ]; then gh workflow run chartscan.yml --repo "${{ github.repository }}" --ref "${{ github.ref_name }}" && echo "chartscan-photos 가 멈춰 있어 다시 시작함"; else echo "chartscan-photos 정상(진행/대기 ${n}건)"; fi
+
       - uses: actions/checkout@v4
         if: steps.guard.outputs.skip != 'true'
 
