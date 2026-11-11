@@ -4,14 +4,19 @@ name: cs-alert
 # 한 번에 약 5시간 35분 동안 돌다가 끝나면 스스로 다음 실행을 걸어 이어달립니다(챗봇 chat.yml 과 같은 방식, 서로 별개 작업).
 #  - 설치할 패키지는 web-push 하나뿐이라 시작이 빠르고, 이어달리는 사이 빈 시간이 짧습니다
 #  - cron 은 워치독: 이어달리기가 끊겼을 때만 되살립니다(이미 돌고 있으면 아무것도 안 함)
+# (2026-11-12) 같은 알림을 텔레그램 리포트 방(TG_CHAT_ID2, 비면 TG_CHAT_ID)에도 글로 보냄. csalert.mjs 를 고쳐 올리면(push) 돌던 서버를 바로 새 코드로 교체.
 on:
+  push:
+    branches: [main]
+    paths: ["csalert.mjs", ".github/workflows/csalert.yml"]
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
 
 concurrency:
   group: cs-alert
-  cancel-in-progress: false
+  # 코드를 올린(push) 실행만 돌던 서버를 끊고 교체. 이어달리기·워치독은 서로 끊지 않음. 가격 기준·다이버전스 '본 기록'은 Supabase 에 있어 교체해도 중복 알림이 나지 않음
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 permissions:
   contents: read
@@ -57,6 +62,9 @@ jobs:
         timeout-minutes: 345
         env:
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          TG_CHAT_ID2: ${{ secrets.TG_CHAT_ID2 }}
           CSA_MAX_MIN: "335"
         run: node csalert.mjs
 

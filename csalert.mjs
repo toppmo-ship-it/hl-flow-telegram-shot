@@ -6,7 +6,8 @@
    · 받는 기기: 각 기기가 알림 센터의 「이 기기에서 알림 받기」를 눌러 Supabase 'cs_push_subs' 에 올린 푸시 구독 전체(만료된 구독은 자동으로 지움)
    · 끄기: 앱 설정 state.alPhone=false(알림 센터의 「서버가 기기로 보내기」 스위치) 또는 알림별 phone=false
    · 시험: 알림 센터 「시험 알림 보내기」 → 'cs_push_cmd' 를 5초 안에 읽어 모든 기기로 보냄
-   환경변수: VAPID_PRIVATE_KEY(푸시 서명 비밀키 — GitHub 비밀값), CSA_MAX_MIN(실행 분, 기본 335), CSA_DRY=1(전송·저장 안 함 — 화면에만), CSA_STATE_FILE=파일(시험: 서버 설정 대신 읽음), CSA_FORCE_DIV=1(시험: 기준선 없이 바로 알림) */
+   · 텔레그램: 같은 알림을 리포트 방(TG_CHAT_ID2, 비면 TG_CHAT_ID)에 글로도 보냄. 폰 푸시 스위치(alPhone/phone)와 무관, 비밀값이 없으면 조용히 건너뜀
+   환경변수: VAPID_PRIVATE_KEY(푸시 서명 비밀키 — GitHub 비밀값), TG_BOT_TOKEN·TG_CHAT_ID·TG_CHAT_ID2(텔레그램 — GitHub 비밀값), CSA_MAX_MIN(실행 분, 기본 335), CSA_DRY=1(전송·저장 안 함 — 화면에만), CSA_STATE_FILE=파일(시험: 서버 설정 대신 읽음), CSA_FORCE_DIV=1(시험: 기준선 없이 바로 알림) */
 import fs from "node:fs";
 import * as webpush from "web-push";
 import { sbGet, sbPut, sbUpdate, SBU, SBK } from "./sb.mjs";
@@ -24,6 +25,27 @@ const fmtPx = (v) => (v >= 1000 ? v.toLocaleString("en-US", { maximumFractionDig
 const kst = (t) => { const d = new Date(t + 9 * 36e5), p = (n) => String(n).padStart(2, "0"); return `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`; };
 const IVN = { "30m": "30분", "1h": "1시간", "2h": "2시간", "4h": "4시간", "8h": "8시간", "1d": "일봉" }, IVMS = { "30m": 18e5, "1h": 36e5, "2h": 72e5, "4h": 144e5, "8h": 288e5, "1d": 864e5 };
 
+/* ───── 텔레그램 전송: 리포트 방(TG_CHAT_ID2, 비면 기본 방 TG_CHAT_ID) — 폰 푸시와 같은 알림을 글로도 보냄 ───── */
+const TG_TOKEN = clean(process.env.TG_BOT_TOKEN).replace(/^bot/i, ""), TG_ROOM = clean(process.env.TG_CHAT_ID2) || clean(process.env.TG_CHAT_ID);
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+const tgSentAt = [];
+async function tgSend(text) {
+  if (DRY) { log("[DRY 텔레그램]\n" + text.replace(/<[^>]+>/g, "")); return true; }
+  if (!TG_TOKEN || !TG_ROOM) return false;   /* 비밀값이 없으면 조용히 건너뜀(폰 푸시는 그대로) */
+  const now = Date.now(); while (tgSentAt.length && now - tgSentAt[0] > 60000) tgSentAt.shift();
+  if (tgSentAt.length >= 15) { log("텔레그램 분당 상한 — 보내지 않음"); return false; }   /* 방당 분당 20건 제한보다 낮게 */
+  tgSentAt.push(now);
+  for (let a = 0; a < 2; a++) {
+    try {
+      const r = await fetch("https://api.telegram.org/bot" + TG_TOKEN + "/sendMessage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: TG_ROOM, text, parse_mode: "HTML", disable_web_page_preview: true }), signal: AbortSignal.timeout(15000) });
+      if (r.ok) { log("텔레그램 보냄"); return true; }
+      const j = await r.json().catch(() => ({})); log("텔레그램 실패:", r.status, j.description || "");
+      if (r.status === 429) await sleep(((j.parameters && j.parameters.retry_after) || 3) * 1000); else return false;
+    } catch (e) { log("텔레그램 오류:", e.message); await sleep(500); }
+  }
+  return false;
+}
+
 /* ───── 푸시 전송 (분당 30건 상한 — 오류로 폭주해도 알림창이 도배되지 않게) ───── */
 let SUBS = [], subsStamp = ""; const sent = []; let muted = 0;
 async function loadSubs() {
@@ -33,7 +55,8 @@ async function loadSubs() {
     const v = await sbGet(K_SUBS); SUBS = v && Array.isArray(v.list) ? v.list.filter((x) => x && x.endpoint && x.keys) : []; subsStamp = u; log("푸시 받을 기기", SUBS.length + "대", SUBS.map((x) => x.ua).join(", "));
   } catch (e) { /* 다음에 */ }
 }
-async function notify(p) {   /* p = {title, body, tag, coin, iv, kind, test} */
+async function notify(p) {   /* p = {title, body, tag, coin, iv, kind, test, tg(텔레그램 글)} */
+  if (p.tg) tgSend(p.tg);   /* 폰 푸시와 따로 — 폰 기기가 없거나 상한에 걸려도 텔레그램은 감 */
   const now = Date.now(); while (sent.length && now - sent[0] > 60000) sent.shift();
   if (sent.length >= 30) { muted++; log("분당 상한 — 보내지 않음:", p.title); return false; }
   sent.push(now);
@@ -101,9 +124,10 @@ function onMid(coin, cur) {
     const p = prev.get(a.id); prev.set(a.id, cur); if (p == null) continue;
     if (((p < a.px && cur >= a.px) || (p > a.px && cur <= a.px)) && now - (cool.get(a.id) || 0) > 8000 && SRV.fired[a.id] == null) {   /* 브라우저와 같음: 가로지른 순간 · 8초 안의 떨림은 한 번 */
       cool.set(a.id, now); if (a.rep === false) { SRV.fired[a.id] = a.px; dirty = true; }
-      if (S.alPhone === false || a.phone === false) { log("서버 푸시 꺼짐 — 건너뜀:", coin, a.px); continue; }
       log("가격 도달", coin, a.px, "현재", cur);
-      notify({ title: `🔔 ${nameOf(coin)} ${fmtPx(a.px)} 도달`, body: `현재 ${fmtPx(cur)}${a.srcName ? " · " + a.srcName : ""}${a.rep === false ? " · 1회 알림(꺼짐)" : ""} · ${kst(now)}`, tag: "px" + a.id, coin, kind: "px" });
+      const tg = [`🔔 <b>가격 알림</b>`, `<b>${esc(nameOf(coin))}</b> <code>${esc(String(coin).split(":").pop())}</code>`, `${p < a.px ? "▲ 상향 돌파" : "▼ 하향 이탈"}  목표 <b>${fmtPx(a.px)}</b>`, `현재가 ${fmtPx(cur)}`, ...(a.srcName ? [`출처 ${esc(a.srcName)}`] : []), ...(a.rep === false ? ["1회 알림 — 자동으로 꺼짐"] : []), `🕐 ${kst(now)}`].join("\n");
+      if (S.alPhone === false || a.phone === false) { log("서버 폰 푸시 꺼짐 — 텔레그램만:", coin, a.px); tgSend(tg); continue; }   /* 텔레그램은 폰 푸시 스위치와 무관하게 보냄 */
+      notify({ title: `🔔 ${nameOf(coin)} ${fmtPx(a.px)} 도달`, body: `현재 ${fmtPx(cur)}${a.srcName ? " · " + a.srcName : ""}${a.rep === false ? " · 1회 알림(꺼짐)" : ""} · ${kst(now)}`, tag: "px" + a.id, coin, kind: "px", tg });
     }
   }
 }
@@ -144,9 +168,10 @@ async function check(coin, iv) {
     if (d.forming || d.ageBars > (FORCE ? 1e9 : 6)) continue; if ((a.dir === "up" && d.dir < 0) || (a.dir === "dn" && d.dir > 0)) continue;
     const k = keyOf(a, iv, d), seen = SRV.seen[a.id]; if (!seen || seen.includes(k)) continue;
     seen.push(k); if (seen.length > 200) seen.shift(); dirty = true;
-    if (S.alPhone === false || a.phone === false) { log("폰 알림 꺼짐 — 건너뜀(다이버전스)", coin, iv); continue; }
     log("다이버전스 완성", coin, iv, d.dir > 0 ? "상승" : "하락");
-    notify({ title: `📡 ${nameOf(coin)} ${IVN[iv] || iv} ${d.dir > 0 ? "상승" : "하락"} ${d.hidden ? "히든 " : ""}다이버전스 완성`, body: `PivotScope ${IVN[iv] || iv}봉 ${d.dir > 0 ? "저점 상승" : "고점 하락"} (RSI ${Math.round(d.rsiA)}→${Math.round(d.rsiB)}) · ${kst(Date.now())}`, tag: `pv${a.id}${iv}${d.dir}${d.t}`, coin, iv, kind: "sig" });
+    const tg = [`📡 <b>다이버전스 완성</b>`, `<b>${esc(nameOf(coin))}</b> <code>${esc(String(coin).split(":").pop())}</code> · ${IVN[iv] || iv}봉`, `${d.dir > 0 ? "🟢 상승" : "🔴 하락"} ${d.hidden ? "히든 " : ""}다이버전스 (${d.dir > 0 ? "저점 상승" : "고점 하락"})`, `RSI ${Math.round(d.rsiA)} → ${Math.round(d.rsiB)}`, `🕐 ${kst(Date.now())}`].join("\n");
+    if (S.alPhone === false || a.phone === false) { log("폰 알림 꺼짐 — 텔레그램만(다이버전스)", coin, iv); tgSend(tg); continue; }
+    notify({ title: `📡 ${nameOf(coin)} ${IVN[iv] || iv} ${d.dir > 0 ? "상승" : "하락"} ${d.hidden ? "히든 " : ""}다이버전스 완성`, body: `PivotScope ${IVN[iv] || iv}봉 ${d.dir > 0 ? "저점 상승" : "고점 하락"} (RSI ${Math.round(d.rsiA)}→${Math.round(d.rsiB)}) · ${kst(Date.now())}`, tag: `pv${a.id}${iv}${d.dir}${d.t}`, coin, iv, kind: "sig", tg });
   }
 }
 const BD = {}, LASTSCAN = {};
@@ -171,7 +196,7 @@ async function main() {
   log("폰 알림 서버 시작", DRY ? "(DRY)" : "", "최대", MAXMIN, "분");
   await loadSrv(); await loadSubs(); await refreshState(); connect();
   let lastCmd = ((await sbGet(K_CMD)) || {}).id || "";   /* 시작 때 이미 있던 시험 요청은 무시 */
-  setInterval(async () => { await loadSubs(); const c = await sbGet(K_CMD); if (c && c.id && c.id !== lastCmd) { lastCmd = c.id; log("시험 알림 요청", c.id); notify({ title: "🔔 시험 알림", body: "폰 알림이 정상으로 오고 있어요 · " + kst(Date.now()), tag: "test", kind: "px", test: true }); } }, 5000);
+  setInterval(async () => { await loadSubs(); const c = await sbGet(K_CMD); if (c && c.id && c.id !== lastCmd) { lastCmd = c.id; log("시험 알림 요청", c.id); notify({ title: "🔔 시험 알림", body: "폰 알림이 정상으로 오고 있어요 · " + kst(Date.now()), tag: "test", kind: "px", test: true, tg: `🔔 <b>시험 알림</b>\n텔레그램 알림이 정상으로 오고 있어요\n🕐 ${kst(Date.now())}` }); } }, 5000);
   setInterval(refreshState, 5000); setInterval(boundaryTick, 500); setInterval(() => saveSrv(false), 3000); setInterval(() => saveSrv(true), 30000);   /* 30초마다 '살아 있음' 기록 */
   setInterval(() => { if (ws && wsOpen && Date.now() - lastMsg > 30000) { log("호가 소식이 끊겨 재연결"); try { ws.close(); } catch (e) { /* 무시 */ } } }, 10000);
   setInterval(() => { if (ws && wsOpen) { try { ws.send(JSON.stringify({ method: "ping" })); } catch (e) { /* 무시 */ } } }, 15000);
