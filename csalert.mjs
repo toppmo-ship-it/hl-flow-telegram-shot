@@ -96,6 +96,7 @@ function afterState() {
   const pids = new Set(S.pvAlerts.map((a) => a.id)); for (const id of Object.keys(SRV.seen)) if (!pids.has(id)) { delete SRV.seen[id]; dirty = true; }
   syncSubs();
   for (const a of S.pvAlerts) if (a.on && !SRV.seen[a.id] && !seeding.has(a.id)) seed(a);
+  const T = sigTargets(); for (const iv of Object.keys(T)) if (Object.keys(T[iv]).some((c) => !SRV.sig.init[iv + "|" + c])) sigCheck(iv).catch((e) => log("신호 기준선 오류:", e.message));   /* 방금 건 알람: 바로 기준선을 잡아 다음 봉 마감 신호부터 옴 */
 }
 
 /* ───── 가격: 호가 웹소켓 ───── */
@@ -193,26 +194,39 @@ function boundaryTick() {
 /* ───── 고점·저점 신호(PivotScope 노란 화살표) → 텔레그램만. 브라우저 신호 알림(sigfeed.js)과 같은 계산을 사이트 /api/signals 로 받아 서버가 대신 확인 → PC 가 꺼져 있어도 옴
    · 대상 종목·시간대는 아래 기본값(환경변수 CSA_SIG_COINS·CSA_SIG_IVS 로 바꿈, CSA_SIG=0 이면 끔). 봉이 닫힌 직후(+8·35·100초)에만 시간대당 한 번 호출 → 호출 수 아주 적음
    · 확정(노란) 신호만, 깨진 신호·예비(흰) 신호는 제외(브라우저 분·시간봉 규칙과 같음). 처음 보는 종목은 지금 있는 신호를 '본 것'으로만 기록(과거 신호가 한꺼번에 오지 않게) ───── */
-const SIG_COINS = (process.env.CSA_SIG_COINS || "xyz:SKHX,xyz:SMSN,xyz:XYZ100").split(",").filter(Boolean), SIG_IVL = (process.env.CSA_SIG_IVS || "30m,1h,2h").split(",").filter((i) => IVMS[i]);
+/* (11/12) 대상 = 차트플랫폼에서 건 지표 알람(pvAlerts)의 종목·시간대·방향 그대로. 고정 3종목은 없앰(환경변수 CSA_SIG_COINS·CSA_SIG_IVS 를 주면 그 종목만 추가로 봄) */
+const SIG_COINS = (process.env.CSA_SIG_COINS || "").split(",").filter(Boolean), SIG_IVL = (process.env.CSA_SIG_IVS || "30m,1h,2h").split(",").filter((i) => IVMS[i]);
+function sigTargets() {   /* { 시간대: { 종목: 방향("both"|"up"|"dn") } } */
+  const T = {}, add = (iv, c, d) => { if (!IVMS[iv] || !c) return; const m = T[iv] || (T[iv] = {}); m[c] = m[c] && m[c] !== d ? "both" : d; };
+  if (process.env.CSA_SIG === "0") return T;
+  for (const a of S.pvAlerts) if (a.on) for (const iv of a.ivs || []) add(iv, a.coin, a.dir === "up" || a.dir === "dn" ? a.dir : "both");
+  for (const iv of SIG_IVL) for (const c of SIG_COINS) add(iv, c, "both");
+  return T;
+}
+const sigBusy = new Set();
 const SIG_API = "https://hl-chartscan.vercel.app/api/signals", sigBD = {};
 function sigTg(c, iv, s) {   /* s = [봉시각(초), 방향(1=저점·-1=고점), 확정, 확률%, 깨짐, 반대전환, 진입가, …, 등급(11)] */
   const top = s[1] < 0, n = Math.min(3, s[11] > 0 ? s[11] : 1);
   return tgSend([`📡 <b>${top ? "고점" : "저점"} 신호</b> · ${IVN[iv] || iv}봉`, `<b>${esc(nameOf(c))}</b> <code>${esc(String(c).split(":").pop())}</code>`, `${top ? "🔴 하락전환 전 (고점)" : "🟢 상승전환 전 (저점)"} · 노란 화살표 ${n}개(확정)`, `확률 ${s[3]}%${s[6] > 0 ? " · 신호 봉 종가 " + fmtPx(s[6]) : ""}`, `🕐 ${kst(Date.now())}`].join("\n"));
 }
 async function sigCheck(iv) {
+  if (sigBusy.has(iv)) return; sigBusy.add(iv);
+  try { const m = sigTargets()[iv] || {}, cs = Object.keys(m); for (let i = 0; i < cs.length; i += 6) await sigBatch(iv, cs.slice(i, i + 6), m); } finally { sigBusy.delete(iv); }   /* 사이트가 한 번에 6종목까지만 받음 */
+}
+async function sigBatch(iv, coins, dirs) {
   let j = null;
   for (let a = 0; a < 3 && !j; a++) {
-    try { const r = await fetch(`${SIG_API}?v=5&iv=${iv}&coins=${encodeURIComponent(SIG_COINS.join(","))}&krw=1400&_=${Math.floor(Date.now() / 1000)}`, { signal: AbortSignal.timeout(30000) }); if (r.ok) { const x = await r.json(); if (x && x.ok) j = x; } } catch (e) { /* 재시도 */ }
+    try { const r = await fetch(`${SIG_API}?v=5&iv=${iv}&coins=${encodeURIComponent(coins.join(","))}&krw=1400&_=${Math.floor(Date.now() / 1000)}`, { signal: AbortSignal.timeout(30000) }); if (r.ok) { const x = await r.json(); if (x && x.ok) j = x; } } catch (e) { /* 재시도 */ }
     if (!j) await sleep(1500 * (a + 1));
   }
   if (!j) { log("신호 못 받음", iv); return; }
   const seen = SRV.sig.seen, dur = IVMS[iv] / 1000, now = Date.now() / 1000;
-  for (const c of SIG_COINS) {
+  for (const c of coins) {
     const x = j.r && j.r[c]; if (!x) continue; const first = !SRV.sig.init[iv + "|" + c] && !FORCE;
     for (const s of x.s || []) {
       const k = iv + "|" + c + "|" + s[0]; if (!FORCE && seen.includes(k)) continue;
       seen.push(k); dirty = true;
-      if (first || !s[2] || s[4]) continue;   /* 기준선 기록·예비(흰)·깨진 신호는 알리지 않음 */
+      if (first || !s[2] || s[4] || (dirs[c] === "up" && s[1] < 0) || (dirs[c] === "dn" && s[1] > 0)) continue;   /* 알람에서 고른 방향(상승만=저점·하락만=고점)만 · 기준선 기록·예비(흰)·깨진 신호는 알리지 않음 */
       if (!FORCE && now - (s[0] + dur) > Math.max(2 * dur, 3600)) continue;   /* 서버가 오래 꺼져 있다 뒤늦게 발견한 옛 신호는 알리지 않음 */
       log("신호", c, iv, s[1] > 0 ? "저점" : "고점"); sigTg(c, iv, s);
     }
@@ -222,7 +236,7 @@ async function sigCheck(iv) {
 }
 function sigTick() {
   const now = Date.now();
-  for (const iv of SIG_IVL) {
+  for (const iv of Object.keys(sigTargets())) {
     const ms = IVMS[iv], nb = Math.floor(now / ms) * ms, st = sigBD[iv] || (sigBD[iv] = { b: nb, s: 3 });
     if (st.b !== nb) { st.b = nb; st.s = 0; }
     /* (11/12) 사이트가 응답을 '봉 마감 +20초'까지 보관하고 그 뒤 5분은 옛 응답을 먼저 돌려줘서 신호가 100초쯤 늦었음 → 주소 끝에 매번 다른 값(_=)을 붙여 항상 새로 계산시키고 +3·12·45초에 확인. 하루 약 250회라 비용 영향 거의 없음 */
@@ -238,7 +252,7 @@ async function main() {
   await loadSrv(); await loadSubs(); await refreshState(); connect();
   let lastCmd = ((await sbGet(K_CMD)) || {}).id || "";   /* 시작 때 이미 있던 시험 요청은 무시 */
   setInterval(async () => { await loadSubs(); const c = await sbGet(K_CMD); if (c && c.id && c.id !== lastCmd) { lastCmd = c.id; log("시험 알림 요청", c.id); notify({ title: "🔔 시험 알림", body: "폰 알림이 정상으로 오고 있어요 · " + kst(Date.now()), tag: "test", kind: "px", test: true, tg: `🔔 <b>시험 알림</b>\n텔레그램 알림이 정상으로 오고 있어요\n🕐 ${kst(Date.now())}` }); } }, 5000);
-  if (SIG_COINS.length && SIG_IVL.length && process.env.CSA_SIG !== "0") { log("고점·저점 신호 텔레그램:", SIG_COINS.join(","), SIG_IVL.join(",")); for (const iv of SIG_IVL) await sigCheck(iv).catch((e) => log("신호 기준선 오류:", e.message)); setInterval(sigTick, 1000); }   /* 시작 때 한 번: 처음이면 기준선만, 재시작이면 그 사이 놓친 최근 신호만 알림 */
+  { const T = sigTargets(); log("고점·저점 신호 텔레그램 대상:", JSON.stringify(T)); for (const iv of Object.keys(T)) await sigCheck(iv).catch((e) => log("신호 기준선 오류:", e.message)); setInterval(sigTick, 1000); }   /* 시작 때 한 번: 처음이면 기준선만, 재시작이면 그 사이 놓친 최근 신호만 알림 */
   setInterval(refreshState, 5000); setInterval(boundaryTick, 500); setInterval(() => saveSrv(false), 3000); setInterval(() => saveSrv(true), 30000);   /* 30초마다 '살아 있음' 기록 */
   setInterval(() => { if (ws && wsOpen && Date.now() - lastMsg > 30000) { log("호가 소식이 끊겨 재연결"); try { ws.close(); } catch (e) { /* 무시 */ } } }, 10000);
   setInterval(() => { if (ws && wsOpen) { try { ws.send(JSON.stringify({ method: "ping" })); } catch (e) { /* 무시 */ } } }, 15000);
