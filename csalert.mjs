@@ -194,8 +194,8 @@ function boundaryTick() {
 /* ───── 고점·저점 신호(PivotScope 노란 화살표) → 텔레그램만. 브라우저 신호 알림(sigfeed.js)과 같은 계산을 사이트 /api/signals 로 받아 서버가 대신 확인 → PC 가 꺼져 있어도 옴
    · 대상 종목·시간대는 아래 기본값(환경변수 CSA_SIG_COINS·CSA_SIG_IVS 로 바꿈, CSA_SIG=0 이면 끔). 봉이 닫힌 직후(+8·35·100초)에만 시간대당 한 번 호출 → 호출 수 아주 적음
    · 확정(노란) 신호만, 깨진 신호·예비(흰) 신호는 제외(브라우저 분·시간봉 규칙과 같음). 처음 보는 종목은 지금 있는 신호를 '본 것'으로만 기록(과거 신호가 한꺼번에 오지 않게) ───── */
-/* (11/12) 대상 = 차트플랫폼에서 건 지표 알람(pvAlerts)의 종목·시간대·방향 그대로. 고정 3종목은 없앰(환경변수 CSA_SIG_COINS·CSA_SIG_IVS 를 주면 그 종목만 추가로 봄) */
-const SIG_COINS = (process.env.CSA_SIG_COINS || "").split(",").filter(Boolean), SIG_IVL = (process.env.CSA_SIG_IVS || "30m,1h,2h").split(",").filter((i) => IVMS[i]);
+/* (11/12) 대상 = 차트플랫폼에서 건 지표 알람(pvAlerts)의 종목·시간대·방향 그대로. 여기에 기본 4종목(하이닉스·삼성전자·나스닥100·KORU) × 30분·1·2·4시간을 항상 더해서 봄(환경변수 CSA_SIG_COINS·CSA_SIG_IVS 로 바꿈) */
+const SIG_COINS = (process.env.CSA_SIG_COINS || "xyz:SKHX,xyz:SMSN,xyz:XYZ100,xyz:KORU").split(",").filter(Boolean), SIG_IVL = (process.env.CSA_SIG_IVS || "30m,1h,2h,4h").split(",").filter((i) => IVMS[i]);
 function sigTargets() {   /* { 시간대: { 종목: 방향("both"|"up"|"dn") } } */
   const T = {}, add = (iv, c, d) => { if (!IVMS[iv] || !c) return; const m = T[iv] || (T[iv] = {}); m[c] = m[c] && m[c] !== d ? "both" : d; };
   if (process.env.CSA_SIG === "0") return T;
