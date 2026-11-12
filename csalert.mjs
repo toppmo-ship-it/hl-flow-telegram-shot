@@ -26,7 +26,7 @@ const kst = (t) => { const d = new Date(t + 9 * 36e5), p = (n) => String(n).padS
 const IVN = { "30m": "30분", "1h": "1시간", "2h": "2시간", "4h": "4시간", "8h": "8시간", "1d": "일봉" }, IVMS = { "30m": 18e5, "1h": 36e5, "2h": 72e5, "4h": 144e5, "8h": 288e5, "1d": 864e5 };
 
 /* ───── 텔레그램 전송: 리포트 방(TG_CHAT_ID2, 비면 기본 방 TG_CHAT_ID) — 폰 푸시와 같은 알림을 글로도 보냄 ───── */
-const TG_TOKEN = clean(process.env.TG_BOT_TOKEN).replace(/^bot/i, ""), TG_ROOM = clean(process.env.TG_CHAT_ID2) || clean(process.env.TG_CHAT_ID);
+const TG_TOKEN = clean(process.env.TG_BOT_TOKEN).replace(/^bot/i, ""), TG_ROOM = clean(process.env.TG_ALERT_CHAT_ID) || clean(process.env.TG_CHAT_ID2) || clean(process.env.TG_CHAT_ID);
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 const tgSentAt = [], TGSTAT = { ok: 0, fail: 0, last: "", err: "", room: TG_ROOM ? "…" + TG_ROOM.slice(-4) : "", tok: !!TG_TOKEN };   /* TGSTAT: 로그 없이도 결과를 볼 수 있게 cs_alert_srv_state 에 같이 저장 */
 const tgNote = (ok, err) => { ok ? TGSTAT.ok++ : TGSTAT.fail++; TGSTAT.last = new Date().toISOString(); TGSTAT.err = ok ? "" : String(err || "").slice(0, 160); dirty = true; };

@@ -65,6 +65,8 @@ jobs:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           TG_CHAT_ID2: ${{ secrets.TG_CHAT_ID2 }}
+          # 알람 전용 채널(등록돼 있으면 알람은 여기로만, 비어 있으면 리포트 방으로)
+          TG_ALERT_CHAT_ID: ${{ secrets.TG_ALERT_CHAT_ID }}
           CSA_MAX_MIN: "335"
         run: node csalert.mjs
 
