@@ -28,20 +28,21 @@ const IVN = { "30m": "30분", "1h": "1시간", "2h": "2시간", "4h": "4시간",
 /* ───── 텔레그램 전송: 리포트 방(TG_CHAT_ID2, 비면 기본 방 TG_CHAT_ID) — 폰 푸시와 같은 알림을 글로도 보냄 ───── */
 const TG_TOKEN = clean(process.env.TG_BOT_TOKEN).replace(/^bot/i, ""), TG_ROOM = clean(process.env.TG_CHAT_ID2) || clean(process.env.TG_CHAT_ID);
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-const tgSentAt = [];
+const tgSentAt = [], TGSTAT = { ok: 0, fail: 0, last: "", err: "", room: TG_ROOM ? "…" + TG_ROOM.slice(-4) : "", tok: !!TG_TOKEN };   /* TGSTAT: 로그 없이도 결과를 볼 수 있게 cs_alert_srv_state 에 같이 저장 */
+const tgNote = (ok, err) => { ok ? TGSTAT.ok++ : TGSTAT.fail++; TGSTAT.last = new Date().toISOString(); TGSTAT.err = ok ? "" : String(err || "").slice(0, 160); dirty = true; };
 async function tgSend(text) {
   if (DRY) { log("[DRY 텔레그램]\n" + text.replace(/<[^>]+>/g, "")); return true; }
-  if (!TG_TOKEN || !TG_ROOM) return false;   /* 비밀값이 없으면 조용히 건너뜀(폰 푸시는 그대로) */
+  if (!TG_TOKEN || !TG_ROOM) { log("텔레그램 비밀값 없음 — 건너뜀 (토큰", !!TG_TOKEN, "방", !!TG_ROOM + ")"); tgNote(false, "비밀값 없음 토큰=" + !!TG_TOKEN + " 방=" + !!TG_ROOM); return false; }
   const now = Date.now(); while (tgSentAt.length && now - tgSentAt[0] > 60000) tgSentAt.shift();
-  if (tgSentAt.length >= 15) { log("텔레그램 분당 상한 — 보내지 않음"); return false; }   /* 방당 분당 20건 제한보다 낮게 */
+  if (tgSentAt.length >= 15) { log("텔레그램 분당 상한 — 보내지 않음"); tgNote(false, "분당 상한"); return false; }   /* 방당 분당 20건 제한보다 낮게 */
   tgSentAt.push(now);
   for (let a = 0; a < 2; a++) {
     try {
       const r = await fetch("https://api.telegram.org/bot" + TG_TOKEN + "/sendMessage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: TG_ROOM, text, parse_mode: "HTML", disable_web_page_preview: true }), signal: AbortSignal.timeout(15000) });
-      if (r.ok) { log("텔레그램 보냄"); return true; }
-      const j = await r.json().catch(() => ({})); log("텔레그램 실패:", r.status, j.description || "");
+      if (r.ok) { log("텔레그램 보냄"); tgNote(true); return true; }
+      const j = await r.json().catch(() => ({})); log("텔레그램 실패:", r.status, j.description || ""); tgNote(false, r.status + " " + (j.description || ""));
       if (r.status === 429) await sleep(((j.parameters && j.parameters.retry_after) || 3) * 1000); else return false;
-    } catch (e) { log("텔레그램 오류:", e.message); await sleep(500); }
+    } catch (e) { log("텔레그램 오류:", e.message); tgNote(false, e.message); await sleep(500); }
   }
   return false;
 }
@@ -77,7 +78,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /* ───── 설정·기록 ───── */
 let S = { alerts: [], pvAlerts: [], alPhone: true }, stamp = "", SRV = { seen: {}, fired: {} }, dirty = false;
 async function loadSrv() { const v = await sbGet(K_SRV); if (v && typeof v === "object") SRV = { seen: v.seen || {}, fired: v.fired || {} }; }
-async function saveSrv(force) { if (DRY || !(dirty || force)) return; dirty = false; await sbPut(K_SRV, { hb: Date.now(), t0: T0, seen: SRV.seen, fired: SRV.fired, subs: SUBS.length, v: 2 }); }
+async function saveSrv(force) { if (DRY || !(dirty || force)) return; dirty = false; await sbPut(K_SRV, { hb: Date.now(), t0: T0, seen: SRV.seen, fired: SRV.fired, subs: SUBS.length, tg: TGSTAT, v: 2 }); }
 async function refreshState() {
   try {
     if (process.env.CSA_STATE_FILE) { const st = JSON.parse(fs.readFileSync(process.env.CSA_STATE_FILE, "utf8")); S = { alerts: st.alerts || [], pvAlerts: st.pvAlerts || [], alPhone: st.alPhone !== false }; return afterState(); }
