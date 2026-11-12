@@ -81,3 +81,4 @@ jobs:
             echo "예약 실패 $i/5 — 20초 뒤 재시도"; sleep 20
           done
           echo "::error::다음 알림 서버 예약 5번 실패 — cron 워치독이 되살릴 때까지 멈춤"; exit 1
+# (2026-11-12) 알람 전용 채널 비밀값(TG_ALERT_CHAT_ID) 등록 — 서버 다시 시작
