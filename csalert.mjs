@@ -202,7 +202,7 @@ function sigTg(c, iv, s) {   /* s = [봉시각(초), 방향(1=저점·-1=고점)
 async function sigCheck(iv) {
   let j = null;
   for (let a = 0; a < 3 && !j; a++) {
-    try { const r = await fetch(`${SIG_API}?v=5&iv=${iv}&coins=${encodeURIComponent(SIG_COINS.join(","))}&krw=1400`, { signal: AbortSignal.timeout(30000) }); if (r.ok) { const x = await r.json(); if (x && x.ok) j = x; } } catch (e) { /* 재시도 */ }
+    try { const r = await fetch(`${SIG_API}?v=5&iv=${iv}&coins=${encodeURIComponent(SIG_COINS.join(","))}&krw=1400&_=${Math.floor(Date.now() / 1000)}`, { signal: AbortSignal.timeout(30000) }); if (r.ok) { const x = await r.json(); if (x && x.ok) j = x; } } catch (e) { /* 재시도 */ }
     if (!j) await sleep(1500 * (a + 1));
   }
   if (!j) { log("신호 못 받음", iv); return; }
@@ -225,7 +225,8 @@ function sigTick() {
   for (const iv of SIG_IVL) {
     const ms = IVMS[iv], nb = Math.floor(now / ms) * ms, st = sigBD[iv] || (sigBD[iv] = { b: nb, s: 3 });
     if (st.b !== nb) { st.b = nb; st.s = 0; }
-    if (st.s < 3 && now - nb >= [8000, 35000, 100000][st.s]) { st.s++; sigCheck(iv).catch((e) => log("신호 확인 오류:", e.message)); }
+    /* (11/12) 사이트가 응답을 '봉 마감 +20초'까지 보관하고 그 뒤 5분은 옛 응답을 먼저 돌려줘서 신호가 100초쯤 늦었음 → 주소 끝에 매번 다른 값(_=)을 붙여 항상 새로 계산시키고 +3·12·45초에 확인. 하루 약 250회라 비용 영향 거의 없음 */
+    if (st.s < 3 && now - nb >= [3000, 12000, 45000][st.s]) { st.s++; sigCheck(iv).catch((e) => log("신호 확인 오류:", e.message)); }
   }
 }
 
