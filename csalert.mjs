@@ -76,9 +76,9 @@ async function notify(p) {   /* p = {title, body, tag, coin, iv, kind, test, tg(
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ───── 설정·기록 ───── */
-let S = { alerts: [], pvAlerts: [], alPhone: true }, stamp = "", SRV = { seen: {}, fired: {} }, dirty = false;
-async function loadSrv() { const v = await sbGet(K_SRV); if (v && typeof v === "object") SRV = { seen: v.seen || {}, fired: v.fired || {} }; }
-async function saveSrv(force) { if (DRY || !(dirty || force)) return; dirty = false; await sbPut(K_SRV, { hb: Date.now(), t0: T0, seen: SRV.seen, fired: SRV.fired, subs: SUBS.length, tg: TGSTAT, v: 2 }); }
+let S = { alerts: [], pvAlerts: [], alPhone: true }, stamp = "", SRV = { seen: {}, fired: {}, sig: { seen: [], init: {} } }, dirty = false;
+async function loadSrv() { const v = await sbGet(K_SRV); if (v && typeof v === "object") SRV = { seen: v.seen || {}, fired: v.fired || {}, sig: { seen: (v.sig && v.sig.seen) || [], init: (v.sig && v.sig.init) || {} } }; }
+async function saveSrv(force) { if (DRY || !(dirty || force)) return; dirty = false; await sbPut(K_SRV, { hb: Date.now(), t0: T0, seen: SRV.seen, fired: SRV.fired, sig: SRV.sig, subs: SUBS.length, tg: TGSTAT, v: 2 }); }
 async function refreshState() {
   try {
     if (process.env.CSA_STATE_FILE) { const st = JSON.parse(fs.readFileSync(process.env.CSA_STATE_FILE, "utf8")); S = { alerts: st.alerts || [], pvAlerts: st.pvAlerts || [], alPhone: st.alPhone !== false }; return afterState(); }
@@ -190,6 +190,45 @@ function boundaryTick() {
   }
 }
 
+/* ───── 고점·저점 신호(PivotScope 노란 화살표) → 텔레그램만. 브라우저 신호 알림(sigfeed.js)과 같은 계산을 사이트 /api/signals 로 받아 서버가 대신 확인 → PC 가 꺼져 있어도 옴
+   · 대상 종목·시간대는 아래 기본값(환경변수 CSA_SIG_COINS·CSA_SIG_IVS 로 바꿈, CSA_SIG=0 이면 끔). 봉이 닫힌 직후(+8·35·100초)에만 시간대당 한 번 호출 → 호출 수 아주 적음
+   · 확정(노란) 신호만, 깨진 신호·예비(흰) 신호는 제외(브라우저 분·시간봉 규칙과 같음). 처음 보는 종목은 지금 있는 신호를 '본 것'으로만 기록(과거 신호가 한꺼번에 오지 않게) ───── */
+const SIG_COINS = (process.env.CSA_SIG_COINS || "xyz:SKHX,xyz:SMSN,xyz:XYZ100").split(",").filter(Boolean), SIG_IVL = (process.env.CSA_SIG_IVS || "30m,1h,2h").split(",").filter((i) => IVMS[i]);
+const SIG_API = "https://hl-chartscan.vercel.app/api/signals", sigBD = {};
+function sigTg(c, iv, s) {   /* s = [봉시각(초), 방향(1=저점·-1=고점), 확정, 확률%, 깨짐, 반대전환, 진입가, …, 등급(11)] */
+  const top = s[1] < 0, n = Math.min(3, s[11] > 0 ? s[11] : 1);
+  return tgSend([`📡 <b>${top ? "고점" : "저점"} 신호</b> · ${IVN[iv] || iv}봉`, `<b>${esc(nameOf(c))}</b> <code>${esc(String(c).split(":").pop())}</code>`, `${top ? "🔴 하락전환 전 (고점)" : "🟢 상승전환 전 (저점)"} · 노란 화살표 ${n}개(확정)`, `확률 ${s[3]}%${s[6] > 0 ? " · 신호 봉 종가 " + fmtPx(s[6]) : ""}`, `🕐 ${kst(Date.now())}`].join("\n"));
+}
+async function sigCheck(iv) {
+  let j = null;
+  for (let a = 0; a < 3 && !j; a++) {
+    try { const r = await fetch(`${SIG_API}?v=5&iv=${iv}&coins=${encodeURIComponent(SIG_COINS.join(","))}&krw=1400`, { signal: AbortSignal.timeout(30000) }); if (r.ok) { const x = await r.json(); if (x && x.ok) j = x; } } catch (e) { /* 재시도 */ }
+    if (!j) await sleep(1500 * (a + 1));
+  }
+  if (!j) { log("신호 못 받음", iv); return; }
+  const seen = SRV.sig.seen, dur = IVMS[iv] / 1000, now = Date.now() / 1000;
+  for (const c of SIG_COINS) {
+    const x = j.r && j.r[c]; if (!x) continue; const first = !SRV.sig.init[iv + "|" + c] && !FORCE;
+    for (const s of x.s || []) {
+      const k = iv + "|" + c + "|" + s[0]; if (!FORCE && seen.includes(k)) continue;
+      seen.push(k); dirty = true;
+      if (first || !s[2] || s[4]) continue;   /* 기준선 기록·예비(흰)·깨진 신호는 알리지 않음 */
+      if (!FORCE && now - (s[0] + dur) > Math.max(2 * dur, 3600)) continue;   /* 서버가 오래 꺼져 있다 뒤늦게 발견한 옛 신호는 알리지 않음 */
+      log("신호", c, iv, s[1] > 0 ? "저점" : "고점"); sigTg(c, iv, s);
+    }
+    SRV.sig.init[iv + "|" + c] = 1; dirty = true;
+  }
+  if (seen.length > 400) seen.splice(0, seen.length - 400);
+}
+function sigTick() {
+  const now = Date.now();
+  for (const iv of SIG_IVL) {
+    const ms = IVMS[iv], nb = Math.floor(now / ms) * ms, st = sigBD[iv] || (sigBD[iv] = { b: nb, s: 3 });
+    if (st.b !== nb) { st.b = nb; st.s = 0; }
+    if (st.s < 3 && now - nb >= [8000, 35000, 100000][st.s]) { st.s++; sigCheck(iv).catch((e) => log("신호 확인 오류:", e.message)); }
+  }
+}
+
 /* ───── 실행 ───── */
 async function main() {
   if (!DRY && !VAPID_PRIV) { log("VAPID_PRIVATE_KEY 가 없어 종료"); return; }
@@ -198,6 +237,7 @@ async function main() {
   await loadSrv(); await loadSubs(); await refreshState(); connect();
   let lastCmd = ((await sbGet(K_CMD)) || {}).id || "";   /* 시작 때 이미 있던 시험 요청은 무시 */
   setInterval(async () => { await loadSubs(); const c = await sbGet(K_CMD); if (c && c.id && c.id !== lastCmd) { lastCmd = c.id; log("시험 알림 요청", c.id); notify({ title: "🔔 시험 알림", body: "폰 알림이 정상으로 오고 있어요 · " + kst(Date.now()), tag: "test", kind: "px", test: true, tg: `🔔 <b>시험 알림</b>\n텔레그램 알림이 정상으로 오고 있어요\n🕐 ${kst(Date.now())}` }); } }, 5000);
+  if (SIG_COINS.length && SIG_IVL.length && process.env.CSA_SIG !== "0") { log("고점·저점 신호 텔레그램:", SIG_COINS.join(","), SIG_IVL.join(",")); for (const iv of SIG_IVL) await sigCheck(iv).catch((e) => log("신호 기준선 오류:", e.message)); setInterval(sigTick, 1000); }   /* 시작 때 한 번: 처음이면 기준선만, 재시작이면 그 사이 놓친 최근 신호만 알림 */
   setInterval(refreshState, 5000); setInterval(boundaryTick, 500); setInterval(() => saveSrv(false), 3000); setInterval(() => saveSrv(true), 30000);   /* 30초마다 '살아 있음' 기록 */
   setInterval(() => { if (ws && wsOpen && Date.now() - lastMsg > 30000) { log("호가 소식이 끊겨 재연결"); try { ws.close(); } catch (e) { /* 무시 */ } } }, 10000);
   setInterval(() => { if (ws && wsOpen) { try { ws.send(JSON.stringify({ method: "ping" })); } catch (e) { /* 무시 */ } } }, 15000);
