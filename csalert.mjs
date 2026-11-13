@@ -96,7 +96,7 @@ function afterState() {
   const pids = new Set(S.pvAlerts.map((a) => a.id)); for (const id of Object.keys(SRV.seen)) if (!pids.has(id)) { delete SRV.seen[id]; dirty = true; }
   syncSubs();
   for (const a of S.pvAlerts) if (a.on && !SRV.seen[a.id] && !seeding.has(a.id)) seed(a);
-  const T = sigTargets(); for (const iv of Object.keys(T)) if (Object.keys(T[iv]).some((c) => !SRV.sig.init[iv + "|" + c])) sigCheck(iv).catch((e) => log("신호 기준선 오류:", e.message));   /* 방금 건 알람: 바로 기준선을 잡아 다음 봉 마감 신호부터 옴 */
+  const T = sigTargets(); for (const iv of Object.keys(T)) if (Object.keys(T[iv]).some((c) => !SRV.sig.init[iv + "|" + c + "|w"])) sigCheck(iv).catch((e) => log("신호 기준선 오류:", e.message));   /* 방금 건 알람: 바로 기준선을 잡아 다음 봉 마감 신호부터 옴 */
 }
 
 /* ───── 가격: 호가 웹소켓 ───── */
@@ -205,9 +205,12 @@ function sigTargets() {   /* { 시간대: { 종목: 방향("both"|"up"|"dn") } }
 }
 const sigBusy = new Set();
 const SIG_API = "https://hl-chartscan.vercel.app/api/signals", sigBD = {};
-function sigTg(c, iv, s) {   /* s = [봉시각(초), 방향(1=저점·-1=고점), 확정, 확률%, 깨짐, 반대전환, 진입가, …, 등급(11)] */
-  const top = s[1] < 0, n = Math.min(3, s[11] > 0 ? s[11] : 1);
-  return tgSend([`📡 <b>${top ? "고점" : "저점"} 신호</b> · ${IVN[iv] || iv}봉`, `<b>${esc(nameOf(c))}</b> <code>${esc(String(c).split(":").pop())}</code>`, `${top ? "🔴 하락전환 전 (고점)" : "🟢 상승전환 전 (저점)"} · 노란 화살표 ${n}개(확정)`, `확률 ${s[3]}%${s[6] > 0 ? " · 신호 봉 종가 " + fmtPx(s[6]) : ""}`, `🕐 ${kst(Date.now())}`].join("\n"));
+/* w = [확정된 봉 시각(초), 방향(1 ▲·-1 ▼), 종류(0 흰 속 빈·1 노란·2 형광 확인), 노란 개수, 확률%, 형광: 진입1/청산0, 형광: 롱1/숏-1] — 차트의 세 가지 화살표와 같은 색으로 알림 */
+function sigTg(c, iv, w) {
+  const [, d, ty, n, p, en, side] = w, up = d > 0, who = [`<b>${esc(nameOf(c))}</b> <code>${esc(String(c).split(":").pop())}</code>`];
+  const head = ty === 1 ? `🟡 <b>노란 화살표 ${n}개 (확정)</b> · ${IVN[iv] || iv}봉` : ty === 0 ? `⚪ <b>흰 속 빈 화살표 (예비)</b> · ${IVN[iv] || iv}봉` : `🟢 <b>형광 확인 화살표 ${up ? "▲" : "▼"}</b> · ${IVN[iv] || iv}봉`;
+  const what = ty === 2 ? `${side > 0 ? "롱(매수)" : "숏(매도)"} ${en ? "진입" : "청산"} 확정` : `${up ? "🟢 저점 · 상승전환 전" : "🔴 고점 · 하락전환 전"}${p ? " · 확률 " + p + "%" : ""}`;
+  return tgSend([head, ...who, what, `🕐 ${kst(Date.now())}`].join("\n"));
 }
 async function sigCheck(iv) {
   if (sigBusy.has(iv)) return; sigBusy.add(iv);
@@ -222,17 +225,17 @@ async function sigBatch(iv, coins, dirs) {
   if (!j) { log("신호 못 받음", iv); return; }
   const seen = SRV.sig.seen, dur = IVMS[iv] / 1000, now = Date.now() / 1000;
   for (const c of coins) {
-    const x = j.r && j.r[c]; if (!x) continue; const first = !SRV.sig.init[iv + "|" + c] && !FORCE;
-    for (const s of x.s || []) {
-      const k = iv + "|" + c + "|" + s[0]; if (!FORCE && seen.includes(k)) continue;
+    const x = j.r && j.r[c]; if (!x || !Array.isArray(x.w)) continue; const ik = iv + "|" + c + "|w", first = !SRV.sig.init[ik] && !FORCE;   /* |w = 세 종류 화살표 방식(예전 노란 전용 기록과 분리) */
+    for (const w of x.w) {
+      const k = iv + "|" + c + "|" + w.join(","); if (!FORCE && seen.includes(k)) continue;
       seen.push(k); dirty = true;
-      if (first || !s[2] || s[4] || (dirs[c] === "up" && s[1] < 0) || (dirs[c] === "dn" && s[1] > 0)) continue;   /* 알람에서 고른 방향(상승만=저점·하락만=고점)만 · 기준선 기록·예비(흰)·깨진 신호는 알리지 않음 */
-      if (!FORCE && now - (s[0] + dur) > Math.max(2 * dur, 3600)) continue;   /* 서버가 오래 꺼져 있다 뒤늦게 발견한 옛 신호는 알리지 않음 */
-      log("신호", c, iv, s[1] > 0 ? "저점" : "고점"); sigTg(c, iv, s);
+      if (first || (dirs[c] === "up" && w[1] < 0) || (dirs[c] === "dn" && w[1] > 0)) continue;   /* 알람에서 고른 방향(상승만=▲·하락만=▼)만 · 기준선 기록은 알리지 않음 (깨진 신호는 서버가 이미 뺌) */
+      if (!FORCE && now - (w[0] + dur) > Math.max(2 * dur, 3600)) continue;   /* 서버가 오래 꺼져 있다 뒤늦게 발견한 옛 신호는 알리지 않음 */
+      log("신호", c, iv, ["흰", "노란", "형광"][w[2]], w[1] > 0 ? "▲" : "▼"); sigTg(c, iv, w);
     }
-    SRV.sig.init[iv + "|" + c] = 1; dirty = true;
+    SRV.sig.init[ik] = 1; dirty = true;
   }
-  if (seen.length > 400) seen.splice(0, seen.length - 400);
+  if (seen.length > 800) seen.splice(0, seen.length - 800);
 }
 function sigTick() {
   const now = Date.now();
