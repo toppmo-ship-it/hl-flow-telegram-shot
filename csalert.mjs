@@ -96,7 +96,7 @@ function afterState() {
   const pids = new Set(S.pvAlerts.map((a) => a.id)); for (const id of Object.keys(SRV.seen)) if (!pids.has(id)) { delete SRV.seen[id]; dirty = true; }
   syncSubs();
   for (const a of S.pvAlerts) if (a.on && !SRV.seen[a.id] && !seeding.has(a.id)) seed(a);
-  const T = sigTargets(); for (const iv of Object.keys(T)) if (Object.keys(T[iv]).some((c) => !SRV.sig.init[iv + "|" + c + "|w"])) sigCheck(iv).catch((e) => log("신호 기준선 오류:", e.message));   /* 방금 건 알람: 바로 기준선을 잡아 다음 봉 마감 신호부터 옴 */
+  const T = sigTargets(); for (const iv of Object.keys(T)) if (Object.keys(T[iv]).some((c) => !SRV.sig.init[iv + "|" + c + "|w2"])) sigCheck(iv).catch((e) => log("신호 기준선 오류:", e.message));   /* 방금 건 알람: 바로 기준선을 잡아 다음 봉 마감 신호부터 옴 */
 }
 
 /* ───── 가격: 호가 웹소켓 ───── */
@@ -225,9 +225,9 @@ async function sigBatch(iv, coins, dirs) {
   if (!j) { log("신호 못 받음", iv); return; }
   const seen = SRV.sig.seen, dur = IVMS[iv] / 1000, now = Date.now() / 1000;
   for (const c of coins) {
-    const x = j.r && j.r[c]; if (!x || !Array.isArray(x.w)) continue; const ik = iv + "|" + c + "|w", first = !SRV.sig.init[ik] && !FORCE;   /* |w = 세 종류 화살표 방식(예전 노란 전용 기록과 분리) */
+    const x = j.r && j.r[c]; if (!x || !Array.isArray(x.w)) continue; const ik = iv + "|" + c + "|w2", first = !SRV.sig.init[ik] && !FORCE;   /* |w = 세 종류 화살표 방식(예전 노란 전용 기록과 분리) */
     for (const w of x.w) {
-      const k = iv + "|" + c + "|" + w.join(","); if (!FORCE && seen.includes(k)) continue;
+      const k = iv + "|" + c + "|" + [w[0], w[1], w[2], w[5], w[6]].join(",");   /* 확률·개수는 뒤 봉이 닫히면 조금씩 바뀌어서 키에서 뺌(안 빼면 같은 신호가 또 옴) */ if (!FORCE && seen.includes(k)) continue;
       seen.push(k); dirty = true;
       if (first || (dirs[c] === "up" && w[1] < 0) || (dirs[c] === "dn" && w[1] > 0)) continue;   /* 알람에서 고른 방향(상승만=▲·하락만=▼)만 · 기준선 기록은 알리지 않음 (깨진 신호는 서버가 이미 뺌) */
       if (!FORCE && now - (w[0] + dur) > Math.max(2 * dur, 3600)) continue;   /* 서버가 오래 꺼져 있다 뒤늦게 발견한 옛 신호는 알리지 않음 */
