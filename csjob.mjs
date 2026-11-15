@@ -15,7 +15,7 @@ import { sbGet, sbPut } from "./sb.mjs";
 /* 사이트(브트 설정창)와 같은 공용 파일: 종목 고르기·순서 규칙 — 미리 본 순서 그대로 보냄. 실행기 폴더는 ES 모듈이라 require 가 안 되어 파일을 읽어 module 로 실행 */
 const loadUmd = (rel) => { const m = { exports: {} }; new Function("module", "exports", fs.readFileSync(new URL(rel, import.meta.url), "utf8"))(m, m.exports); return m.exports; };
 const CP = loadUmd("./site/cardpick.js"), SP = loadUmd("./site/shotplan.js").make(CP);
-const EVERYS = [5, 10, 15, 30, 60, 240, 1440];   /* 보내는 주기(분) — 브트 설정창과 같은 7단계 */
+const EVERYS = [5, 10, 15, 30, 60, 120, 240, 1440];   /* 보내는 주기(분) — 브트 설정창과 같은 8단계 */
 const SRC_KO = { scan: "조건검색", auto: "자동 상위", pick: "직접 선택" };
 
 const BASE = (process.env.CS_URL || "https://hl-chartscan.vercel.app").replace(/\/$/, "");
