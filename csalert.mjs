@@ -208,8 +208,9 @@ const SIG_API = "https://hl-chartscan.vercel.app/api/signals", sigBD = {};
 /* w = [확정된 봉 시각(초), 방향(1 ▲·-1 ▼), 종류(0 흰 속 빈·1 노란·2 형광 확인), 노란 개수, 확률%, 형광: 진입1/청산0, 형광: 롱1/숏-1] — 차트의 세 가지 화살표와 같은 색으로 알림 */
 function sigTg(c, iv, w) {
   const [, d, ty, n, p, en, side] = w, up = d > 0, who = [`<b>${esc(nameOf(c))}</b> <code>${esc(String(c).split(":").pop())}</code>`];
-  const head = ty === 1 ? `🟡 <b>노란 화살표 ${n}개 (확정)</b> · ${IVN[iv] || iv}봉` : ty === 0 ? `⚪ <b>흰 속 빈 화살표 (예비)</b> · ${IVN[iv] || iv}봉` : `🟢 <b>형광 확인 화살표 ${up ? "▲" : "▼"}</b> · ${IVN[iv] || iv}봉`;
-  const what = ty === 2 ? `${side > 0 ? "롱(매수)" : "숏(매도)"} ${en ? "진입" : "청산"} 확정` : `${up ? "🟢 저점 · 상승전환 전" : "🔴 고점 · 하락전환 전"}${p ? " · 확률 " + p + "%" : ""}`;
+  const head = ty === 1 ? `🟡 <b>노란 화살표 ${n}개 ${up ? "▲" : "▼"} (확정)</b> · ${IVN[iv] || iv}봉` : ty === 0 ? `⚪ <b>흰 속 빈 화살표 ${up ? "▲" : "▼"} (예비)</b> · ${IVN[iv] || iv}봉` : `🟢 <b>형광 확인 화살표 ${up ? "▲" : "▼"}</b> · ${IVN[iv] || iv}봉`;
+  const ar = up ? "🟢▲" : "🔴▼";   /* 내용 줄 맨 앞 화살표: 위▲=매수 방향·아래▼=매도 방향 (청산도 방향대로: 숏 청산=▲) */
+  const what = ty === 2 ? `${ar} ${side > 0 ? "롱(매수)" : "숏(매도)"} ${en ? "진입" : "청산"} 확정` : `${ar} ${up ? "저점 · 상승전환 전" : "고점 · 하락전환 전"}${p ? " · 확률 " + p + "%" : ""}`;
   return tgSend([head, ...who, what, `🕐 ${kst(Date.now())}`].join("\n"));
 }
 async function sigCheck(iv) {
