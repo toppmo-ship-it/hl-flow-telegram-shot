@@ -206,8 +206,18 @@ function sigTargets() {   /* { 시간대: { 종목: 방향("both"|"up"|"dn") } }
 const sigBusy = new Set();
 const SIG_API = "https://hl-chartscan.vercel.app/api/signals", sigBD = {};
 /* w = [확정된 봉 시각(초), 방향(1 ▲·-1 ▼), 종류(0 흰 속 빈·1 노란·2 형광 확인), 노란 개수, 확률%, 형광: 진입1/청산0, 형광: 롱1/숏-1] — 차트의 세 가지 화살표와 같은 색으로 알림 */
-function sigTg(c, iv, w) {
-  const [, d, ty, n, p, en, side] = w, up = d > 0, who = [`<b>${esc(nameOf(c))}</b> <code>${esc(String(c).split(":").pop())}</code>`];
+/* 캔들 패턴 확률분석 사이트(candle-prob)가 매일 발행하는 '다음 봉 시가 갭' 확률 → 종목명 옆 [갭하락확률89%] · 사이트에 없는 종목·7일 넘은 값·읽기 실패면 안 붙임 */
+let GAPC = { t: 0, j: null };
+async function gapTag(c) {
+  try {
+    if (Date.now() - GAPC.t > 6e5) { GAPC.t = Date.now() - 5.4e5; const r = await fetch("https://candle-prob.vercel.app/data/gap.json?_=" + Math.floor(Date.now() / 6e5), { signal: AbortSignal.timeout(4000) }); if (r.ok) GAPC = { t: Date.now(), j: await r.json() }; }
+    const j = GAPC.j, t = String(c).split(":").pop(), it = j && j.items[(j.alias && j.alias[t]) || t];
+    if (!it || Date.now() - Date.parse(it.d) > 7 * 864e5) return "";
+    return it.up >= 0.5 ? ` [갭상승확률${Math.round(it.up * 100)}%]` : ` [갭하락확률${Math.round((1 - it.up) * 100)}%]`;
+  } catch (e) { return ""; }
+}
+async function sigTg(c, iv, w) {
+  const [, d, ty, n, p, en, side] = w, up = d > 0, who = [`<b>${esc(nameOf(c))}</b> <code>${esc(String(c).split(":").pop())}</code>${esc(await gapTag(c))}`];
   const a = up ? "▲" : "▼";   /* 머리줄: 동그라미 다음에 방향 화살표, 이름은 '지표' */
   const head = ty === 1 ? `🟡${a} <b>노란 지표 ${n}개 (확정)</b> · ${IVN[iv] || iv}봉` : ty === 0 ? `⚪${a} <b>흰 속 빈 지표 (예비)</b> · ${IVN[iv] || iv}봉` : `🟢${a} <b>형광 확인 지표</b> · ${IVN[iv] || iv}봉`;
   const ar = up ? "🟢▲" : "🔴▼";   /* 내용 줄 맨 앞 화살표: 위▲=매수 방향·아래▼=매도 방향 (청산도 방향대로: 숏 청산=▲) */
