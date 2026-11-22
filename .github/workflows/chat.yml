@@ -77,6 +77,7 @@ jobs:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           TG_CHAT_ID2: ${{ secrets.TG_CHAT_ID2 }}
+          TG_ALERT_CHAT_ID: ${{ secrets.TG_ALERT_CHAT_ID }}
           PATTERN_RANK_JSON: ${{ secrets.PATTERN_RANK_JSON }}
           HL_BUDGET: "900"
           BOT_MAX_MIN: "335"

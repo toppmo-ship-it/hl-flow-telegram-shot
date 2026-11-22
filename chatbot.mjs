@@ -24,14 +24,15 @@ import { CP, selectStockCards } from "./stocklist.mjs";
 import { normCoinCfg, EVERY as C_EVERY, TOPS as C_TOPS, ROWS as C_ROWS, COIN_KINDS } from "./coincfg.mjs";
 import { norm, secName, parseCommand, parseRequest, parseEvery, snapEvery, everyKo, buildIndex, resolveSectors, IV_KO, MAX_CARDS, MAX_TABLE } from "./chatparse.mjs";
 import * as F from "./chatfmt.mjs";
+import { parseSig } from "./chatsig.mjs";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url)), SITE = path.join(ROOT, "site"), CACHE = path.join(ROOT, ".cache");
 const DRY = /^(1|true)$/i.test(process.env.BOT_DRY || "");
 const MAX_MS = (+process.env.BOT_MAX_MIN || 335) * 60000, T_START = Date.now();
 const clean = (v) => String(v || "").trim().replace(/^["'`]+|["'`]+$/g, "").trim();
-const TOKEN = clean(process.env.TG_BOT_TOKEN).replace(/^bot/i, ""), CHAT = clean(process.env.TG_CHAT_ID), CHAT2 = clean(process.env.TG_CHAT_ID2);
+const TOKEN = clean(process.env.TG_BOT_TOKEN).replace(/^bot/i, ""), CHAT = clean(process.env.TG_CHAT_ID), CHAT2 = clean(process.env.TG_CHAT_ID2), ALERT = clean(process.env.TG_ALERT_CHAT_ID) || CHAT2 || CHAT;   /* ALERT = 알람 전용 방(알림 서버 csalert 가 쓰는 방과 같은 규칙) */
 /* 방 2개 읽기: 명령이 온 방으로 답함(AsyncLocalStorage — 그 명령에서 이어지는 모든 전송이 같은 방). 자동 알림·시작 인사 같은 백그라운드 발송은 기본 방(TG_CHAT_ID) */
-const ROOMS = new Set([CHAT, CHAT2].filter(Boolean)), ROOM = new AsyncLocalStorage(), chatNow = () => ROOM.getStore() || CHAT;
+const ROOMS = new Set([CHAT, CHAT2, ALERT].filter(Boolean)), ROOM = new AsyncLocalStorage(), chatNow = () => ROOM.getStore() || CHAT;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 const MEM = new Map();   /* 시험 모드에서는 운영 DB에 쓰지 않고 메모리에만 저장(같은 실행 안에서는 읽힘) */
@@ -525,6 +526,10 @@ const AL = makeAlerts({ inRoom: (k, fn) => (k === "entry" && CHAT2 ? ROOM.run(CH
 
 /* ───────────────── 라우터 ───────────────── */
 async function handleText(text, from) {
+  if (ALERT !== CHAT && chatNow() === ALERT) {   /* 알람 방: "한시간"·"일봉"·"하이닉스" 같은 글 → 대표종목 신호를 알림 서버가 바로 보냄(Supabase 요청 → csalert 가 2초 안에 집어감) */
+    const q = parseSig(text);
+    if (q) { await W("cs_alert_sig_cmd", { id: String(Date.now()), ivs: q.ivs, coins: q.coins, at: Date.now() }); await say(`🔔 ${q.coins.length ? q.coins.length + "종목" : "대표 8종목"} × ${q.ivs.length}개 시간대 신호를 보내는 중이에요 (잠시 뒤 도착)`); return; }
+  }
   const cmd = parseCommand(text);
   const run = async () => {
     if (!cmd) return doRequest(text);

@@ -24,7 +24,7 @@ const nameOf = (coin) => { const tk = String(coin).split(":").pop(); return KO[t
 const fmtPx = (v) => (v >= 1000 ? v.toLocaleString("en-US", { maximumFractionDigits: 2 }) : v >= 100 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toFixed(6));
 const kst = (t) => { const d = new Date(t + 9 * 36e5), p = (n) => String(n).padStart(2, "0"); return `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`; };
 const ivL = (iv) => { const n = IVN[iv] || iv; return n.endsWith("봉") ? n : n + "봉"; };   /* 라벨 끝 '봉'은 한 번만 (일봉봉 방지) */
-const IVN = { "30m": "30분", "1h": "1시간", "2h": "2시간", "4h": "4시간", "8h": "8시간", "1d": "일봉", "1w": "주봉", "1M": "월봉" }, IVMS = { "30m": 18e5, "1h": 36e5, "2h": 72e5, "4h": 144e5, "8h": 288e5, "1d": 864e5, "1w": 6048e5, "1M": 2592e6 };
+const IVN = { "30m": "30분", "1h": "1시간", "2h": "2시간", "4h": "4시간", "8h": "8시간", "1d": "일봉", "3d": "3일", "1w": "주봉", "1M": "월봉" }, IVMS = { "30m": 18e5, "1h": 36e5, "2h": 72e5, "4h": 144e5, "8h": 288e5, "1d": 864e5, "3d": 2592e5, "1w": 6048e5, "1M": 2592e6 };
 
 /* ───── 텔레그램 전송: 리포트 방(TG_CHAT_ID2, 비면 기본 방 TG_CHAT_ID) — 폰 푸시와 같은 알림을 글로도 보냄 ───── */
 const TG_TOKEN = clean(process.env.TG_BOT_TOKEN).replace(/^bot/i, ""), TG_ROOM = clean(process.env.TG_ALERT_CHAT_ID) || clean(process.env.TG_CHAT_ID2) || clean(process.env.TG_CHAT_ID);
@@ -196,7 +196,7 @@ function boundaryTick() {
    · 대상 종목·시간대는 아래 기본값(환경변수 CSA_SIG_COINS·CSA_SIG_IVS 로 바꿈, CSA_SIG=0 이면 끔). 봉이 닫힌 직후(+8·35·100초)에만 시간대당 한 번 호출 → 호출 수 아주 적음
    · 확정(노란) 신호만, 깨진 신호·예비(흰) 신호는 제외(브라우저 분·시간봉 규칙과 같음). 처음 보는 종목은 지금 있는 신호를 '본 것'으로만 기록(과거 신호가 한꺼번에 오지 않게) ───── */
 /* (11/12) 대상 = 차트플랫폼에서 건 지표 알람(pvAlerts)의 종목·시간대·방향 그대로. 여기에 기본 4종목(하이닉스·삼성전자·나스닥100·KORU) × 30분·1·2·4시간을 항상 더해서 봄(환경변수 CSA_SIG_COINS·CSA_SIG_IVS 로 바꿈) */
-const SIG_COINS = (process.env.CSA_SIG_COINS || "xyz:XYZ100,xyz:CL,xyz:SKHX,xyz:SMSN,xyz:MU,xyz:AAPL,xyz:KORU,xyz:SOXL").split(",").filter(Boolean), SIG_IVL = (process.env.CSA_SIG_IVS || "30m,1h,2h,4h,1d,1w").split(",").filter((i) => IVMS[i]);
+const SIG_COINS = (process.env.CSA_SIG_COINS || "xyz:XYZ100,xyz:CL,xyz:SKHX,xyz:SMSN,xyz:MU,xyz:AAPL,xyz:KORU,xyz:SOXL").split(",").filter(Boolean), SIG_IVL = (process.env.CSA_SIG_IVS || "30m,1h,2h,4h,1d,3d,1w").split(",").filter((i) => IVMS[i]);
 function sigTargets() {   /* { 시간대: { 종목: 방향("both"|"up"|"dn") } } */
   const T = {}, add = (iv, c, d) => { if (!IVMS[iv] || !c) return; const m = T[iv] || (T[iv] = {}); m[c] = m[c] && m[c] !== d ? "both" : d; };
   if (process.env.CSA_SIG === "0") return T;
@@ -267,13 +267,25 @@ export async function gapUp(c, iv) {
 async function gapTag(c, iv) {
   try { const p = await gapUp(c, iv); if (p == null) return ""; return p >= 0.5 ? ` [갭상승확률${Math.round(p * 100)}%]` : ` [갭하락확률${Math.round((1 - p) * 100)}%]`; } catch (e) { log("갭 확률 실패", c, iv, e.message); return ""; }
 }
-async function sigTg(c, iv, w) {
+async function sigTg(c, iv, w, manual) {
   const [, d, ty, n, p, en, side] = w, up = d > 0, who = [`<b>${esc(nameOf(c))}</b> <code>${esc(String(c).split(":").pop())}</code>${esc(await gapTag(c, iv))}`];
   const a = up ? "▲" : "▼";   /* 머리줄: 동그라미 다음에 방향 화살표, 이름은 '지표' */
   const head = ty === 1 ? `🟡${a} <b>노란 지표 ${n}개 (확정)</b> · ${ivL(iv)}` : ty === 0 ? `⚪${a} <b>흰 속 빈 지표 (예비)</b> · ${ivL(iv)}` : `🟢${a} <b>형광 확인 지표</b> · ${ivL(iv)}`;
   const ar = up ? "🟢▲" : "🔴▼";   /* 내용 줄 맨 앞 화살표: 위▲=매수 방향·아래▼=매도 방향 (청산도 방향대로: 숏 청산=▲) */
   const what = ty === 2 ? `${ar} ${side > 0 ? "롱(매수)" : "숏(매도)"} ${en ? "진입" : "청산"} 확정` : `${ar} ${up ? "저점 · 상승전환 전" : "고점 · 하락전환 전"}${p ? " · 확률 " + p + "%" : ""}`;
-  return tgSend([...who, head, what, "", `🕐 ${kst(Date.now())}`].join("\n"));   /* 1줄 이름·티커 / 2줄 머리 / 3줄 내용 / 빈 줄 / 시각 */
+  return tgSend([...who, head, what, "", `🕐 ${kst(Date.now())}${manual ? " · 신호 봉 " + kst(w[0] * 1000) : ""}`].join("\n"));   /* 1줄 이름·티커 / 2줄 머리 / 3줄 내용 / 빈 줄 / 시각 */
+}
+/* 채팅방 명령("한시간"·"하이닉스" 등) → 지금 그 시간대의 대표종목 최신 신호를 바로 보냄. 새 신호 여부와 상관없이 종목마다 가장 최근 신호 1개(없으면 없다고) */
+async function sigNow(ivs, coins) {
+  for (const iv of ivs) for (let i = 0; i < coins.length; i += 6) {
+    const cs = coins.slice(i, i + 6); let j = null;
+    for (let a = 0; a < 3 && !j; a++) { try { const r = await fetch(`${SIG_API}?v=5&iv=${iv}&coins=${encodeURIComponent(cs.join(","))}&krw=1400&_=${Date.now()}`, { signal: AbortSignal.timeout(30000) }); if (r.ok) { const x = await r.json(); if (x && x.ok) j = x; } } catch (e) { /* 재시도 */ } if (!j) await sleep(1500 * (a + 1)); }
+    for (const c of cs) {
+      const w = j && j.r && j.r[c] && Array.isArray(j.r[c].w) ? j.r[c].w.slice().sort((p, q) => p[0] - q[0]).pop() : null;
+      if (w) await sigTg(c, iv, w, true);
+      else await tgSend([`<b>${esc(nameOf(c))}</b> <code>${esc(String(c).split(":").pop())}</code>${esc(await gapTag(c, iv))}`, `⚪ ${ivL(iv)} · ${j ? "최근 신호 없음" : "신호를 못 받았어요"}`, "", `🕐 ${kst(Date.now())}`].join("\n"));
+    }
+  }
 }
 async function sigCheck(iv) {
   if (sigBusy.has(iv)) return; sigBusy.add(iv);
@@ -317,6 +329,8 @@ async function main() {
   log("폰 알림 서버 시작", DRY ? "(DRY)" : "", "최대", MAXMIN, "분");
   await loadSrv(); await loadSubs(); await refreshState(); connect();
   let lastCmd = ((await sbGet(K_CMD)) || {}).id || "";   /* 시작 때 이미 있던 시험 요청은 무시 */
+  let lastSig = ((await sbGet("cs_alert_sig_cmd")) || {}).id || "";   /* 채팅방 명령(챗봇이 씀) */
+  setInterval(async () => { const c = await sbGet("cs_alert_sig_cmd"); if (c && c.id && c.id !== lastSig) { lastSig = c.id; const ivs = (c.ivs || []).filter((i) => IVMS[i]), cs = (c.coins && c.coins.length ? c.coins : SIG_COINS); log("채팅 신호 요청", ivs, cs.length + "종목"); sigNow(ivs, cs).catch((e) => log("채팅 신호 오류:", e.message)); } }, 2000);
   setInterval(async () => { await loadSubs(); const c = await sbGet(K_CMD); if (c && c.id && c.id !== lastCmd) { lastCmd = c.id; log("시험 알림 요청", c.id); notify({ title: "🔔 시험 알림", body: "폰 알림이 정상으로 오고 있어요 · " + kst(Date.now()), tag: "test", kind: "px", test: true, tg: `🔔 <b>시험 알림</b>\n텔레그램 알림이 정상으로 오고 있어요\n🕐 ${kst(Date.now())}` }); } }, 5000);
   { const T = sigTargets(); log("고점·저점 신호 텔레그램 대상:", JSON.stringify(T)); for (const iv of Object.keys(T)) await sigCheck(iv).catch((e) => log("신호 기준선 오류:", e.message)); setInterval(sigTick, 1000); }   /* 시작 때 한 번: 처음이면 기준선만, 재시작이면 그 사이 놓친 최근 신호만 알림 */
   setInterval(refreshState, 5000); setInterval(boundaryTick, 500); setInterval(() => saveSrv(false), 3000); setInterval(() => saveSrv(true), 30000);   /* 30초마다 '살아 있음' 기록 */
