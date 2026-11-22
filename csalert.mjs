@@ -241,7 +241,6 @@ async function sigTg(c, iv, w) {
   const what = ty === 2 ? `${ar} ${side > 0 ? "롱(매수)" : "숏(매도)"} ${en ? "진입" : "청산"} 확정` : `${ar} ${up ? "저점 · 상승전환 전" : "고점 · 하락전환 전"}${p ? " · 확률 " + p + "%" : ""}`;
   return tgSend([...who, head, what, "", `🕐 ${kst(Date.now())}`].join("\n"));   /* 1줄 이름·티커 / 2줄 머리 / 3줄 내용 / 빈 줄 / 시각 */
 }
-/*TMPTEST*/setTimeout(async () => { const t = Math.floor(Date.now() / 1000), cs = SIG_COINS, ivs = ["1h", "2h", "4h", "1d"], all = process.env.CSA_TESTALL === "1"; for (let i = 0; i < cs.length; i++) for (let j = 0; j < 4; j++) { if (!all && j !== i % 4) continue; try { await sigTg(cs[i], ivs[j], [t, i % 2 ? 1 : -1, 2, 0, 0, j % 2, i % 2 ? 1 : -1]); } catch (e) { log("test fail", e.message); } } }, 8000);/*TMPTEST*/
 async function sigCheck(iv) {
   if (sigBusy.has(iv)) return; sigBusy.add(iv);
   try { const m = sigTargets()[iv] || {}, cs = Object.keys(m); for (let i = 0; i < cs.length; i += 6) await sigBatch(iv, cs.slice(i, i + 6), m); } finally { sigBusy.delete(iv); }   /* 사이트가 한 번에 6종목까지만 받음 */
