@@ -23,7 +23,8 @@ let KO = {}; try { KO = JSON.parse(fs.readFileSync(new URL("./site/names-ko.json
 const nameOf = (coin) => { const tk = String(coin).split(":").pop(); return KO[tk] || tk; };
 const fmtPx = (v) => (v >= 1000 ? v.toLocaleString("en-US", { maximumFractionDigits: 2 }) : v >= 100 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toFixed(6));
 const kst = (t) => { const d = new Date(t + 9 * 36e5), p = (n) => String(n).padStart(2, "0"); return `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`; };
-const IVN = { "30m": "30분", "1h": "1시간", "2h": "2시간", "4h": "4시간", "8h": "8시간", "1d": "일봉" }, IVMS = { "30m": 18e5, "1h": 36e5, "2h": 72e5, "4h": 144e5, "8h": 288e5, "1d": 864e5 };
+const ivL = (iv) => { const n = IVN[iv] || iv; return n.endsWith("봉") ? n : n + "봉"; };   /* 라벨 끝 '봉'은 한 번만 (일봉봉 방지) */
+const IVN = { "30m": "30분", "1h": "1시간", "2h": "2시간", "4h": "4시간", "8h": "8시간", "1d": "일봉", "1w": "주봉", "1M": "월봉" }, IVMS = { "30m": 18e5, "1h": 36e5, "2h": 72e5, "4h": 144e5, "8h": 288e5, "1d": 864e5, "1w": 6048e5, "1M": 2592e6 };
 
 /* ───── 텔레그램 전송: 리포트 방(TG_CHAT_ID2, 비면 기본 방 TG_CHAT_ID) — 폰 푸시와 같은 알림을 글로도 보냄 ───── */
 const TG_TOKEN = clean(process.env.TG_BOT_TOKEN).replace(/^bot/i, ""), TG_ROOM = clean(process.env.TG_ALERT_CHAT_ID) || clean(process.env.TG_CHAT_ID2) || clean(process.env.TG_CHAT_ID);
@@ -171,9 +172,9 @@ async function check(coin, iv) {
     const k = keyOf(a, iv, d), seen = SRV.seen[a.id]; if (!seen || seen.includes(k)) continue;
     seen.push(k); if (seen.length > 200) seen.shift(); dirty = true;
     log("다이버전스 완성", coin, iv, d.dir > 0 ? "상승" : "하락");
-    const tg = [`📡 <b>다이버전스 완성</b>`, `<b>${esc(nameOf(coin))}</b> <code>${esc(String(coin).split(":").pop())}</code> · ${IVN[iv] || iv}봉`, `${d.dir > 0 ? "🟢 상승" : "🔴 하락"} ${d.hidden ? "히든 " : ""}다이버전스 (${d.dir > 0 ? "저점 상승" : "고점 하락"})`, `RSI ${Math.round(d.rsiA)} → ${Math.round(d.rsiB)}`, `🕐 ${kst(Date.now())}`].join("\n");
+    const tg = [`📡 <b>다이버전스 완성</b>`, `<b>${esc(nameOf(coin))}</b> <code>${esc(String(coin).split(":").pop())}</code> · ${ivL(iv)}`, `${d.dir > 0 ? "🟢 상승" : "🔴 하락"} ${d.hidden ? "히든 " : ""}다이버전스 (${d.dir > 0 ? "저점 상승" : "고점 하락"})`, `RSI ${Math.round(d.rsiA)} → ${Math.round(d.rsiB)}`, `🕐 ${kst(Date.now())}`].join("\n");
     if (S.alPhone === false || a.phone === false) { log("폰 알림 꺼짐 — 텔레그램만(다이버전스)", coin, iv); tgSend(tg); continue; }
-    notify({ title: `📡 ${nameOf(coin)} ${IVN[iv] || iv} ${d.dir > 0 ? "상승" : "하락"} ${d.hidden ? "히든 " : ""}다이버전스 완성`, body: `PivotScope ${IVN[iv] || iv}봉 ${d.dir > 0 ? "저점 상승" : "고점 하락"} (RSI ${Math.round(d.rsiA)}→${Math.round(d.rsiB)}) · ${kst(Date.now())}`, tag: `pv${a.id}${iv}${d.dir}${d.t}`, coin, iv, kind: "sig", tg });
+    notify({ title: `📡 ${nameOf(coin)} ${IVN[iv] || iv} ${d.dir > 0 ? "상승" : "하락"} ${d.hidden ? "히든 " : ""}다이버전스 완성`, body: `PivotScope ${ivL(iv)} ${d.dir > 0 ? "저점 상승" : "고점 하락"} (RSI ${Math.round(d.rsiA)}→${Math.round(d.rsiB)}) · ${kst(Date.now())}`, tag: `pv${a.id}${iv}${d.dir}${d.t}`, coin, iv, kind: "sig", tg });
   }
 }
 const BD = {}, LASTSCAN = {};
@@ -195,7 +196,7 @@ function boundaryTick() {
    · 대상 종목·시간대는 아래 기본값(환경변수 CSA_SIG_COINS·CSA_SIG_IVS 로 바꿈, CSA_SIG=0 이면 끔). 봉이 닫힌 직후(+8·35·100초)에만 시간대당 한 번 호출 → 호출 수 아주 적음
    · 확정(노란) 신호만, 깨진 신호·예비(흰) 신호는 제외(브라우저 분·시간봉 규칙과 같음). 처음 보는 종목은 지금 있는 신호를 '본 것'으로만 기록(과거 신호가 한꺼번에 오지 않게) ───── */
 /* (11/12) 대상 = 차트플랫폼에서 건 지표 알람(pvAlerts)의 종목·시간대·방향 그대로. 여기에 기본 4종목(하이닉스·삼성전자·나스닥100·KORU) × 30분·1·2·4시간을 항상 더해서 봄(환경변수 CSA_SIG_COINS·CSA_SIG_IVS 로 바꿈) */
-const SIG_COINS = (process.env.CSA_SIG_COINS || "xyz:XYZ100,xyz:CL,xyz:SKHX,xyz:SMSN,xyz:MU,xyz:AAPL,xyz:KORU,xyz:SOXL").split(",").filter(Boolean), SIG_IVL = (process.env.CSA_SIG_IVS || "1h,2h,4h,1d").split(",").filter((i) => IVMS[i]);
+const SIG_COINS = (process.env.CSA_SIG_COINS || "xyz:XYZ100,xyz:CL,xyz:SKHX,xyz:SMSN,xyz:MU,xyz:AAPL,xyz:KORU,xyz:SOXL").split(",").filter(Boolean), SIG_IVL = (process.env.CSA_SIG_IVS || "30m,1h,2h,4h,1d,1w").split(",").filter((i) => IVMS[i]);
 function sigTargets() {   /* { 시간대: { 종목: 방향("both"|"up"|"dn") } } */
   const T = {}, add = (iv, c, d) => { if (!IVMS[iv] || !c) return; const m = T[iv] || (T[iv] = {}); m[c] = m[c] && m[c] !== d ? "both" : d; };
   if (process.env.CSA_SIG === "0") return T;
@@ -206,29 +207,62 @@ function sigTargets() {   /* { 시간대: { 종목: 방향("both"|"up"|"dn") } }
 const sigBusy = new Set();
 const SIG_API = "https://hl-chartscan.vercel.app/api/signals", sigBD = {};
 /* w = [확정된 봉 시각(초), 방향(1 ▲·-1 ▼), 종류(0 흰 속 빈·1 노란·2 형광 확인), 노란 개수, 확률%, 형광: 진입1/청산0, 형광: 롱1/숏-1] — 차트의 세 가지 화살표와 같은 색으로 알림 */
-/* 캔들 패턴 확률분석 사이트(candle-prob)의 계산 코드(feat.js·gb.js)·분시간봉 모델(gap_it)·일봉 발행값(gap.json)을 받아 와서,
-   '이 알람의 시간대' 기준 다음 봉 시가 갭 확률을 종목명 옆에 붙임: 분·시간봉 = 하이퍼 실시간 캔들로 직접 계산 · 일봉 = gap.json(일봉 모델)
-   사이트에 없는 종목은 미국 종목(us) 모델로 근사 · 7일 넘은 일봉 값·읽기 실패면 안 붙임 */
+/* 캔들 패턴 확률분석 사이트(candle-prob)가 '이 종목·이 시간대 차트'에서 보여 주는 다음 봉 시가 갭 확률과 같은 값을 계산해 종목명 옆에 붙임.
+   사이트(pred.js)와 같은 규칙: 하이퍼 실시간 캔들 → feat.js 특징 → 30분~4시간 = 분·시간봉 모델(gap_it) · 일·주·월봉 = 일봉 모델(gap_kr/gap_gl, 시장 폭·전일 나스닥 반영, 주봉=일봉 7개 묶음)
+   · 종목 그룹은 짝 본주의 그룹(없으면 미국 대형주) · 내 메모 보정(adjust)까지 · 큰 흐름 지표 추세(tr)도 사이트 모듈(flowcalc.js)을 그대로 받아 같은 기본 설정으로 계산 */
 const CPU = "https://candle-prob.vercel.app";
 let CPL = null;
 async function cpLoad() {
   if (CPL && Date.now() - CPL.t < 36e5) return CPL;
   const [fs, os, path, url] = await Promise.all(["node:fs", "node:os", "node:path", "node:url"].map((m) => import(m)));
   const dir = path.join(os.tmpdir(), "cpmod_" + Math.floor(Date.now() / 36e5)); fs.mkdirSync(dir, { recursive: true });
-  for (const f of ["feat.js", "gb.js"]) { const q = path.join(dir, f); if (!fs.existsSync(q)) { const r = await fetch(`${CPU}/js/${f}`, { signal: AbortSignal.timeout(8000) }); if (!r.ok) throw new Error(f + " " + r.status); fs.writeFileSync(q, await r.text()); } }
-  const J = async (u) => { const r = await fetch(`${CPU}/data/${u}?_=${Math.floor(Date.now() / 36e5)}`, { signal: AbortSignal.timeout(8000) }); if (!r.ok) throw new Error(u + " " + r.status); return r.json(); };
-  const [feat, gb, m3, gap, m2] = await Promise.all([import(url.pathToFileURL(path.join(dir, "feat.js")).href), import(url.pathToFileURL(path.join(dir, "gb.js")).href), J("model3.json"), J("gap.json"), J("model.json")]);
-  return (CPL = { t: Date.now(), feat, gb, M: m3.models.gap_it, MD: m2.models.gap_gl, gap });
+  fs.mkdirSync(path.join(dir, "ind"), { recursive: true });
+  for (const f of ["feat.js", "gb.js", "ind/flowcalc.js", "ind/shapes.js", "ind/bulkowski.js", "ind/math.js"]) { const q = path.join(dir, f); if (!fs.existsSync(q)) { const r = await fetch(`${CPU}/js/${f}`, { signal: AbortSignal.timeout(8000) }); if (!r.ok) throw new Error(f + " " + r.status); fs.writeFileSync(q, await r.text()); } }
+  const J = async (u) => { const r = await fetch(`${CPU}/data/${u}?_=${Math.floor(Date.now() / 36e5)}`, { signal: AbortSignal.timeout(10000) }); if (!r.ok) throw new Error(u + " " + r.status); return r.json(); };
+  const flow = await import(url.pathToFileURL(path.join(dir, "ind/flowcalc.js")).href);
+  const [feat, gb, m3, gap, m2, ctx] = await Promise.all([import(url.pathToFileURL(path.join(dir, "feat.js")).href), import(url.pathToFileURL(path.join(dir, "gb.js")).href), J("model3.json"), J("gap.json"), J("model.json"), J("ctx.json")]);
+  const Q = { day: ctx.qqq.day, F: ctx.qqq.F }, B = { gl: new Map(ctx.br.gl), kr: new Map(ctx.br.kr) };
+  return (CPL = { t: Date.now(), feat, gb, flow: flow.flowCalc, M: { it: m3.models.gap_it, kr: m2.models.gap_kr, gl: m2.models.gap_gl }, gap, Q, B });
 }
-/* 다음 봉 시가가 이 봉 종가보다 위일 확률(0~1) — 알람 시간대 기준. 실패하면 null */
+let NOTES = { t: 0, a: [] };
+async function cpNotes() {   /* 내 메모(서버 저장본) — 사이트가 확률 보정에 쓰는 것과 같은 행 */
+  if (Date.now() - NOTES.t < 6e5) return NOTES.a; NOTES.t = Date.now();
+  try { const r = await fetch(SBU + "/rest/v1/hlgrid_settings?select=value&key=like.candle_note_v1_*&limit=5000", { headers: { apikey: SBK, Authorization: "Bearer " + SBK }, signal: AbortSignal.timeout(15000) }); if (r.ok) NOTES.a = (await r.json()).map((x) => x.value).filter(Boolean); } catch (e) { /* 이전 값 유지 */ }
+  return NOTES.a;
+}
+function memoAdj(notes, f) {   /* notes.js adjust·scoreStats 와 같은 계산 */
+  let n = 0, hit = 0; for (const nt of notes) { if (nt.archived || nt.res == null || nt.touched === false || !Math.sign(nt.dir || 0)) continue; n++; hit += nt.res; }
+  const rr = (hit + 2.5) / (n + 5), mult = n < 5 ? 1 : Math.max(0, Math.min(1.5, 0.5 + (rr - 0.5) * 5)); let sum = 0, cnt = 0;
+  for (const nt of notes) { if (nt.archived || !nt.f || nt.f.cls !== f.cls || !(nt.dir || nt.hint) || nt.touched === false) continue; const g = nt.f, sim0 = (2 + (g.vcls === f.vcls) + (g.pos === f.pos) + (g.db === f.db) + (g.tr === f.tr) + (g.intra === f.intra ? 0.5 : 0)) / 6.5, sim = sim0 * (g.rg && f.rg && g.rg !== f.rg ? 0.5 : 1); if (sim < 0.5) continue;
+    const dir = Math.sign(nt.dir || nt.hint), pw = (nt.pw100 != null ? nt.pw100 : (nt.power || 3) * 20) / 100; sum += dir * pw * 0.12 * sim * (nt.res === 1 ? 1.3 : nt.res === 0 ? 0.4 : 1); cnt++; }
+  return { d: Math.tanh(sum / 0.5) * 0.5 * mult, n: cnt };
+}
+function usFor(s, i, Q) {   /* pred.js usFor(live) — 한국 종목: 그 봉 다음에 끝난 미국장(QQQ) 값 */
+  const last = Q.day.length - 1, Dn = i + 1 < s.day.length ? s.day[i + 1] : (Q.day[last] > s.day[i] ? s.day[i] + 1 : Infinity); let lo = 0, hi = last, r = -1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (Q.day[m] < Dn) { r = m; lo = m + 1; } else hi = m - 1; }
+  if (r < 0 || (Dn !== Infinity && Dn - Q.day[r] > 5)) return null; if (Dn === Infinity && Q.day[r] < s.day[i]) return s.day[i] - Q.day[r] <= 4 ? Q.F[r] : null; return Q.F[r];
+}
+function aggBars(bars, k, baseMs, off) {   /* data.js aggregate 와 같음(주봉 = 일봉 7개, 월요일 시작) */
+  const span = k * baseMs, out = []; let cur = null;
+  for (const b of bars) { const t0 = Math.floor((b[0] - off) / span) * span + off; if (!cur || cur[0] !== t0) { cur = [t0, b[1], b[2], b[3], b[4], b[5]]; out.push(cur); } else { if (b[2] > cur[2]) cur[2] = b[2]; if (b[3] < cur[3]) cur[3] = b[3]; cur[4] = b[4]; cur[5] += b[5]; } }
+  return out;
+}
+/* 다음 봉 시가가 이 봉 종가보다 위일 확률(0~1) — 사이트 예측 패널 기본값(가장 최근 봉)과 같은 값. 실패하면 null */
 export async function gapUp(c, iv) {
-  const L = await cpLoad(), t = String(c).split(":").pop(), it = L.gap.items[(L.gap.alias && L.gap.alias[t]) || t];
-  if (iv === "1d" && it) return Date.now() - Date.parse(it.d) <= 7 * 864e5 ? it.up : null;
-  const ms = IVMS[iv], now = Date.now(), M = iv === "1d" ? L.MD : L.M;   /* 사이트에 없는 종목의 일봉 = 하이퍼 일봉 + 일봉 모델(시장 폭·전일 나스닥 값은 없음) */
-  const bars = (await candles(c, iv, 400)).filter((k) => k.time * 1000 + ms <= now).map((k) => [k.time * 1000, k.open, k.high, k.low, k.close, k.volume]).filter((b) => b[2] >= b[3] && b[4] > 0);   /* 아직 만들어지는 봉은 뺌 */
-  const f = L.feat.compute(bars)[bars.length - 1]; if (!f || (!f.ok && !(iv === "1d" && bars.length >= 60))) return null;   /* 새로 상장해 일봉이 126개 미만이면 60개부터 근사 */
-  const v = L.gb.vec(f, null, (it && it.g) || "us", null), x = iv === "1d" ? v : [...v, Math.log(ms / 6e4)], q = Math.min(Math.max(L.gb.gbPredict(M, x), 1e-4), 1 - 1e-4);
-  return L.gb.sigmoid(M.cal.a + M.cal.b * Math.log(q / (1 - q)));
+  const L = await cpLoad(), t = String(c).split(":").pop(), it = L.gap.items[(L.gap.alias && L.gap.alias[t]) || t], g = (it && it.g) || "us";
+  const intra = !["1d", "1w", "1M"].includes(iv), now = Date.now();
+  const raw = (cs) => cs.map((k) => [k.time * 1000, k.open, k.high, k.low, k.close, k.volume]);
+  const bars = iv === "1w" ? aggBars(raw(await candles(c, "1d", 1500)), 7, 864e5, 4 * 864e5) : raw(await candles(c, iv, iv === "1M" ? 120 : 1500));
+  const i = bars.length - 1; if (i < 5) return null;   /* 사이트 화면이 기본으로 보여 주는 봉 = 가장 최근 봉(만들어지는 중인 봉 포함)과 같게 */
+  const F = L.feat.compute(bars), f = F[i], s = { day: bars.map((b) => Math.floor(b[0] / 864e5)) }; if (!f) return null;
+  let M, x;
+  if (intra) { M = L.M.it; x = [...L.gb.vec(f, null, g, null), Math.log(IVMS[iv] / 6e4)]; }
+  else { M = g === "kr" ? L.M.kr : L.M.gl; let br = L.gb.brOf(L.B, g, s.day[i]); for (let d = 1; d <= 5 && !br; d++) br = L.gb.brOf(L.B, g, s.day[i] - d); x = L.gb.vec(f, g === "kr" ? usFor(s, i, L.Q) : null, g, br); }
+  const lg = (p) => { const q = Math.min(Math.max(p, 1e-4), 1 - 1e-4); return Math.log(q / (1 - q)); };
+  let p = L.gb.sigmoid(M.cal.a + M.cal.b * lg(L.gb.gbPredict(M, x)));
+  let tr = 0; try { const R = bars.length >= 40 && L.flow(bars.map((b) => ({ time: b[0] / 1000, open: b[1], high: b[2], low: b[3], close: b[4], volume: b[5] })), { sens: "mid", legs: 6, showPat: true, showWave: true, showSr: true, showProj: true }); tr = Math.sign((R && R.trend) || 0); } catch (e) { /* 0 */ }   /* 사이트 pred.js 의 A.flowTrend = 큰 흐름 패턴 지표(기본 설정)의 추세 */
+  const adj = memoAdj(await cpNotes(), { cls: f.cls, vcls: f.vcls, pos: f.pos, db: f.db, tr, intra, rg: g === "kr" ? "kr" : "gl" }); if (adj.n) p = L.gb.sigmoid(lg(p) + adj.d);
+  return p;
 }
 async function gapTag(c, iv) {
   try { const p = await gapUp(c, iv); if (p == null) return ""; return p >= 0.5 ? ` [갭상승확률${Math.round(p * 100)}%]` : ` [갭하락확률${Math.round((1 - p) * 100)}%]`; } catch (e) { log("갭 확률 실패", c, iv, e.message); return ""; }
@@ -236,11 +270,12 @@ async function gapTag(c, iv) {
 async function sigTg(c, iv, w) {
   const [, d, ty, n, p, en, side] = w, up = d > 0, who = [`<b>${esc(nameOf(c))}</b> <code>${esc(String(c).split(":").pop())}</code>${esc(await gapTag(c, iv))}`];
   const a = up ? "▲" : "▼";   /* 머리줄: 동그라미 다음에 방향 화살표, 이름은 '지표' */
-  const head = ty === 1 ? `🟡${a} <b>노란 지표 ${n}개 (확정)</b> · ${IVN[iv] || iv}봉` : ty === 0 ? `⚪${a} <b>흰 속 빈 지표 (예비)</b> · ${IVN[iv] || iv}봉` : `🟢${a} <b>형광 확인 지표</b> · ${IVN[iv] || iv}봉`;
+  const head = ty === 1 ? `🟡${a} <b>노란 지표 ${n}개 (확정)</b> · ${ivL(iv)}` : ty === 0 ? `⚪${a} <b>흰 속 빈 지표 (예비)</b> · ${ivL(iv)}` : `🟢${a} <b>형광 확인 지표</b> · ${ivL(iv)}`;
   const ar = up ? "🟢▲" : "🔴▼";   /* 내용 줄 맨 앞 화살표: 위▲=매수 방향·아래▼=매도 방향 (청산도 방향대로: 숏 청산=▲) */
   const what = ty === 2 ? `${ar} ${side > 0 ? "롱(매수)" : "숏(매도)"} ${en ? "진입" : "청산"} 확정` : `${ar} ${up ? "저점 · 상승전환 전" : "고점 · 하락전환 전"}${p ? " · 확률 " + p + "%" : ""}`;
   return tgSend([...who, head, what, "", `🕐 ${kst(Date.now())}`].join("\n"));   /* 1줄 이름·티커 / 2줄 머리 / 3줄 내용 / 빈 줄 / 시각 */
 }
+/*TMPTEST*/setTimeout(async () => { const t = Math.floor(Date.now() / 1000), cs = SIG_COINS, ivs = ["30m", "1h", "2h", "4h", "1d", "1w", "1M"], all = process.env.CSA_TESTALL === "1"; for (let i = 0; i < cs.length; i++) for (let j = 0; j < ivs.length; j++) { if (!all && j !== (i * 2 + 1) % ivs.length) continue; try { await sigTg(cs[i], ivs[j], [t, i % 2 ? 1 : -1, 2, 0, 0, j % 2, i % 2 ? 1 : -1]); } catch (e) { log("test fail", e.message); } } }, 8000);/*TMPTEST*/
 async function sigCheck(iv) {
   if (sigBusy.has(iv)) return; sigBusy.add(iv);
   try { const m = sigTargets()[iv] || {}, cs = Object.keys(m); for (let i = 0; i < cs.length; i += 6) await sigBatch(iv, cs.slice(i, i + 6), m); } finally { sigBusy.delete(iv); }   /* 사이트가 한 번에 6종목까지만 받음 */
