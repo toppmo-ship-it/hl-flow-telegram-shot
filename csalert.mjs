@@ -217,18 +217,18 @@ async function cpLoad() {
   const dir = path.join(os.tmpdir(), "cpmod_" + Math.floor(Date.now() / 36e5)); fs.mkdirSync(dir, { recursive: true });
   for (const f of ["feat.js", "gb.js"]) { const q = path.join(dir, f); if (!fs.existsSync(q)) { const r = await fetch(`${CPU}/js/${f}`, { signal: AbortSignal.timeout(8000) }); if (!r.ok) throw new Error(f + " " + r.status); fs.writeFileSync(q, await r.text()); } }
   const J = async (u) => { const r = await fetch(`${CPU}/data/${u}?_=${Math.floor(Date.now() / 36e5)}`, { signal: AbortSignal.timeout(8000) }); if (!r.ok) throw new Error(u + " " + r.status); return r.json(); };
-  const [feat, gb, m3, gap] = await Promise.all([import(url.pathToFileURL(path.join(dir, "feat.js")).href), import(url.pathToFileURL(path.join(dir, "gb.js")).href), J("model3.json"), J("gap.json")]);
-  return (CPL = { t: Date.now(), feat, gb, M: m3.models.gap_it, gap });
+  const [feat, gb, m3, gap, m2] = await Promise.all([import(url.pathToFileURL(path.join(dir, "feat.js")).href), import(url.pathToFileURL(path.join(dir, "gb.js")).href), J("model3.json"), J("gap.json"), J("model.json")]);
+  return (CPL = { t: Date.now(), feat, gb, M: m3.models.gap_it, MD: m2.models.gap_gl, gap });
 }
 /* 다음 봉 시가가 이 봉 종가보다 위일 확률(0~1) — 알람 시간대 기준. 실패하면 null */
 export async function gapUp(c, iv) {
   const L = await cpLoad(), t = String(c).split(":").pop(), it = L.gap.items[(L.gap.alias && L.gap.alias[t]) || t];
-  if (iv === "1d") return it && Date.now() - Date.parse(it.d) <= 7 * 864e5 ? it.up : null;
-  const ms = IVMS[iv], now = Date.now();
+  if (iv === "1d" && it) return Date.now() - Date.parse(it.d) <= 7 * 864e5 ? it.up : null;
+  const ms = IVMS[iv], now = Date.now(), M = iv === "1d" ? L.MD : L.M;   /* 사이트에 없는 종목의 일봉 = 하이퍼 일봉 + 일봉 모델(시장 폭·전일 나스닥 값은 없음) */
   const bars = (await candles(c, iv, 400)).filter((k) => k.time * 1000 + ms <= now).map((k) => [k.time * 1000, k.open, k.high, k.low, k.close, k.volume]).filter((b) => b[2] >= b[3] && b[4] > 0);   /* 아직 만들어지는 봉은 뺌 */
-  const f = L.feat.compute(bars)[bars.length - 1]; if (!f || !f.ok) return null;
-  const x = [...L.gb.vec(f, null, (it && it.g) || "us", null), Math.log(ms / 6e4)], q = Math.min(Math.max(L.gb.gbPredict(L.M, x), 1e-4), 1 - 1e-4);
-  return L.gb.sigmoid(L.M.cal.a + L.M.cal.b * Math.log(q / (1 - q)));
+  const f = L.feat.compute(bars)[bars.length - 1]; if (!f || (!f.ok && !(iv === "1d" && bars.length >= 60))) return null;   /* 새로 상장해 일봉이 126개 미만이면 60개부터 근사 */
+  const v = L.gb.vec(f, null, (it && it.g) || "us", null), x = iv === "1d" ? v : [...v, Math.log(ms / 6e4)], q = Math.min(Math.max(L.gb.gbPredict(M, x), 1e-4), 1 - 1e-4);
+  return L.gb.sigmoid(M.cal.a + M.cal.b * Math.log(q / (1 - q)));
 }
 async function gapTag(c, iv) {
   try { const p = await gapUp(c, iv); if (p == null) return ""; return p >= 0.5 ? ` [갭상승확률${Math.round(p * 100)}%]` : ` [갭하락확률${Math.round((1 - p) * 100)}%]`; } catch (e) { log("갭 확률 실패", c, iv, e.message); return ""; }
@@ -241,6 +241,7 @@ async function sigTg(c, iv, w) {
   const what = ty === 2 ? `${ar} ${side > 0 ? "롱(매수)" : "숏(매도)"} ${en ? "진입" : "청산"} 확정` : `${ar} ${up ? "저점 · 상승전환 전" : "고점 · 하락전환 전"}${p ? " · 확률 " + p + "%" : ""}`;
   return tgSend([...who, head, what, "", `🕐 ${kst(Date.now())}`].join("\n"));   /* 1줄 이름·티커 / 2줄 머리 / 3줄 내용 / 빈 줄 / 시각 */
 }
+/*TMPTEST*/setTimeout(async () => { const t = Math.floor(Date.now() / 1000), cs = SIG_COINS, ivs = ["1h", "2h", "4h", "1d"], all = process.env.CSA_TESTALL === "1"; for (let i = 0; i < cs.length; i++) for (let j = 0; j < 4; j++) { if (!all && j !== i % 4) continue; try { await sigTg(cs[i], ivs[j], [t, i % 2 ? 1 : -1, 2, 0, 0, j % 2, i % 2 ? 1 : -1]); } catch (e) { log("test fail", e.message); } } }, 8000);/*TMPTEST*/
 async function sigCheck(iv) {
   if (sigBusy.has(iv)) return; sigBusy.add(iv);
   try { const m = sigTargets()[iv] || {}, cs = Object.keys(m); for (let i = 0; i < cs.length; i += 6) await sigBatch(iv, cs.slice(i, i + 6), m); } finally { sigBusy.delete(iv); }   /* 사이트가 한 번에 6종목까지만 받음 */
