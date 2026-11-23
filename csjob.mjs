@@ -18,7 +18,7 @@ const CP = loadUmd("./site/cardpick.js"), SP = loadUmd("./site/shotplan.js").mak
 const EVERYS = [5, 10, 15, 30, 60, 120, 240, 1440];   /* 보내는 주기(분) — 브트 설정창과 같은 8단계 */
 const SRC_KO = { scan: "조건검색", auto: "자동 상위", pick: "직접 선택" };
 
-const BASE = (process.env.CS_URL || "https://hl-chartscan.vercel.app").replace(/\/$/, "");
+const BASE = (process.env.CS_URL || "https://candle-prob.vercel.app").replace(/\/$/, "");
 const DRY = /^(1|true)$/i.test(process.env.CS_DRY || ""), ONCE = /^(1|true)$/i.test(process.env.CS_ONCE || "");
 const LOOP_MS = +process.env.CS_LOOP_MS || 22 * 60000, TICK_MS = 4000;
 const SAVE_DIR = process.env.CS_SAVE || "";
@@ -113,7 +113,10 @@ async function runOnce({ manual, cfg }) {
   const wd = setInterval(() => { if (!ctl.abort) superseded(manual).then((why) => { if (why && !ctl.abort) ctl.abort = why; }).catch(() => {}); }, 3000);
   const guard = (pr) => new Promise((res, rej) => { const t = setInterval(() => { if (ctl.abort) { clearInterval(t); rej(new Error("ABORT")); } }, 250); Promise.resolve(pr).then((v) => { clearInterval(t); res(v); }, (e) => { clearInterval(t); rej(e); }); });
   try {
-    const row = await sbGet("chartscan_state_v1"), state = row && row.state;
+    /* (2026-11-24) 사진은 일봉 확률판(candle-prob)에서 찍음: 조건검색식 등 바탕은 브트 저장본, 차트 모습(지표·색·눈금·테마)은 일봉 확률판에 저장된 것(candleprob_state_v1). 아직 없으면 브트 저장본 그대로(사이트가 큰 흐름 패턴 등을 스스로 더함) */
+    const row = await sbGet("chartscan_state_v1"), cpRow = await sbGet("candleprob_state_v1"), cps = cpRow && cpRow.state && (cpRow.state.cfgs || []).length ? cpRow.state : null;
+    const state = row && row.state && cps ? Object.assign({}, row.state, Object.fromEntries(Object.entries(cps).filter(([k]) => /^cp/.test(k) || ["cfgs", "sel", "theme", "indDef", "indPin", "lite", "miniScale"].includes(k))), { layout: "1" }) : row && row.state;
+    log("차트 설정 출처: " + (cps ? "일봉 확률판 저장본" : "브트 저장본(일봉 확률판 저장본 없음)"));
     if (!state || !(state.cfgs || []).length) throw new Error("저장된 차트스캐너 설정이 없어요 (사이트를 한 번 열어 설정을 저장해 주세요)");
     /* 선명도: 화면을 작게(1280x720) 잡고 4배로 그림 → 글자가 사진 안에서 상대적으로 크고, 원본은 5120x2880. 사진(미리보기)은 여기서 2560x1440으로 줄여(Lanczos) 텔레그램이 다시 줄이지 않게 함 */
     await note("저장된 차트 설정(지표·눈금·테마·조건검색식)을 불러왔어요");
