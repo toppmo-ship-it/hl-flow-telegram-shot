@@ -178,6 +178,7 @@ async function runOnce({ manual, cfg }) {
       if (!r.ok) { await trendP; return { skip: r.bad ? "차트 가격 눈금이 이상해(다른 종목 값이 섞임) 보내지 않음" : "차트를 못 불러왔어요 (봉 " + r.n + "개)" }; }
       lap("차트(" + (r.marks || "") + ")");
       const d = await pg.evaluate((c) => window.__shot.describe(c), j.coin);
+      await pg.evaluate(() => { try { window.CP && window.CP.refreshNow && window.CP.refreshNow(); } catch (e) { /* 무시 */ } });   /* 일봉 확률판: 오른쪽 다음 봉 예측·판정 칸을 이 종목·시간대 값으로 맞춘 뒤 촬영 */
       await pg.evaluate(() => window.__shot.stamp(""));   /* 사진 왼쪽 아래 이름·시각·순서 글자는 넣지 않음 */
       lap("정보"); await sleep(120);
       const buf = Buffer.from(await pg.screenshot({ type: "png" }));   /* 원본(무손실) */
