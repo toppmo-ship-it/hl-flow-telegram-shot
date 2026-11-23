@@ -250,7 +250,7 @@ function aggBars(bars, k, baseMs, off) {   /* data.js aggregate 와 같음(주�
 /* 다음 봉 시가가 이 봉 종가보다 위일 확률(0~1) — 사이트 예측 패널 기본값(가장 최근 봉)과 같은 값. 실패하면 null */
 export async function gapUp(c, iv) {
   const L = await cpLoad(), t = String(c).split(":").pop(), it = L.gap.items[(L.gap.alias && L.gap.alias[t]) || t], g = (it && it.g) || "us";
-  const intra = !["1d", "1w", "1M"].includes(iv), now = Date.now();
+  const intra = !["1d", "3d", "1w", "1M"].includes(iv), now = Date.now();
   const raw = (cs) => cs.map((k) => [k.time * 1000, k.open, k.high, k.low, k.close, k.volume]);
   const bars = iv === "1w" ? aggBars(raw(await candles(c, "1d", 1500)), 7, 864e5, 4 * 864e5) : raw(await candles(c, iv, iv === "1M" ? 120 : 1500));
   const i = bars.length - 1; if (i < 5) return null;   /* 사이트 화면이 기본으로 보여 주는 봉 = 가장 최근 봉(만들어지는 중인 봉 포함)과 같게 */
