@@ -649,12 +649,12 @@ async function main() {
   const seen = new Set();
   while (Date.now() - T_START < MAX_MS) {
     if (!DRY && C.busy === 0 && await newCodeReady(log)) break;   /* 저장소에 새 커밋이 오면(카드 코드 수정 등) 한가할 때 끝내고 다음 실행이 새 코드로 이어받음 */
-    const r = await tg("getUpdates", { offset, timeout: 25, allowed_updates: ["message", "callback_query"] });
+    const r = await tg("getUpdates", { offset, timeout: 25, allowed_updates: ["message", "channel_post", "callback_query"] });
     if (!r.ok) { if (/409|Conflict/i.test(String(r.description))) { log("다른 곳에서 읽는 중(409) — 10초 뒤 재시도"); await sleep(10000); } else await sleep(3000); continue; }
     for (const u of r.result || []) {
       offset = u.update_id + 1;
       if (seen.has(u.update_id)) continue; seen.add(u.update_id); if (seen.size > 500) seen.delete(seen.values().next().value);
-      const m = u.message, cb = u.callback_query;
+      const m = u.message || u.channel_post, cb = u.callback_query;   /* 알람 방은 채널이라 글이 channel_post 로 옴 */
       try {
         if (cb) { const rid = String(cb.message && cb.message.chat && cb.message.chat.id); if (!ROOMS.has(rid)) continue; await ROOM.run(rid, () => handleCallback(cb)); }
         else if (m && m.text) {
