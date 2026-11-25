@@ -264,11 +264,15 @@ export async function gapUp(c, iv) {
   const adj = memoAdj(await cpNotes(), { cls: f.cls, vcls: f.vcls, pos: f.pos, db: f.db, tr, intra, rg: g === "kr" ? "kr" : "gl" }); if (adj.n) p = L.gb.sigmoid(lg(p) + adj.d);
   return p;
 }
-async function gapTag(c, iv) {
-  try { const p = await gapUp(c, iv); if (p == null) return ""; return p >= 0.5 ? ` [갭상승확률${Math.round(p * 100)}%]` : ` [갭하락확률${Math.round((1 - p) * 100)}%]`; } catch (e) { log("갭 확률 실패", c, iv, e.message); return ""; }
+/* 이름·티커 줄(HTML). 텔레그램은 글자색 지정이 없어: '갭상승/갭하락' 글자는 링크(하늘색), 티커 앞 점은 상승 🔴·하락 🔵 */
+async function whoLine(c, iv) {
+  let p = null; try { p = await gapUp(c, iv); } catch (e) { log("갭 확률 실패", c, iv, e.message); }
+  const up = p >= 0.5, dot = p == null ? "" : up ? "🔴" : "🔵";
+  const gap = p == null ? "" : ` [<a href="https://candle-prob.vercel.app">갭${up ? "상승" : "하락"}</a>확률${Math.round((up ? p : 1 - p) * 100)}%]`;
+  return `<b>${esc(nameOf(c))}</b> ${dot}<code>${esc(String(c).split(":").pop())}</code>${gap}`;
 }
 async function sigTg(c, iv, w, manual) {
-  const [, d, ty, n, p, en, side] = w, up = d > 0, who = [`<b>${esc(nameOf(c))}</b> <code>${esc(String(c).split(":").pop())}</code>${esc(await gapTag(c, iv))}`];
+  const [, d, ty, n, p, en, side] = w, up = d > 0, who = [await whoLine(c, iv)];
   const a = up ? "▲" : "▼";   /* 머리줄: 동그라미 다음에 방향 화살표, 이름은 '지표' */
   const head = ty === 1 ? `🟡${a} <b>노란 지표 ${n}개 (확정)</b> · ${ivL(iv)}` : ty === 0 ? `⚪${a} <b>흰 속 빈 지표 (예비)</b> · ${ivL(iv)}` : `🟢${a} <b>형광 확인 지표</b> · ${ivL(iv)}`;
   const ar = up ? "🟢▲" : "🔴▼";   /* 내용 줄 맨 앞 화살표: 위▲=매수 방향·아래▼=매도 방향 (청산도 방향대로: 숏 청산=▲) */
@@ -283,7 +287,7 @@ async function sigNow(ivs, coins) {
     for (const c of cs) {
       const w = j && j.r && j.r[c] && Array.isArray(j.r[c].w) ? j.r[c].w.slice().sort((p, q) => p[0] - q[0]).pop() : null;
       if (w) await sigTg(c, iv, w, true);
-      else await tgSend([`<b>${esc(nameOf(c))}</b> <code>${esc(String(c).split(":").pop())}</code>${esc(await gapTag(c, iv))}`, `⚪ ${ivL(iv)} · ${j ? "최근 신호 없음" : "신호를 못 받았어요"}`, "", `🕐 ${kst(Date.now())}`].join("\n"));
+      else await tgSend([await whoLine(c, iv), `⚪ ${ivL(iv)} · ${j ? "최근 신호 없음" : "신호를 못 받았어요"}`, "", `🕐 ${kst(Date.now())}`].join("\n"));
     }
   }
 }
