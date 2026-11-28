@@ -655,7 +655,7 @@ async function main() {
   await loadCtx(true);
   log("준비: 종목 " + C.uni.length + " · 색인 " + C.idx.size + " · 내 테마 " + Object.keys(C.themes).length);
   await setupTelegram();
-  { const v = await sbGet("tg_custom_emoji"); if (v && v.long && v.short && v.ok == null && !DRY) await testEmoji(ALERT, v.long, v.short); }   /* 번호만 저장돼 있으면 알람 방에 한 번 시험 */
+  { const v = await sbGet("tg_custom_emoji"); if (v && v.long && v.short && (v.ok == null || v.chat !== String(ALERT)) && !DRY) await testEmoji(String(ALERT), v.long, v.short); }   /* 번호만 저장돼 있거나 알람 방이 바뀌면 그 방에 한 번 시험 */
   /* 시험 입력(BOT_INPUT 파일): 줄마다 한 글. '@버튼:데이터' 줄은 버튼 누르기 */
   if (process.env.BOT_INPUT) {
     for (const ln of fs.readFileSync(process.env.BOT_INPUT, "utf8").split(/\r?\n/).map((s) => s.trim()).filter((s) => s && !s.startsWith("#"))) {
