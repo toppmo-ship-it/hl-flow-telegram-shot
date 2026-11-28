@@ -540,6 +540,19 @@ async function saveEmoji(m, rid) {
   return true;
 }
 
+/* 사용자가 알려 준 이모지 팩(t.me/addemoji/TFE_Trade)의 번호·작은 그림을 한 번만 받아 저장(어느 것이 롱·숏인지 고르기용) */
+async function listEmojiPack(name) {
+  if (DRY || ((await sbGet("tg_emoji_pack")) || {}).name === name) return;
+  const s = await tg("getStickerSet", { name }); if (!s.ok) { log("이모지 팩 못 읽음", s.description || ""); return; }
+  const list = [];
+  for (const x of s.result.stickers) {
+    let img = ""; const th = x.thumbnail || x.thumb, f = th && (await tg("getFile", { file_id: th.file_id }));
+    if (f && f.ok) { const r = await fetch(`https://api.telegram.org/file/bot${TOKEN}/${f.result.file_path}`, { signal: AbortSignal.timeout(15000) }); if (r.ok) img = Buffer.from(await r.arrayBuffer()).toString("base64"); }
+    list.push({ id: x.custom_emoji_id, e: x.emoji, img });
+  }
+  await W("tg_emoji_pack", { name, list, at: Date.now() }); log("이모지 팩 저장", list.length + "개");
+}
+
 /* ───────────────── 라우터 ───────────────── */
 async function handleText(text, from) {
   if (ALERT !== CHAT && chatNow() === ALERT) {   /* 알람 방: "한시간"·"일봉"·"하이닉스" 같은 글 → 대표종목 신호를 알림 서버가 바로 보냄(Supabase 요청 → csalert 가 2초 안에 집어감) */
@@ -651,6 +664,7 @@ async function main() {
   await loadCtx(true);
   log("준비: 종목 " + C.uni.length + " · 색인 " + C.idx.size + " · 내 테마 " + Object.keys(C.themes).length);
   await setupTelegram();
+  listEmojiPack("TFE_Trade").catch((e) => log("이모지 팩 오류", String((e && e.message) || e).slice(0, 150)));
   /* 시험 입력(BOT_INPUT 파일): 줄마다 한 글. '@버튼:데이터' 줄은 버튼 누르기 */
   if (process.env.BOT_INPUT) {
     for (const ln of fs.readFileSync(process.env.BOT_INPUT, "utf8").split(/\r?\n/).map((s) => s.trim()).filter((s) => s && !s.startsWith("#"))) {
