@@ -530,6 +530,11 @@ async function saveEmoji(m, rid) {
   const es = (m.entities || []).filter((e) => e.type === "custom_emoji"); if (es.length !== 2) return false;
   let rest = m.text; for (const e of [...es].reverse()) rest = rest.slice(0, e.offset) + rest.slice(e.offset + e.length); if (rest.trim()) return false;
   const [long, short] = es.map((e) => e.custom_emoji_id);
+  await testEmoji(rid, long, short);
+  return true;
+}
+/* 롱·숏 이모지를 방에 시험으로 보내 보고 결과(ok)를 저장 */
+async function testEmoji(rid, long, short) {
   const r = await tg("sendMessage", { chat_id: rid, parse_mode: "HTML", text: `시험: 롱 <tg-emoji emoji-id="${long}">🟩</tg-emoji>  숏 <tg-emoji emoji-id="${short}">🟥</tg-emoji>` });
   const ok = !!r.ok && ((r.result && r.result.entities) || []).filter((e) => e.type === "custom_emoji").length === 2;
   await W("tg_custom_emoji", { long, short, ok, chat: rid, err: r.ok ? "" : String(r.description || ""), at: Date.now() });
@@ -537,20 +542,6 @@ async function saveEmoji(m, rid) {
   await tg("sendMessage", { chat_id: rid, text: ok
     ? "✅ 저장했어요. 다음 알림부터 갭상승 = 롱, 갭하락 = 숏 이모지로 나가요.\n순서가 바뀌었으면 롱 → 숏 순서로 두 개만 다시 보내 주세요."
     : "⚠ 번호는 저장했지만, 위 시험 글에 롱·숏 그림 대신 네모가 보이면 텔레그램이 이 방에서 봇의 커스텀 이모지를 막은 거예요(채널은 봇이 못 씀).\n당분간 알림은 🟩LONG · 🟥SHORT 로 나가요." });
-  return true;
-}
-
-/* 사용자가 알려 준 이모지 팩(t.me/addemoji/TFE_Trade)의 번호·작은 그림을 한 번만 받아 저장(어느 것이 롱·숏인지 고르기용) */
-async function listEmojiPack(name) {
-  if (DRY || ((await sbGet("tg_emoji_pack")) || {}).name === name) return;
-  const s = await tg("getStickerSet", { name }); if (!s.ok) { log("이모지 팩 못 읽음", s.description || ""); return; }
-  const list = [];
-  for (const x of s.result.stickers) {
-    let img = ""; const th = x.thumbnail || x.thumb, f = th && (await tg("getFile", { file_id: th.file_id }));
-    if (f && f.ok) { const r = await fetch(`https://api.telegram.org/file/bot${TOKEN}/${f.result.file_path}`, { signal: AbortSignal.timeout(15000) }); if (r.ok) img = Buffer.from(await r.arrayBuffer()).toString("base64"); }
-    list.push({ id: x.custom_emoji_id, e: x.emoji, img });
-  }
-  await W("tg_emoji_pack", { name, list, at: Date.now() }); log("이모지 팩 저장", list.length + "개");
 }
 
 /* ───────────────── 라우터 ───────────────── */
@@ -664,7 +655,7 @@ async function main() {
   await loadCtx(true);
   log("준비: 종목 " + C.uni.length + " · 색인 " + C.idx.size + " · 내 테마 " + Object.keys(C.themes).length);
   await setupTelegram();
-  listEmojiPack("TFE_Trade").catch((e) => log("이모지 팩 오류", String((e && e.message) || e).slice(0, 150)));
+  { const v = await sbGet("tg_custom_emoji"); if (v && v.long && v.short && v.ok == null && !DRY) await testEmoji(ALERT, v.long, v.short); }   /* 번호만 저장돼 있으면 알람 방에 한 번 시험 */
   /* 시험 입력(BOT_INPUT 파일): 줄마다 한 글. '@버튼:데이터' 줄은 버튼 누르기 */
   if (process.env.BOT_INPUT) {
     for (const ln of fs.readFileSync(process.env.BOT_INPUT, "utf8").split(/\r?\n/).map((s) => s.trim()).filter((s) => s && !s.startsWith("#"))) {
