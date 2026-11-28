@@ -264,11 +264,19 @@ export async function gapUp(c, iv) {
   const adj = memoAdj(await cpNotes(), { cls: f.cls, vcls: f.vcls, pos: f.pos, db: f.db, tr, intra, rg: g === "kr" ? "kr" : "gl" }); if (adj.n) p = L.gb.sigmoid(lg(p) + adj.d);
   return p;
 }
-/* 이름·티커 줄(HTML). 텔레그램은 글자색 지정이 없어: '갭상승/갭하락' 글자는 링크(하늘색), 티커 앞 점은 상승 🔴·하락 🔵 */
+/* 갭상승 = 롱, 갭하락 = 숏 표시. 사용자가 채팅방에 보낸 커스텀 이모지 두 개(챗봇이 tg_custom_emoji 에 저장)를 쓰되,
+   텔레그램이 이 방에서 봇의 커스텀 이모지를 받아 줄 때(ok)만 그림으로 — 아니면 🟩LONG · 🟥SHORT */
+let EMO = { t: 0, v: null };
+async function gapMark(up) {
+  if (Date.now() - EMO.t > 60000) { EMO.t = Date.now(); try { EMO.v = await sbGet("tg_custom_emoji"); } catch (e) { /* 이전 값 */ } }
+  const v = EMO.v, id = String((v && v.ok && (up ? v.long : v.short)) || ""), sq = up ? "🟩" : "🟥";
+  return /^\d+$/.test(id) ? `<tg-emoji emoji-id="${id}">${sq}</tg-emoji>` : `${sq}<b>${up ? "LONG" : "SHORT"}</b>`;
+}
+/* 이름·티커 줄(HTML). 티커 앞 점은 상승 🔴·하락 🔵 */
 async function whoLine(c, iv) {
   let p = null; try { p = await gapUp(c, iv); } catch (e) { log("갭 확률 실패", c, iv, e.message); }
   const up = p >= 0.5, dot = p == null ? "" : up ? "🔴" : "🔵";
-  const gap = p == null ? "" : ` [<a href="https://candle-prob.vercel.app">갭${up ? "상승" : "하락"}</a>확률${Math.round((up ? p : 1 - p) * 100)}%]`;
+  const gap = p == null ? "" : ` [${await gapMark(up)} 확률${Math.round((up ? p : 1 - p) * 100)}%]`;
   return `<b>${esc(nameOf(c))}</b> ${dot}<code>${esc(String(c).split(":").pop())}</code>${gap}`;
 }
 async function sigTg(c, iv, w, manual) {

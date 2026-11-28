@@ -524,6 +524,22 @@ async function editMsg(mid, text, markup) {
 }
 const AL = makeAlerts({ inRoom: (k, fn) => (k === "entry" && CHAT2 ? ROOM.run(CHAT2, fn) : fn()), C, say, W, sbGet, loadCtx, log, CACHE, cfgGet, UserErr, chart: alertChart, edit: editMsg });
 
+/* 커스텀 이모지 '딱 두 개만' 보낸 글 = 알림의 갭상승·갭하락 이모지 등록(첫째 롱, 둘째 숏). 바로 시험으로 보내 보고,
+   텔레그램이 이 방에서 봇의 커스텀 이모지를 그대로 받아 주면 ok(알림 서버 csalert 가 읽음) */
+async function saveEmoji(m, rid) {
+  const es = (m.entities || []).filter((e) => e.type === "custom_emoji"); if (es.length !== 2) return false;
+  let rest = m.text; for (const e of [...es].reverse()) rest = rest.slice(0, e.offset) + rest.slice(e.offset + e.length); if (rest.trim()) return false;
+  const [long, short] = es.map((e) => e.custom_emoji_id);
+  const r = await tg("sendMessage", { chat_id: rid, parse_mode: "HTML", text: `시험: 롱 <tg-emoji emoji-id="${long}">🟩</tg-emoji>  숏 <tg-emoji emoji-id="${short}">🟥</tg-emoji>` });
+  const ok = !!r.ok && ((r.result && r.result.entities) || []).filter((e) => e.type === "custom_emoji").length === 2;
+  await W("tg_custom_emoji", { long, short, ok, chat: rid, err: r.ok ? "" : String(r.description || ""), at: Date.now() });
+  log("커스텀 이모지 저장", ok ? "(이 방에서 사용 가능)" : "(이 방에서 사용 불가)", r.description || "");
+  await tg("sendMessage", { chat_id: rid, text: ok
+    ? "✅ 저장했어요. 다음 알림부터 갭상승 = 롱, 갭하락 = 숏 이모지로 나가요.\n순서가 바뀌었으면 롱 → 숏 순서로 두 개만 다시 보내 주세요."
+    : "⚠ 번호는 저장했지만, 위 시험 글에 롱·숏 그림 대신 네모가 보이면 텔레그램이 이 방에서 봇의 커스텀 이모지를 막은 거예요(채널은 봇이 못 씀).\n당분간 알림은 🟩LONG · 🟥SHORT 로 나가요." });
+  return true;
+}
+
 /* ───────────────── 라우터 ───────────────── */
 async function handleText(text, from) {
   if (ALERT !== CHAT && chatNow() === ALERT) {   /* 알람 방: "한시간"·"일봉"·"하이닉스" 같은 글 → 대표종목 신호를 알림 서버가 바로 보냄(Supabase 요청 → csalert 가 2초 안에 집어감) */
@@ -666,7 +682,7 @@ async function main() {
           }
           if (Date.now() / 1000 - m.date > 20 * 60) { log("오래된 글 건너뜀:", m.text.slice(0, 20)); continue; }
           log("받음:", m.text.slice(0, 60));
-          await ROOM.run(rid, () => handleText(m.text, m.from));
+          if (!(await saveEmoji(m, rid))) await ROOM.run(rid, () => handleText(m.text, m.from));
         }
       } catch (e) { log("업데이트 처리 오류", String((e && e.message) || e).slice(0, 200)); }
       await W("tg_bot_offset", { next: offset, at: Date.now() });   /* 처리한 데까지 기록 → 재시작해도 다시 처리 안 함 */
